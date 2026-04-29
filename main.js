@@ -5,6 +5,25 @@ import { financialEngine, formatCurrency, formatRawCurrency, formatPercent, norm
 import { buildLLMInput } from "./buildLLMInput.js";
 import { validateLLMInput } from "./validator.js";
 
+// --- FUNCIONES DE APOYO PARA CACHÉ ---
+function arrayBufferToBase64(buffer) {
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+}
+
+function base64ToArrayBuffer(base64) {
+    const binary_string = atob(base64);
+    const bytes = new Uint8Array(binary_string.length);
+    for (let i = 0; i < binary_string.length; i++) {
+        bytes[i] = binary_string.charCodeAt(i);
+    }
+    return bytes.buffer;
+}
+
 let globalFinancialData = [];
 let isYTDMode = false;
 const loader = document.getElementById('loader');
@@ -219,36 +238,63 @@ async function fetchMasterData(token = null) {
     if (loginBtn) loginBtn.style.display = 'none';
 
     try {
+        // --- INICIO DEL NUEVO BLOQUE DE SINCRONIZACIÓN ---
         let arrayBuffer;
-        
-        if (token) {
-            // Attempt generic Graph API request by encoding the sharing URL
-            const encodedUrl = btoa(SHARPOINT_FILE_URL).replace(/=/g, '').replace(/\//g, '_').replace(/\+/g, '-');
-            const graphUrl = `https://graph.microsoft.com/v1.0/shares/u!${encodedUrl}/driveItem/content`;
-            
-            const req = await fetch(graphUrl, {
-                headers: { "Authorization": `Bearer ${token}` }
-            });
-            if (!req.ok) throw new Error(`O365 Graph Error: ${req.status} ${req.statusText}`);
-            arrayBuffer = await req.arrayBuffer();
-        } else {
-            // Unauthenticated fallback proxy approach
-            const response = await fetch("/api/downloadSync");
-            if (!response.ok) {
-                const errData = await response.json().catch(() => ({}));
-                throw new Error(errData.error || `Proxy Error: ${response.status}`);
-            }
-            arrayBuffer = await response.arrayBuffer();
-            
-            // Check if what we got is an HTML login page instead of an Excel file
-            const uint8Array = new Uint8Array(arrayBuffer);
-            // Check for '<html' or '<!DOC' at the beginning
-            const textHead = new TextDecoder().decode(uint8Array.slice(0, 100)).toLowerCase();
-            if (textHead.includes('<html') || textHead.includes('<!doc')) {
-                 throw new Error("El enlace es privado y redirigió a la página de inicio de sesión de Microsoft. Debe iniciar sesión con Office 365 o cargar el archivo manualmente.");
+        const CACHE_KEY = 'planeta_azul_excel_cache';
+        const SYNC_TIMEOUT = 45000; // 45 segundos para el móvil
+
+        // 1. INTENTO DE CARGA INSTANTÁNEA DESDE CACHÉ
+        const cachedFile = localStorage.getItem(CACHE_KEY);
+        if (cachedFile) {
+            console.log("⚡ Datos encontrados en caché. Cargando vista previa...");
+            try {
+                arrayBuffer = base64ToArrayBuffer(cachedFile);
+            } catch (e) {
+                console.warn("Error decodificando caché:", e);
             }
         }
-        
+
+        // 2. SINCRONIZACIÓN CON TIMEOUT (Microsoft o Proxy)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), SYNC_TIMEOUT);
+
+        try {
+            if (token) {
+                // Lógica de Microsoft Graph
+                const encodedUrl = btoa(SHARPOINT_FILE_URL).replace(/=/g, '').replace(/\//g, '_').replace(/\+/g, '-');
+                const graphUrl = `https://graph.microsoft.com/v1.0/shares/u!${encodedUrl}/driveItem/content`;
+                
+                console.log("🔄 Sincronizando con Microsoft (45s max)...");
+                const req = await fetch(graphUrl, {
+                    headers: { "Authorization": `Bearer ${token}` },
+                    signal: controller.signal
+                });
+
+                if (req.ok) {
+                    arrayBuffer = await req.arrayBuffer();
+                    // Guardar en caché para la próxima vez
+                    const base64Data = arrayBufferToBase64(arrayBuffer);
+                    localStorage.setItem(CACHE_KEY, base64Data);
+                    console.log("✅ Caché actualizado.");
+                }
+            } else {
+                // Fallback al proxy si no hay token
+                console.log("🔄 Intentando sincronización vía Proxy...");
+                const response = await fetch("/api/downloadSync", { signal: controller.signal });
+                if (response.ok) {
+                    arrayBuffer = await response.arrayBuffer();
+                }
+            }
+            clearTimeout(timeoutId);
+        } catch (err) {
+            if (err.name === 'AbortError') {
+                console.warn("⚠️ Tiempo de espera agotado. Se mantendrán los datos del caché.");
+            } else {
+                console.error("Error en la descarga:", err);
+            }
+        }
+        // --- FIN DEL BLOQUE DE SINCRONIZACIÓN ---
+
         const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array', cellDates: true });
         const engineResult = financialEngine(workbook);
         
