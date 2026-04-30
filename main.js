@@ -5,6 +5,35 @@ import { financialEngine, formatCurrency, formatRawCurrency, formatPercent, norm
 import { buildLLMInput } from "./buildLLMInput.js";
 import { validateLLMInput } from "./validator.js";
 
+// --- PREVENCIÓN DE PANTALLA BLANCA (ERROR BOUNDARIES) ---
+window.addEventListener('error', function(e) {
+    console.error("Global error caught:", e);
+    showGlobalError("Ocurrió un error inesperado en la aplicación. Por favor, recarga la página.");
+});
+
+window.addEventListener('unhandledrejection', function(e) {
+    console.error("Unhandled Promise rejection:", e.reason);
+    // Silencio en la UI para no interrumpir al usuario con errores de extensiones o red menores
+});
+
+function showGlobalError(msg) {
+    if (!document.getElementById("global-error-banner")) {
+        const banner = document.createElement('div');
+        banner.id = "global-error-banner";
+        banner.style = "position:fixed; bottom:20px; right:20px; max-width:400px; background:var(--danger, #e76f51); color:white; padding:16px; z-index:9999; font-weight:500; border-radius:8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display:flex; flex-direction:column; gap:12px;";
+        banner.innerHTML = `
+            <div>
+                <span style="vertical-align:middle;">${msg}</span>
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:8px;">
+                <button onclick="this.parentElement.parentElement.remove()" style="padding:4px 12px; border:1px solid rgba(255,255,255,0.5); background:transparent; color:white; cursor:pointer; border-radius:4px; font-size:12px;">Ignorar</button>
+                <button onclick="window.location.reload()" style="padding:4px 12px; border:none; background:white; color:var(--danger, #e76f51); cursor:pointer; border-radius:4px; font-size:12px; font-weight:bold;">Recargar</button>
+            </div>
+        `;
+        document.body.appendChild(banner);
+    }
+}
+
 // --- FUNCIONES DE APOYO PARA CACHÉ ---
 function arrayBufferToBase64(buffer) {
     let binary = '';
@@ -30,8 +59,22 @@ const loader = document.getElementById('loader');
 const monthSelector = document.getElementById('monthSelector');
 
 window.aiSummaryCache = {};
-const AI_ADMIN_PASSWORD = import.meta.env.VITE_AI_ADMIN_PASSWORD || 'Planeta2026';
+const AI_ADMIN_PASSWORD = import.meta.env.VITE_AI_ADMIN_PASSWORD || null;
 window.aiEnabled = localStorage.getItem('aiEnabled') === 'true';
+
+window.handleAiError = function(source, err) {
+    const errorString = err && err.message ? err.message : String(err);
+    if (errorString.includes("429") || errorString.includes("RESOURCE_EXHAUSTED") || errorString.includes("quota")) {
+        if (window.aiEnabled) {
+            console.warn(`[${source}] Cuota de API Gemini agotada. Cambiando a versión estática (Off).`);
+            window.aiEnabled = false;
+            localStorage.setItem('aiEnabled', 'false');
+            applyAiUIState();
+        }
+    } else {
+        console.warn(`[${source}] Detalle:`, errorString);
+    }
+};
 
 function applyAiUIState() {
     const toggle = document.getElementById('toggleAiFeatures');
@@ -118,44 +161,141 @@ async function generateExecutiveSummary(data, index) {
     box.innerHTML = '⏳ Analizando resultados financieros...';
     
     try {
-        const kpis = curr.kpis || {};
-        const pptoKpis = curr.ppto?.kpis || {};
-        
-        const summaryData = {
-            mes: curr.date,
-            ventas_reales: kpis.ingresos || 0,
-            ventas_ppto: pptoKpis.ingresos || 0,
-            ebitda_real: kpis.ebitda || 0,
-            ebitda_ppto: pptoKpis.ebitda || 0,
-            caja_final: kpis.cashEnding || kpis.cashflow || 0
+        const contextData = {
+            periodo: curr.date,
+            kpis: curr.kpis,
+            balance: curr.balance,
+            cashflowDetail: curr.cashflowDetail,
+            pnl_categorias: curr.pnl?.categorias
         };
         
-        const promptInfo = JSON.stringify(summaryData);
-        const promptText = `Actúa como un CFO. Analiza estos resultados mensuales vs el presupuesto: ${promptInfo}. Redacta un resumen ejecutivo de máximo 3 viñetas breves: 1. Lo más destacado, 2. Un riesgo detectado, 3. Foco para el próximo mes. Sé directo, profesional y usa formato HTML simple (<ul><li>) para tu respuesta.`;
+        const promptInfo = JSON.stringify(contextData, null, 2);
         
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: promptText
+        const promptText = `You are a senior financial analyst and strategic consultant specialized in the bottled water and beverage distribution industry.
+
+Your task is to analyze the company’s live financial dashboard data and benchmark its performance against industry standards (both global and emerging markets).
+
+IMPORTANT:
+- If data is missing, estimate using reasonable financial assumptions based on industry behavior.
+- Focus on operational reality, not accounting formality.
+
+========================
+CONTEXT: INDUSTRY BENCHMARKS
+========================
+Profitability:
+- Gross Margin: 40% – 70%
+- Operating Margin: 5% – 10%
+- Net Margin: 2% – 15% (low performers) / up to 30% (optimized players)
+
+Cost Structure:
+- Distribution & logistics is typically the largest cost driver (can exceed 30% of revenue).
+- Production cost is relatively low compared to logistics.
+
+Financial Health:
+- Debt Ratio: 0.4 – 0.5
+- ROE: 15% – 25%
+- EBITDA Multiple (valuation): 4x – 8x
+
+Business Model Notes:
+- This is a high-frequency, logistics-driven business.
+- Profitability depends more on route efficiency and asset utilization than product cost.
+- Customer density and delivery optimization are key performance drivers.
+
+========================
+LIVE DASHBOARD DATA
+========================
+${promptInfo}
+
+========================
+TASK
+========================
+Analyze the provided data and:
+1. Identify key financial metrics (Revenue growth, margins, cost structure, cash flow).
+2. Benchmark vs industry (Classify as Below/Within/Above industry and quantify deviation).
+3. Diagnose the business (Identify if it's logistics efficient, margin constrained, etc.).
+4. Identify root causes for any deviations.
+5. Advanced insights (Detect structural risks like over-dependence on logistics or high working capital lock).
+6. Competitive positioning.
+7. Actionable recommendations (Provide 3–5 high-impact actions).
+
+Additionally (Level God Insight):
+- Detect if the company currently behaves more like a "distribution company" or a "manufacturing company" based on its cost structure.
+- Estimate how much EBITDA improvement is possible from logistics optimization (in %).
+
+========================
+OUTPUT FORMAT
+========================
+Return structured output strictly in Markdown format:
+1. Executive Summary (max 5 bullets)
+2. Financial Benchmark Table (Metric | Company | Benchmark | Status | Variance)
+3. Key Issues Identified
+4. Root Cause Analysis
+5. Strategic Positioning
+6. Action Plan (prioritized by impact)
+
+Be concise, analytical, and brutally honest. Focus on financial and operational reality.
+
+========================
+LANGUAGE
+========================
+IMPORTANT: Always return the full response in Spanish (Español).`;
+        
+        let timeoutId;
+        const timeoutPromise = new Promise((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error('AI Request Timeout (45s)')), 45000);
         });
+
+        let apiCallPromise;
+        try {
+            apiCallPromise = getAI().models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: promptText
+            });
+            apiCallPromise.catch(err => window.handleAiError("Summary", err));
+        } catch (err) {
+            apiCallPromise = Promise.reject(err);
+            apiCallPromise.catch(()=> /* handled */ {});
+        }
+
+        let response;
+        try {
+            response = await Promise.race([
+                apiCallPromise,
+                timeoutPromise
+            ]);
+        } finally {
+            clearTimeout(timeoutId);
+        }
         
-        const textResponse = response.text || "No se pudo generar el resumen.";
+        const rawText = response.text || "No se pudo generar el resumen.";
+        const textResponse = typeof marked !== 'undefined' ? marked.parse(rawText) : rawText.replace(/\n/g, '<br>');
+        
         window.aiSummaryCache[mesKey] = textResponse;
         
-        box.innerHTML = `<h3>Resumen Ejecutivo</h3>${textResponse}`;
+        box.innerHTML = textResponse;
     } catch (err) {
-        console.error("Error generating AI summary:", err);
-        box.innerHTML = '⚠️ Ocurrió un error al generar el resumen. Intenta nuevamente.';
+        window.handleAiError("Summary", err);
+        box.innerHTML = '⚠️ El análisis general de IA está temporalmente no disponible.';
     }
 }
 
-// Initialize Gemini
-const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
+// Initialize Gemini (Lazy initialization)
+let aiInstance = null;
+function getAI() {
+    if (!aiInstance) {
+        if (!import.meta.env.VITE_GEMINI_API_KEY) {
+            throw new Error("An API Key must be set (VITE_GEMINI_API_KEY is missing)");
+        }
+        aiInstance = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
+    }
+    return aiInstance;
+}
 
 // MSAL Configuration
 const msalConfig = {
     auth: {
-        clientId: import.meta.env.VITE_MSAL_CLIENT_ID || import.meta.env.VITE_MICROSOFT_CLIENT_ID || "cd40e757-85f4-4676-89ec-78445851aa92",
-        authority: `https://login.microsoftonline.com/${import.meta.env.VITE_MSAL_TENANT_ID || "8dbe3e04-118c-4cd5-ae67-0c0c21606098"}`,
+        clientId: import.meta.env.VITE_MSAL_CLIENT_ID || import.meta.env.VITE_MICROSOFT_CLIENT_ID,
+        authority: import.meta.env.VITE_MSAL_TENANT_ID ? `https://login.microsoftonline.com/${import.meta.env.VITE_MSAL_TENANT_ID}` : "https://login.microsoftonline.com/common",
         redirectUri: window.location.origin,
     },
     cache: {
@@ -169,7 +309,7 @@ if (window.msal) {
     msalInstance = new window.msal.PublicClientApplication(msalConfig);
 }
 
-const SHARPOINT_FILE_URL = import.meta.env.VITE_ONEDRIVE_FILE_URL || import.meta.env.VITE_ONEDRIVE_ITEM_ID || "https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc={cfe13828-c964-447a-8147-feb8de79816c}&download=1";
+const SHARPOINT_FILE_URL = import.meta.env.VITE_ONEDRIVE_FILE_URL || import.meta.env.VITE_ONEDRIVE_ITEM_ID;
 
 async function connectM365() {
     if (!msalInstance) {
@@ -190,6 +330,10 @@ async function connectM365() {
         
         await fetchMasterData(token);
     } catch (error) {
+        if (error.errorCode === "user_cancelled" || (error.message && error.message.includes("user_cancelled"))) {
+            console.log("El usuario canceló el inicio de sesión.");
+            return;
+        }
         if (error.errorCode === "interaction_in_progress") {
             // Intenta limpiar el estado en caso de que se haya quedado pegado
             alert("Hay una autenticación en progreso o el popup fue bloqueado. Por favor, recargue la página (o ábrala en una nueva pestaña) e intente de nuevo.");
@@ -295,8 +439,18 @@ async function fetchMasterData(token = null) {
         }
         // --- FIN DEL BLOQUE DE SINCRONIZACIÓN ---
 
-        const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array', cellDates: true });
-        const engineResult = financialEngine(workbook);
+        // Desbloquear el Hilo Principal usando Promises y setTimeout
+        await new Promise(resolve => setTimeout(resolve, 0));
+        let workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array', cellDates: true });
+        
+        // Garabage Collection del buffer
+        arrayBuffer = null;
+
+        await new Promise(resolve => setTimeout(resolve, 0));
+        let engineResult = financialEngine(workbook);
+        
+        // Limpieza de memoria
+        workbook = null;
         
         if (engineResult.error || !engineResult.data || engineResult.data.length === 0) {
             throw new Error(engineResult.error || "No se pudieron extraer datos numéricos del archivo.");
@@ -311,6 +465,11 @@ async function fetchMasterData(token = null) {
             sidebarSyncText.innerText = 'Sincronizado';
             sidebarSyncText.style.color = 'var(--success)';
         }
+        
+        // Clear caches to prevent memory leaks and stale data
+        window.aiSummaryCache = {};
+        window.aiAlertsCache = {};
+        window.simSummaryCache = {};
         
         globalFinancialData = engineResult.data;
         renderDashboard(globalFinancialData);
@@ -651,6 +810,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.syncNavigationUI(id);
             }
 
+            const mainHeader = document.getElementById('mainHeader');
+            if (mainHeader) {
+                if (id === 'menu-kpi' || id === 'menu-resumen') {
+                    mainHeader.classList.add('sticky-header');
+                } else {
+                    mainHeader.classList.remove('sticky-header');
+                }
+            }
+
             const periodContainer = document.getElementById('periodContainer');
             if (periodContainer) {
                 if (id === 'menu-glosario' || id === 'menu-config') {
@@ -881,7 +1049,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const idx = parseInt(monthSelector.value);
             if (!isNaN(idx)) {
                 // Throttle maybe not strictly needed for this scale, but good practice
-                const rollingData = globalFinancialData.slice(Math.max(0, idx - 11), idx + 1).filter(d => !isYear2025(d));
+                const rollingData = globalFinancialData.slice(Math.max(0, idx - 11), idx + 1).filter(d => isYear2026(d));
                 renderMarginChart(rollingData);
                 renderCashFlowChart(rollingData);
                 renderWaterfallChart(globalFinancialData, idx);
@@ -988,11 +1156,22 @@ async function processFile(file, progressCallback) {
 
         reader.onload = async (event) => {
             try {
-                if (progressCallback) progressCallback(40, "Analizando hojas Excel...");
-                const workbook = XLSX.read(new Uint8Array(event.target.result), { type: 'array', cellDates: true });
+                if (progressCallback) progressCallback(30, "Analizando hojas Excel... (Puede tardar unos segundos)");
+                
+                // Limpieza de buffer temporal
+                let bufferData = new Uint8Array(event.target.result);
+
+                // Desbloqueo del main thread antes de lectura pesada
+                await new Promise(resolve => setTimeout(resolve, 0));
+                let workbook = XLSX.read(bufferData, { type: 'array', cellDates: true });
+                bufferData = null; // Garbage Collection
                 
                 if (progressCallback) progressCallback(60, "Extrayendo métricas financieras...");
-                const engineResult = financialEngine(workbook);
+                
+                // Desbloqueo del main thread antes procesamiento de motor
+                await new Promise(resolve => setTimeout(resolve, 0));
+                let engineResult = financialEngine(workbook);
+                workbook = null; // Garbage Collection
                 
                 if (engineResult.error || !engineResult.data || engineResult.data.length === 0) {
                     clearInterval(progressInterval);
@@ -1119,6 +1298,11 @@ async function handleFileUpload(e) {
         
         // Show success, then render
         setTimeout(() => {
+            // Clear caches to prevent memory leaks and stale data
+            window.aiSummaryCache = {};
+            window.aiAlertsCache = {};
+            window.simSummaryCache = {};
+            
             globalFinancialData = engineResult.data;
             renderDashboard(globalFinancialData);
         }, 500);
@@ -1143,9 +1327,16 @@ async function handleFileUpload(e) {
 }
 
 async function callAI(payload) {
-    const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: `Actúa como un Senior Financial Analyst y analiza estos datos de P&L y Balance.
+    let timeoutId;
+    const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('AI Request Timeout (45s)')), 45000);
+    });
+
+    let apiCallPromise;
+    try {
+        apiCallPromise = getAI().models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: `Actúa como un Senior Financial Analyst y analiza estos datos de P&L y Balance.
         
         INSTRUCCIONES:
         1. Devuelve un JSON estrictamente válido.
@@ -1163,10 +1354,22 @@ async function callAI(payload) {
 
         DATOS PARA ANALIZAR:
         ${JSON.stringify(payload, null, 2)}`,
-        config: {
-            responseMimeType: "application/json"
-        }
-    });
+            config: {
+                responseMimeType: "application/json"
+            }
+        });
+        apiCallPromise.catch(err => window.handleAiError("AI Engine", err));
+    } catch (err) {
+        apiCallPromise = Promise.reject(err);
+        apiCallPromise.catch(()=> /* handled */ {});
+    }
+
+    let response;
+    try {
+        response = await Promise.race([apiCallPromise, timeoutPromise]);
+    } finally {
+        clearTimeout(timeoutId);
+    }
 
     let text = response.text;
     text = text.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -1313,7 +1516,7 @@ function renderDashboard(data) {
     window.handleZeroState();
     
     // Filtro: No permitir seleccionar datos del 2025 en el dropdown global
-    const filteredForSelector = data.map((d, i) => ({ d, i })).filter(item => !isYear2025(item.d));
+    const filteredForSelector = data.map((d, i) => ({ d, i })).filter(item => isYear2026(item.d));
     
     monthSelector.innerHTML = filteredForSelector.map(item => `<option value="${item.i}">${item.d.date || 'Periodo'}</option>`).join('');
     monthSelector.style.display = 'block';
@@ -1338,7 +1541,7 @@ function updateUI(data, index) {
     const curr = data[index];
     
     // Identificar el anterior operativo (excluyendo el año base 2025 para comparaciones MoM)
-    const operationalData = data.filter(d => !isYear2025(d));
+    const operationalData = data.filter(d => isYear2026(d));
     const currIdxInOp = operationalData.findIndex(d => d.date === curr.date);
     const prev = currIdxInOp > 0 ? operationalData[currIdxInOp - 1] : curr;
     
@@ -1680,7 +1883,7 @@ function updateUI(data, index) {
 }
 
 /**
- * Helper to identify periods from 2025
+ * Helper to identify periods
  */
 function isYear2025(d) {
     if (!d) return false;
@@ -1693,6 +1896,21 @@ function isYear2025(d) {
         if (!isNaN(dObj) && dObj.getFullYear() === 2025) return true;
     }
     if (normDate.includes("2025") || normDate.includes("-25") || normDate.includes("/25") || normDate.includes(" 25")) return true;
+    
+    return false;
+}
+
+function isYear2026(d) {
+    if (!d) return false;
+    const dt = d.sortDate;
+    const normDate = normalizeText(d.date || "");
+    
+    if (dt && typeof dt.getFullYear === 'function' && dt.getFullYear() === 2026) return true;
+    if (dt && typeof dt === 'string') {
+        const dObj = new Date(dt);
+        if (!isNaN(dObj) && dObj.getFullYear() === 2026) return true;
+    }
+    if (normDate.includes("2026") || normDate.includes("-26") || normDate.includes("/26") || normDate.includes(" 26")) return true;
     
     return false;
 }
@@ -1713,7 +1931,7 @@ function renderBalanceSheet(data, selectedIndex = -1) {
     let visibleMonths = data.slice(startIdx, endIdx + 1);
 
     // Fix Diciembre 2025 as the first column, filter out the rest of 2025
-    visibleMonths = visibleMonths.filter(m => !isYear2025(m));
+    visibleMonths = visibleMonths.filter(m => isYear2026(m));
     const dic2025Balance = data.find(d => isYear2025(d) && (d.date.toLowerCase().includes('dic') || d.date.toLowerCase().includes('dec')));
     if (dic2025Balance && !visibleMonths.includes(dic2025Balance)) {
         visibleMonths.unshift(dic2025Balance);
@@ -1971,7 +2189,7 @@ function renderCashFlow(data, selectedIndex = -1) {
     let visibleMonths = data.slice(startIdx, endIdx + 1);
 
     // Fix Diciembre 2025 as the first column, filter out the rest of 2025
-    visibleMonths = visibleMonths.filter(m => !isYear2025(m));
+    visibleMonths = visibleMonths.filter(m => isYear2026(m));
     const dic2025Cash = data.find(d => isYear2025(d) && (d.date.toLowerCase().includes('dic') || d.date.toLowerCase().includes('dec')));
     if (dic2025Cash && !visibleMonths.includes(dic2025Cash)) {
         visibleMonths.unshift(dic2025Cash);
@@ -2052,12 +2270,21 @@ function renderCashFlow(data, selectedIndex = -1) {
         const metricRows = [
             { key: 'dso', label: 'DSO (Días Cuentas por Cobrar)' },
             { key: 'dpo', label: 'DPO (Días Cuentas por Pagar)' },
-            { key: 'dio', label: 'DIO (Días Rotación Inventario)' }
+            { key: 'dio', label: 'DIO (Días Rotación Inventario)' },
+            { key: 'ccc', label: 'CCC (Ciclo de Conversión de Efectivo)' }
         ];
 
         metricsBody.innerHTML = metricRows.map(m => {
             const cells = visibleMonths.map(p => {
-                const val = p.cashflowDetail?.[m.key] || 0;
+                let val = 0;
+                if (m.key === 'ccc') {
+                    const dso = p.cashflowDetail?.dso || 0;
+                    const dio = p.cashflowDetail?.dio || 0;
+                    const dpo = p.cashflowDetail?.dpo || 0;
+                    val = dso + dio - dpo;
+                } else {
+                    val = p.cashflowDetail?.[m.key] || 0;
+                }
                 return `<td>${Math.round(val)} días</td>`;
             }).join('');
             return `<tr><td>${m.label}</td>${cells}</tr>`;
@@ -2081,7 +2308,7 @@ function renderDetailedPnL(data, selectedIndex = -1) {
     const startIdx = Math.max(0, endIdx - 5);
     
     // Filtro: No mostrar 2025 en el P&L
-    const visibleMonths = data.slice(startIdx, endIdx + 1).filter(d => !isYear2025(d));
+    const visibleMonths = data.slice(startIdx, endIdx + 1).filter(d => isYear2026(d));
     const periods = visibleMonths.map(d => d.date);
     
     // Header
@@ -2131,7 +2358,7 @@ function renderDetailedPnL(data, selectedIndex = -1) {
         // Calculate YTD (Year to Date) total from the first data point up to endIdx
         for (let k = 0; k <= endIdx; k++) {
             const periodData = data[k];
-            if (isYear2025(periodData)) continue; // 🚨 No acumular el año base en el YTD del P&L
+            if (!isYear2026(periodData)) continue; // 🚨 No acumular el año base en el YTD del P&L
             
             const row = periodData.pnl?.fullRows?.find(r => r.concept === concept);
             const val = row ? row.values[periodData.date] || 0 : 0;
@@ -2201,7 +2428,7 @@ function renderDetailedPnL(data, selectedIndex = -1) {
             for (let k = endIdx; k >= 0; k--) {
                 const item = data[k];
                 if (item.sortDate.getFullYear() !== targetYear) break;
-                if (isYear2025(item)) continue;
+                if (!isYear2026(item)) continue;
                 
                 let localVal = 0;
                 let usdVal = 0;
@@ -2436,7 +2663,7 @@ function renderKPIDashboard(data, selectedIndex) {
     const calcYoY = (currValue, yoyItem, elPrefix) => {
         const valueEl = document.getElementById(`yoy-${elPrefix}`);
         const statusEl = document.getElementById(`yoy-status-${elPrefix}`);
-        if (!yoyItem) {
+        if (!yoyItem || (!isYTDMode && !yoyItem)) {
             if (valueEl) valueEl.textContent = "N/A";
             if (statusEl) {
                 statusEl.textContent = "Sin datos año ant.";
@@ -2444,16 +2671,33 @@ function renderKPIDashboard(data, selectedIndex) {
             }
             return;
         }
-        const prevValue = elPrefix === 'caja' 
+
+        let finalCurrValue = currValue;
+        let finalPrevValue = elPrefix === 'caja' 
             ? (yoyItem.kpis?.cashEnding || yoyItem.kpis?.cashflow || 0)
             : (elPrefix === 'utilidad' ? (yoyItem.kpis?.utilidad || 0) 
             : (yoyItem.kpis?.[elPrefix] || 0));
+
+        if (isYTDMode) {
+            const ytdKey = elPrefix === 'caja' ? 'cashflow' : elPrefix;
+            finalCurrValue = ytdData.real[ytdKey] || 0;
+            
+            const yoyIndex = data.indexOf(yoyItem);
+            const prevYtdData = yoyIndex >= 0 ? calculateYTD(data, yoyIndex) : null;
+            finalPrevValue = prevYtdData ? (prevYtdData.real[ytdKey] || 0) : finalPrevValue;
+        }
         
-        const diff = currValue - prevValue;
-        const pct = prevValue !== 0 ? (diff / Math.abs(prevValue)) * 100 : (currValue !== 0 ? 100 : 0);
+        const diff = finalCurrValue - finalPrevValue;
+        const pct = finalPrevValue !== 0 ? (diff / Math.abs(finalPrevValue)) * 100 : (finalCurrValue !== 0 ? 100 : 0);
         
         if (valueEl) {
             valueEl.textContent = `${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`;
+            const yoyDateStr = yoyItem ? yoyItem.date : 'año ant.';
+            const tooltipStr = `Vs. ${yoyDateStr}: ${formatCurrency(finalPrevValue)}`;
+            valueEl.title = tooltipStr;
+            if (valueEl.parentElement) {
+                valueEl.parentElement.title = tooltipStr;
+            }
         }
         if (statusEl) {
             if (pct >= 0.01) {
@@ -2513,7 +2757,7 @@ function renderKPIDashboard(data, selectedIndex) {
     };
 
     // Filtro: No mostrar 2025 en el Dashboard (Gráficos)
-    const rollingData = data.slice(Math.max(0, selectedIndex - 11), selectedIndex + 1).filter(d => !isYear2025(d));
+    const rollingData = data.slice(Math.max(0, selectedIndex - 11), selectedIndex + 1).filter(d => isYear2026(d));
     renderSparkline('spark-ingresos', rollingData.map(d => d.kpis.ingresos), 'var(--success)');
     renderSparkline('spark-ebitda', rollingData.map(d => d.kpis.ebitda), 'var(--primary)');
     renderSparkline('spark-cash', rollingData.map(d => d.kpis.cashflow), 'var(--info)');
@@ -2523,7 +2767,7 @@ function renderKPIDashboard(data, selectedIndex) {
     renderCashFlowChart(rollingData);
 
     // 4. Alerts
-    renderDashboardAlerts(curr);
+    renderDashboardAlerts(curr, data, selectedIndex);
 
     // 5. Covenants Container & Gauges
     let covenantsContainer = document.getElementById('covenantsContainer');
@@ -2607,6 +2851,21 @@ function renderKPIDashboard(data, selectedIndex) {
                 }
                 .ai-summary-box li:last-child {
                     margin-bottom: 0;
+                }
+                .ai-summary-box table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin: 16px 0;
+                }
+                .ai-summary-box th, .ai-summary-box td {
+                    border: 1px solid #cbd5e1;
+                    padding: 8px 12px;
+                    text-align: left;
+                }
+                .ai-summary-box th {
+                    background-color: #f1f5f9;
+                    font-weight: 700;
+                    color: #1e293b;
                 }
             `;
             document.head.appendChild(style);
@@ -2831,39 +3090,163 @@ function renderCashFlowChart(originalRollingData) {
         });
 }
 
-function renderDashboardAlerts(curr) {
+window.aiAlertsCache = window.aiAlertsCache || {};
+
+async function renderDashboardAlerts(curr, globalData, selectedIndex) {
     const container = document.getElementById('alertsContainer');
     if (!container) return;
-    container.innerHTML = '';
-
-    const alerts = [];
-    const kpis = curr.kpis;
-    const margin = kpis.margen_ebitda * 100;
-
-    if (margin < 15) {
-        alerts.push({ type: 'warning', text: `Margen EBITDA bajo (${margin.toFixed(1)}%). Se recomienda revisar eficiencia operativa.` });
-    }
     
-    if (curr.integrity && curr.integrity.isBroken) {
-        alerts.push({ type: 'danger', text: "Descuadre detectable en la integridad del P&L. Verifique los costos directos." });
+    // Función de renderizado fallback o estático
+    const renderStaticAlerts = () => {
+        const alerts = [];
+        const kpis = curr.kpis;
+        const margin = kpis.margen_ebitda * 100;
+
+        if (margin < 15) {
+            alerts.push({ type: 'warning', text: `Margen EBITDA bajo (${margin.toFixed(1)}%). Se recomienda revisar eficiencia operativa.` });
+        }
+        
+        if (curr.integrity && curr.integrity.isBroken) {
+            alerts.push({ type: 'danger', text: "Descuadre detectable en la integridad del P&L. Verifique los costos directos." });
+        }
+
+        if (curr.balance.activos !== 0 && (curr.balance.activos < curr.balance.pasivos)) {
+            alerts.push({ type: 'danger', text: "Patrimonio Negativo detectado. Riesgo de insolvencia técnica." });
+        }
+
+        if (alerts.length === 0) {
+            container.innerHTML = '<div class="alert-card alert-success">No se detectan anomalías financieras críticas en este periodo.</div>';
+        } else {
+            container.innerHTML = alerts.map(a => `
+                <div class="alert-card alert-${a.type}">
+                    <i data-lucide="${a.type === 'danger' ? 'alert-octagon' : 'alert-triangle'}"></i>
+                    <span>${a.text}</span>
+                </div>
+            `).join('');
+        }
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    };
+
+    if (!window.aiEnabled || !globalData || selectedIndex === undefined) {
+        renderStaticAlerts();
+        return;
     }
 
-    if (curr.balance.activos !== 0 && (curr.balance.activos < curr.balance.pasivos)) {
-        alerts.push({ type: 'danger', text: "Patrimonio Negativo detectado. Riesgo de insolvencia técnica." });
-    }
-
-    if (alerts.length === 0) {
-        container.innerHTML = '<div class="alert-card alert-success">No se detectan anomalías financieras críticas en este periodo.</div>';
-    } else {
-        container.innerHTML = alerts.map(a => `
-            <div class="alert-card alert-${a.type}">
-                <i data-lucide="${a.type === 'danger' ? 'alert-octagon' : 'alert-triangle'}"></i>
-                <span>${a.text}</span>
-            </div>
-        `).join('');
-    }
+    const mesKey = curr.mes || `mes-${selectedIndex}`;
     
+    if (window.aiAlertsCache[mesKey]) {
+        container.innerHTML = window.aiAlertsCache[mesKey];
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+        return;
+    }
+
+    container.innerHTML = `
+        <div class="alert-card alert-warning" style="justify-content: center; background: transparent; border: none; box-shadow: none;">
+            <i data-lucide="loader-2" class="spin-icon"></i>
+            <span>Analizando historial de datos y anomalías con IA...</span>
+        </div>
+    `;
     if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    // Prepare historical contextual data for the AI
+    let historicalData = [];
+    const startIndex = Math.max(0, selectedIndex - 3);
+    for(let i = startIndex; i <= selectedIndex; i++) {
+        historicalData.push({
+            mes: globalData[i].mes,
+            ingresos: globalData[i].kpis.ingresos,
+            ebitda: globalData[i].kpis.ebitda,
+            margen_ebitda: globalData[i].kpis.margen_ebitda,
+            activos: globalData[i].balance.activos,
+            pasivos: globalData[i].balance.pasivos
+        });
+    }
+
+    try {
+        let timeoutId;
+        const timeoutPromise = new Promise((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error('AI Request Timeout (45s)')), 45000);
+        });
+
+        const promptText = `Actúa como un Auditor y Analista Financiero Senior. Revisa los siguientes datos financieros históricos (del mes actual: ${curr.mes} y últimos meses) y detecta anomalías, riesgos, o desviaciones significativas en las tendencias.
+        
+        INSTRUCCIONES:
+        1. Devuelve un JSON estrictamente válido con un arreglo de objetos. Cada objeto debe tener:
+           - "type": "danger" (problema crítico), "warning" (advertencia), o "success" (mejora notable).
+           - "text": Descripción concisa e incisiva de la anomalía enfocada en las tendencias (máximo 2 oraciones).
+        2. El análisis debe estar en español y mostrar tu razonamiento de impacto financiero.
+        3. Fíjate en caídas abruptas de ingresos, márgenes, o incrementos inusuales en pasivos a lo largo del tiempo que podrían requerir atención inmediata de la gerencia. No repitas descripciones, consolida la información para que sea legible y de alto nivel ejecutivo.
+        4. No inventes alertas si los datos no cambian de manera significativa. Si no hay anomalías detectables o los datos parecen muy planos, devuelve un array vacío [].
+        
+        DATOS HISTÓRICOS (Últimos meses):
+        ${JSON.stringify(historicalData, null, 2)}`;
+
+        let apiCallPromise;
+        try {
+            apiCallPromise = getAI().models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: promptText,
+                config: {
+                    responseMimeType: "application/json"
+                }
+            });
+            apiCallPromise.catch(err => window.handleAiError("Alerts", err));
+        } catch (err) {
+            apiCallPromise = Promise.reject(err);
+            apiCallPromise.catch(()=> /* handled */ {});
+        }
+
+        let response;
+        try {
+            response = await Promise.race([apiCallPromise, timeoutPromise]);
+        } finally {
+            clearTimeout(timeoutId);
+        }
+        
+        let text = response.text;
+        text = text.replace(/\`\`\`json/g, '').replace(/\`\`\`/g, '').trim();
+        
+        let alertsData = [];
+        try {
+            alertsData = JSON.parse(text);
+        } catch (e) {
+            window.handleAiError("Alerts Parse", e);
+            alertsData = [];
+        }
+
+        if (!Array.isArray(alertsData) || alertsData.length === 0) {
+            window.aiAlertsCache[mesKey] = '<div class="alert-card alert-success" style="background: rgba(42, 157, 143, 0.1); color: var(--success);"><i data-lucide="check-circle" style="color: var(--success);"></i><span>No se detectan anomalías financieras críticas o desviaciones inusuales para este periodo frente al historial reciente.</span></div>';
+            renderStaticAlerts(); // Fallback to basic static alerts if AI finds nothing
+            if (!container.innerHTML.includes('alert-success')) {
+                window.aiAlertsCache[mesKey] = container.innerHTML;
+            } else {
+                container.innerHTML = window.aiAlertsCache[mesKey];
+            }
+        } else {
+            const html = alertsData.map(a => {
+                let icon = 'info';
+                let iconColor = 'var(--text-primary)';
+                if (a.type === 'danger') { icon = 'alert-octagon'; iconColor = 'var(--danger)'; }
+                else if (a.type === 'warning') { icon = 'alert-triangle'; iconColor = 'var(--warning)'; }
+                else if (a.type === 'success') { icon = 'trending-up'; iconColor = 'var(--success)'; }
+                
+                return `
+                    <div class="alert-card alert-${a.type || 'warning'}" style="border-left: 4px solid ${iconColor};">
+                        <i data-lucide="${icon}" style="color: ${iconColor};"></i>
+                        <span><strong>IA AI-Detect:</strong> ${a.text}</span>
+                    </div>
+                `;
+            }).join('');
+            window.aiAlertsCache[mesKey] = html;
+            container.innerHTML = window.aiAlertsCache[mesKey];
+        }
+        
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    } catch (err) {
+        window.handleAiError("Alerts", err);
+        renderStaticAlerts();
+    }
 }
 
 function updateTrend(id, curr, prev, ppto = null, suffix = "") {
@@ -2909,7 +3292,7 @@ function renderEstadosFinancieros(data, selectedIndex = -1) {
     const startIdx = Math.max(0, endIdx - 11);
     
     // We do NOT want to show full 12 always if data doesn't have it, but slice will handle that
-    const visibleMonths = data.slice(startIdx, endIdx + 1).filter(d => !isYear2025(d));
+    const visibleMonths = data.slice(startIdx, endIdx + 1).filter(d => isYear2026(d));
     const periods = visibleMonths.map(d => d.date);
 
     // Header
@@ -3039,7 +3422,7 @@ function renderWaterfallChart(data, index) {
     if (isYTDMode) {
         for (let k = 0; k <= index; k++) {
             const periodData = data[k];
-            if (isYear2025(periodData)) continue;
+            if (!isYear2026(periodData)) continue;
             const pCats = periodData.pnl?.categorias || {};
             const oDet = periodData.pnl?.opexDetalle || {};
             
@@ -3177,8 +3560,12 @@ function renderWaterfallChart(data, index) {
         .style("cursor", "pointer")
         .on("mouseover", function(event, d) {
             d3.select(this).style("filter", "brightness(1.1)");
+            const valFormated = formatCurrency(Math.abs(d.value));
+            const weightStr = ventasNetas ? (Math.abs(d.value) / ventasNetas * 100).toFixed(1) + "%" : "0%";
+            const label = d.isTotal ? "Total" : (d.value > 0 ? "Adición" : "Deducción");
+            const sign = (!d.isTotal && d.value < 0) ? "-" : "";
             tooltip.style("opacity", 1)
-                   .html(`<strong>${d.name}</strong><br/>${d.value > 0 ? 'Total' : 'Deducción'}: ${formatCurrency(d.value)}`);
+                   .html(`<strong>${d.name}</strong><br/>${label}: ${valFormated}<br/>Peso vs Ventas: ${sign}${weightStr}`);
         })
         .on("mousemove", function(event) {
             tooltip.style("left", (event.pageX + 15) + "px")
@@ -3244,7 +3631,7 @@ function renderMarginTrendChart(globalData, index) {
     // y limitamos los datos hasta el mes seleccionado (index)
     const isMobile = window.innerWidth < 768;
     const slicedData = globalData.slice(0, index !== undefined ? index + 1 : globalData.length);
-    const validData = slicedData.filter(d => !isYear2025(d));
+    const validData = slicedData.filter(d => isYear2026(d));
     if (validData.length === 0) return;
 
     // Tomamos al menos los últimos 12 meses (o 6 en mobile)
@@ -3451,10 +3838,12 @@ function renderCashBridgeChart(data, index) {
     let dividends = 0;
     let ending = 0;
 
+    let change = 0;
+    
     if (isYTDMode) {
         let firstIdx = 0;
         for (let k = 0; k <= index; k++) {
-            if (!isYear2025(data[k])) {
+            if (isYear2026(data[k])) {
                 firstIdx = k;
                 break;
             }
@@ -3463,7 +3852,7 @@ function renderCashBridgeChart(data, index) {
         ending = data[index]?.cashflowDetail?.ending || 0; 
         
         for (let k = firstIdx; k <= index; k++) {
-            if (isYear2025(data[k])) continue;
+            if (!isYear2026(data[k])) continue;
             const det = data[k]?.cashflowDetail || {};
             operating += (det.operating || 0);
             capex += (det.capex || 0);
@@ -3471,6 +3860,7 @@ function renderCashBridgeChart(data, index) {
             interest += (det.interest || 0);
             dividends += (det.dividends || 0);
         }
+        change = operating + capex + netDebt + interest + dividends;
     } else {
         const det = curr.cashflowDetail || {};
         beginning = det.beginning || 0;
@@ -3480,14 +3870,15 @@ function renderCashBridgeChart(data, index) {
         interest = det.interest || 0;
         dividends = det.dividends || 0;
         ending = det.ending || 0;
+        change = operating + capex + netDebt + interest + dividends;
     }
 
-    let current = operating;
+    let current = beginning;
     const chartData = [];
     
-    // 1. Inicio: Flujo de Caja Operativo
+    // 1. Inicio: Efectivo Inicial
     chartData.push({
-        name: "Flujo de Caja Operativo",
+        name: "Efectivo Inicial",
         isTotal: true,
         start: 0,
         end: current,
@@ -3511,7 +3902,7 @@ function renderCashBridgeChart(data, index) {
         }
     };
 
-    addVariation("Efectivo Inicial", beginning);
+    addVariation("Flujo de Caja Operativo", operating);
     addVariation("CAPEX", capex);
     addVariation("Deuda Bancaria", netDebt);
     addVariation("Gastos de Interés", interest);
@@ -3722,7 +4113,7 @@ function renderCovenantGauges(data, index) {
     for (let k = 0; k <= index; k++) {
         const d = data[k];
         const dYear = d.sortDate ? new Date(d.sortDate).getFullYear() : targetYear;
-        if (dYear === targetYear && !isYear2025(d)) {
+        if (dYear === targetYear && isYear2026(d)) {
             ebitdaYTD += (d.kpis.ebitda || 0);
         }
     }
@@ -3911,10 +4302,28 @@ Contexto:
 ${context}
 Pregunta: ${question}`;
 
-            const response = await ai.models.generateContent({
-                model: "gemini-2.5-flash",
-                contents: prompt,
+            let timeoutId;
+            const timeoutPromise = new Promise((_, reject) => {
+                timeoutId = setTimeout(() => reject(new Error('AI Request Timeout (45s)')), 45000);
             });
+            let apiCallPromise;
+            try {
+                apiCallPromise = getAI().models.generateContent({
+                    model: "gemini-2.5-flash",
+                    contents: prompt,
+                });
+                apiCallPromise.catch(err => window.handleAiError("Chat", err));
+            } catch (err) {
+                apiCallPromise = Promise.reject(err);
+                apiCallPromise.catch(()=> /* handled */ {});
+            }
+            
+            let response;
+            try {
+                response = await Promise.race([apiCallPromise, timeoutPromise]);
+            } finally {
+                clearTimeout(timeoutId);
+            }
 
             // Reemplazar spinner con la respuesta
             chatMessages.lastChild.remove(); 
@@ -4048,10 +4457,28 @@ Resultados calculados matemáticamente:
 Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégica. Ejemplo: "Este aumento en ventas drenará tu liquidez en RD$ 15M debido al relajamiento de los cobros comerciales."
                 `;
 
-                const response = await ai.models.generateContent({
-                    model: "gemini-2.5-flash",
-                    contents: simContext,
+                let timeoutId;
+                const timeoutPromise = new Promise((_, reject) => {
+                    timeoutId = setTimeout(() => reject(new Error('AI Request Timeout (45s)')), 45000);
                 });
+                let apiCallPromise;
+                try {
+                    apiCallPromise = getAI().models.generateContent({
+                        model: "gemini-2.5-flash",
+                        contents: simContext,
+                    });
+                    apiCallPromise.catch(err => window.handleAiError("Sim", err));
+                } catch (err) {
+                    apiCallPromise = Promise.reject(err);
+                    apiCallPromise.catch(()=> /* handled */ {});
+                }
+                
+                let response;
+                try {
+                    response = await Promise.race([apiCallPromise, timeoutPromise]);
+                } finally {
+                    clearTimeout(timeoutId);
+                }
 
                 const finalHtml = `<strong><i data-lucide="sparkles" style="display: inline; width: 16px; height: 16px; vertical-align: text-bottom; margin-right: 4px;"></i> Insight Bot:</strong> ${response.text}`;
                 simInsightEl.innerHTML = finalHtml;
@@ -4059,7 +4486,8 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 lucide.createIcons();
 
             } catch (err) {
-                 simInsightEl.innerHTML = `<strong>Error:</strong> ${err.message}`;
+                window.handleAiError("Sim", err);
+                simInsightEl.innerHTML = `<em>IA no disponible por el momento.</em>`;
             }
         });
     }

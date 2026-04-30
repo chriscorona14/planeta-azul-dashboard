@@ -10,6 +10,8 @@
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <!-- HTML2PDF CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <!-- Marked JS for Markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <!-- MSAL for Microsoft 365 Auth -->
     <script src="https://alcdn.msauth.net/browser/2.37.0/js/msal-browser.min.js"></script>
     <style>
@@ -412,6 +414,13 @@
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
         gap: 16px;
+        padding: 0 16px 24px 16px;
+      }
+      
+      @media screen and (min-width: 768px) {
+        .alerts-grid {
+          padding: 0 32px 24px 32px;
+        }
       }
 
       .alert-card {
@@ -1356,7 +1365,7 @@
     </aside>
 
     <main class="main-container">
-      <header class="header-section">
+      <header class="header-section sticky-header" id="mainHeader">
       <style>
         .ai-chat-sidebar {
           position: fixed;
@@ -1517,6 +1526,30 @@
           font-size: 0.95rem;
           font-weight: 500;
           line-height: 1.5;
+        }
+
+        /* Sticky Header Rule */
+        .sticky-header {
+          position: sticky;
+          top: -40px;
+          z-index: 50;
+          background: var(--bg);
+          padding-top: 40px;
+          margin-top: -40px;
+          padding-bottom: 16px;
+          border-bottom: 1px solid var(--border);
+        }
+        @media screen and (max-width: 1024px) {
+          .sticky-header {
+            top: -20px;
+            padding-top: 20px;
+            margin-top: -20px;
+          }
+        }
+        @media screen and (max-width: 768px) {
+          .sticky-header {
+            top: 60px; /* Mobile nav offset */
+          }
         }
       </style>
         <div class="header-info">
@@ -1877,7 +1910,6 @@
           <div
             id="alertsContainer"
             class="alerts-grid"
-            style="padding: 0 32px 24px 32px"
           >
             <div class="alert-placeholder">
               Cargue datos para generar alertas inteligentes...
@@ -2241,17 +2273,17 @@
             "
           >
             <h3
-  style="
-    color: #1e293b; 
-    margin: 0;
-    font-size: 1.1rem;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-  "
->
-  Métricas de Eficiencia Operativa (Ciclo de Caja)
-</h3>
+              style="
+                color: #1e293b; 
+                margin: 0;
+                font-size: 1.1rem;
+                font-weight: 800;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+              "
+            >
+              Métricas de Eficiencia Operativa (Ciclo de Caja)
+            </h3>
           </div>
           <div
             class="pnl-detail-table"

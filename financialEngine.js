@@ -518,6 +518,7 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
                     
                     if (finalMIdx !== -1) {
                         dateObj = new Date();
+                        dateObj.setDate(1); // FIX: prevent rollover when today is 31st and month is Feb/etc.
                         dateObj.setMonth(finalMIdx);
                         const yearMatch = val.match(/\d{2,4}/);
                         if (yearMatch) {
@@ -590,6 +591,7 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
             const val = cleanNumber(cell);
             if (val !== 0 && !isNaN(val)) {
                 const d = new Date();
+                d.setDate(1);
                 d.setMonth(d.getMonth() - (pnlRows.ingresos.length - j));
                 dataPeriods.push({ date: d, pnlIdx: j, balanceIdx: j });
             }
@@ -911,18 +913,9 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
         };
     }).sort((a, b) => a.sortDate - b.sortDate);
 
-    // Identificamos el cierre del año anterior (Diciembre 2025)
-    const dic2025 = result.find(d => d.sortDate.getMonth() === 11 && d.sortDate.getFullYear() === 2025);
-    
-    // Tomamos los últimos 12 meses
-    let finalSelection = result.slice(-12);
-    
-    // Si encontramos el cierre y NO está en la selección actual, lo inyectamos al principio
-    if (dic2025 && !finalSelection.some(d => d.date === dic2025.date)) {
-        finalSelection = [dic2025, ...finalSelection];
-    }
-
-    return { data: finalSelection };
+    // Devolvemos el histórico completo. El sistema de frontend debe ocuparse de mostrar
+    // solo los periodos relevantes, pero el Engine debe proveer toda la data para los cálculos YTD y YoY.
+    return { data: result };
 }
 
 function processWide(sheets) {
@@ -981,6 +974,7 @@ function processWide(sheets) {
                 const val = cell.toLowerCase();
                 if (monthNames.some(m => val.includes(m))) {
                     dateObj = new Date();
+                    dateObj.setDate(1); // FIX: prevent rollover
                     const monthIdx = monthNames.findIndex(m => val.includes(m));
                     dateObj.setMonth(monthIdx);
                     if (val.match(/\d{4}/)) dateObj.setFullYear(parseInt(val.match(/\d{4}/)[0]));
@@ -1012,6 +1006,7 @@ function processWide(sheets) {
             if (val !== 0 && !isNaN(val)) {
                 if (!dataPoints.some(p => p.idx === j)) {
                     const d = new Date();
+                    d.setDate(1);
                     d.setMonth(d.getMonth() - (rowData.ingresos.length - j));
                     dataPoints.push({ idx: j, date: d });
                 }
@@ -1112,7 +1107,7 @@ function processWide(sheets) {
         }
     });
 
-    return { data: uniqueResult.slice(-12) };
+    return { data: uniqueResult };
 }
 
 function processTBSetup(sheets, tbKey, setupKey) {
