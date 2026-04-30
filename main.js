@@ -500,7 +500,16 @@ async function fetchMasterData(token = null) {
         
     } catch (error) {
         if (error.message && (error.message.includes("403") || error.message.includes("404") || error.message.includes("401") || error.message.includes("Forbidden") || error.message.includes("Not Found") || error.message.includes("Acceso denegado"))) {
-            alert('No tienes acceso al archivo fuente. Comunícate con el administrador.');
+            alert('❌ Acceso denegado: No tienes permisos para leer el archivo fuente en SharePoint/OneDrive. Comunícate con el administrador.');
+            if (statusEl) {
+                statusEl.style.background = '#fee2e2';
+                statusEl.style.color = '#991b1b';
+                statusEl.style.borderColor = '#fecaca';
+                statusEl.innerHTML = "⚠️ Acceso denegado. Presione 'Conectar Office 365' con otra cuenta o use carga manual.";
+            }
+            if (loader) loader.style.display = 'none';
+            if (window.handleZeroState) window.handleZeroState();
+            return; // Aborta la ejecución para evitar que MSAL u otro flujo redireccione por accidente
         } else if (error.message && error.message.includes("El enlace es privado")) {
             console.warn("Auto-sync fallback triggered (expected):", error.message);
         } else {
@@ -615,6 +624,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     fetchMasterData(response.accessToken);
                 }).catch(error => {
                     console.warn("Silent login failed:", error);
+                    alert("⚠️ No pudimos renovar la sesión de Microsoft automáticamente. Haz clic en 'Conectar Office 365' de nuevo.");
                     window.handleMSALLoginFailure();
                 });
             } else {
@@ -1571,7 +1581,11 @@ function renderDashboard(data) {
     
     const lastIdx = filteredForSelector.length > 0 ? filteredForSelector[filteredForSelector.length - 1].i : data.length - 1;
     monthSelector.value = lastIdx;
-    updateUI(data, lastIdx);
+    
+    // Yield rendering to prevent main thread blocking on mobile
+    setTimeout(() => {
+        updateUI(data, lastIdx);
+    }, 10);
 }
 
 function updateUI(data, index) {
@@ -2801,30 +2815,37 @@ function renderKPIDashboard(data, selectedIndex) {
     renderSparkline('spark-cash', rollingData.map(d => d.kpis.cashflow), 'var(--info)');
 
     // 3. Main Trend Charts
-    renderMarginChart(rollingData);
-    renderCashFlowChart(rollingData);
-
-    // 4. Alerts
-    renderDashboardAlerts(curr, data, selectedIndex);
-
-    // 5. Covenants Container & Gauges
-    let covenantsContainer = document.getElementById('covenantsContainer');
-    if (!covenantsContainer) {
-        covenantsContainer = document.createElement('div');
-        covenantsContainer.id = 'covenantsContainer';
-        covenantsContainer.style.display = 'flex';
-        covenantsContainer.style.flexDirection = 'row';
-        covenantsContainer.style.flexWrap = 'wrap';
-        covenantsContainer.style.marginTop = '10px';
-        covenantsContainer.style.marginBottom = '20px';
-        covenantsContainer.style.gap = '15px';
+    requestAnimationFrame(() => {
+        renderMarginChart(rollingData);
         
-        const alertsSection = document.getElementById('dashboard-alerts-section');
-        if (alertsSection) {
-            alertsSection.parentNode.insertBefore(covenantsContainer, alertsSection);
-        }
-    }
-    renderCovenantGauges(data, selectedIndex);
+        requestAnimationFrame(() => {
+            renderCashFlowChart(rollingData);
+            
+            requestAnimationFrame(() => {
+                // 4. Alerts
+                renderDashboardAlerts(curr, data, selectedIndex);
+
+                // 5. Covenants Container & Gauges
+                let covenantsContainer = document.getElementById('covenantsContainer');
+                if (!covenantsContainer) {
+                    covenantsContainer = document.createElement('div');
+                    covenantsContainer.id = 'covenantsContainer';
+                    covenantsContainer.style.display = 'flex';
+                    covenantsContainer.style.flexDirection = 'row';
+                    covenantsContainer.style.flexWrap = 'wrap';
+                    covenantsContainer.style.marginTop = '10px';
+                    covenantsContainer.style.marginBottom = '20px';
+                    covenantsContainer.style.gap = '15px';
+                    
+                    const alertsSection = document.getElementById('dashboard-alerts-section');
+                    if (alertsSection) {
+                        alertsSection.parentNode.insertBefore(covenantsContainer, alertsSection);
+                    }
+                }
+                renderCovenantGauges(data, selectedIndex);
+            });
+        });
+    });
 
     // -- AI Executive Summary Injection --
     let aiContainer = document.getElementById('aiSummaryContainer');
