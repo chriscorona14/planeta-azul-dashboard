@@ -333,14 +333,13 @@ async function connectM365() {
             console.log("El usuario canceló el inicio de sesión.");
             return;
         }
-        if (error.errorCode === "interaction_in_progress") {
-            // Intenta limpiar el estado en caso de que se haya quedado pegado
-            alert("Hay una autenticación en progreso o el popup fue bloqueado. Por favor, recargue la página (o ábrala en una nueva pestaña) e intente de nuevo.");
+        if (error.errorCode === "interaction_in_progress" || (error.message && error.message.includes("popup_window_error"))) {
+            console.warn("Popup bloqueado o interacción en progreso. Iniciando login por redirección...");
+            await msalInstance.loginRedirect({
+                 scopes: ["User.Read", "Files.Read", "Files.Read.All"],
+                 prompt: "select_account"
+            });
             return;
-        }
-        if (error.message && error.message.includes("popup_window_error")) {
-             alert("El navegador bloqueó la ventana emergente. Por favor, asegúrese de abrir esta aplicación en una NUEVA PESTAÑA completa, o permita los popups para este sitio.");
-             return;
         }
         console.error(error);
         alert("Error autenticando con Office 365: " + error.message);
@@ -419,6 +418,11 @@ async function fetchMasterData(token = null) {
                     const base64Data = arrayBufferToBase64(arrayBuffer);
                     localStorage.setItem(CACHE_KEY, base64Data);
                     console.log("✅ Caché actualizado.");
+                } else {
+                    if (req.status === 401 || req.status === 403 || req.status === 404) {
+                        throw new Error(`Acceso denegado al archivo fuente (HTTP ${req.status}). Comunícate con el administrador.`);
+                    }
+                    throw new Error(`HTTP Error: ${req.status}`);
                 }
             } else {
                 // Fallback al proxy si no hay token
@@ -426,6 +430,11 @@ async function fetchMasterData(token = null) {
                 const response = await fetch("/api/downloadSync", { signal: controller.signal });
                 if (response.ok) {
                     arrayBuffer = await response.arrayBuffer();
+                } else {
+                    if (response.status === 401 || response.status === 403 || response.status === 404) {
+                        throw new Error(`Acceso denegado al archivo fuente (HTTP ${response.status}). Comunícate con el administrador.`);
+                    }
+                    throw new Error(`HTTP Error: ${response.status}`);
                 }
             }
             clearTimeout(timeoutId);
@@ -434,9 +443,16 @@ async function fetchMasterData(token = null) {
                 console.warn("⚠️ Tiempo de espera agotado. Se mantendrán los datos del caché.");
             } else {
                 console.error("Error en la descarga:", err);
+                if (err.message && (err.message.includes('401') || err.message.includes('403') || err.message.includes('404') || err.message.includes("Acceso denegado"))) {
+                    throw err;
+                }
             }
         }
         // --- FIN DEL BLOQUE DE SINCRONIZACIÓN ---
+
+        if (!arrayBuffer) {
+            throw new Error("No se pudo obtener el archivo fuente y no hay datos en caché. Verifica tu conexión o contáctate con el administrador.");
+        }
 
         const engineResult = await new Promise((resolve, reject) => {
             const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
@@ -483,8 +499,8 @@ async function fetchMasterData(token = null) {
         if (loader) loader.style.display = 'none';
         
     } catch (error) {
-        if (error.message && (error.message.includes("403") || error.message.includes("404") || error.message.includes("Forbidden") || error.message.includes("Not Found"))) {
-            alert('No tienes acceso al archivo financiero central. Contacta al administrador.');
+        if (error.message && (error.message.includes("403") || error.message.includes("404") || error.message.includes("401") || error.message.includes("Forbidden") || error.message.includes("Not Found") || error.message.includes("Acceso denegado"))) {
+            alert('No tienes acceso al archivo fuente. Comunícate con el administrador.');
         } else if (error.message && error.message.includes("El enlace es privado")) {
             console.warn("Auto-sync fallback triggered (expected):", error.message);
         } else {
@@ -577,7 +593,19 @@ window.handleMSALLoginFailure = function() {
 document.addEventListener('DOMContentLoaded', () => {
     window.handleZeroState();
     if (msalInstance) {
-        msalInstance.initialize?.().then(() => {
+        msalInstance.initialize?.().then(async () => {
+            try {
+                const redirectResponse = await msalInstance.handleRedirectPromise();
+                if (redirectResponse) {
+                    // Limpia el token gigante de la URL (hash)
+                    window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+                    fetchMasterData(redirectResponse.accessToken);
+                    return;
+                }
+            } catch (err) {
+                console.error("MSAL Redirect Error:", err);
+            }
+
             const accounts = msalInstance.getAllAccounts();
             if (accounts.length > 0) {
                 msalInstance.acquireTokenSilent({
