@@ -296,6 +296,7 @@ const msalConfig = {
         clientId: import.meta.env.VITE_MSAL_CLIENT_ID || import.meta.env.VITE_MICROSOFT_CLIENT_ID,
         authority: import.meta.env.VITE_MSAL_TENANT_ID ? `https://login.microsoftonline.com/${import.meta.env.VITE_MSAL_TENANT_ID}` : "https://login.microsoftonline.com/common",
         redirectUri: window.location.origin,
+        navigateToLoginRequestUrl: false,
     },
     cache: {
         cacheLocation: "localStorage",
@@ -343,6 +344,41 @@ async function connectM365() {
         }
         console.error(error);
         alert("Error autenticando con Office 365: " + error.message);
+    }
+}
+
+function showErrorUI(msg) {
+    // 1. Limpiar el DOM por completo para evitar que el Zero State tape el error
+    document.body.innerHTML = '';
+    document.body.style.backgroundColor = '#f87171';
+    
+    let errDiv = document.createElement('div');
+    errDiv.id = 'critical-error-banner';
+    errDiv.style.position = 'fixed';
+    errDiv.style.top = '50%';
+    errDiv.style.left = '50%';
+    errDiv.style.transform = 'translate(-50%, -50%)';
+    errDiv.style.backgroundColor = '#dc2626';
+    errDiv.style.color = '#fff';
+    errDiv.style.padding = '40px';
+    errDiv.style.borderRadius = '12px';
+    errDiv.style.zIndex = '999999';
+    errDiv.style.boxShadow = '0 25px 50px -12px rgba(0,0,0,0.5)';
+    errDiv.style.textAlign = 'center';
+    errDiv.style.maxWidth = '90%';
+    errDiv.style.width = '400px';
+    errDiv.style.fontFamily = 'system-ui, sans-serif';
+    errDiv.innerHTML = `
+        <h3 style="margin-top:0;font-size:1.8rem;font-weight:700;">Acceso Denegado</h3>
+        <p style="font-size:1.1rem;line-height:1.5;margin-bottom:25px;">${msg}</p>
+        <p style="font-size:0.9rem;margin-bottom:20px;opacity:0.8;">Contacte a soporte técnico para verificar sus permisos.</p>
+        <button onclick="sessionStorage.clear(); localStorage.clear(); location.href = '/';" style="padding:10px 20px; background:#fff; color:#dc2626; border:none; border-radius:6px; font-weight:bold; cursor:pointer; font-size:1rem; margin-top: 10px; width: 100%;">Cerrar Sesión / Cambiar Cuenta</button>
+    `;
+    document.body.appendChild(errDiv);
+
+    // 2. DETENER todo el procesamiento de red, descargas o event listeners
+    if (window.stop) {
+        window.stop();
     }
 }
 
@@ -412,6 +448,12 @@ async function fetchMasterData(token = null) {
                     signal: controller.signal
                 });
 
+                if (req.status === 401 || req.status === 403 || req.status === 404) {
+                    showErrorUI("No tienes acceso al archivo fuente. Comunícate con el administrador.");
+                    if (loader) loader.style.display = 'none';
+                    return; // VITAL para no reiniciar app
+                }
+
                 if (req.ok) {
                     arrayBuffer = await req.arrayBuffer();
                     // Guardar en caché para la próxima vez
@@ -419,21 +461,22 @@ async function fetchMasterData(token = null) {
                     localStorage.setItem(CACHE_KEY, base64Data);
                     console.log("✅ Caché actualizado.");
                 } else {
-                    if (req.status === 401 || req.status === 403 || req.status === 404) {
-                        throw new Error(`Acceso denegado al archivo fuente (HTTP ${req.status}). Comunícate con el administrador.`);
-                    }
                     throw new Error(`HTTP Error: ${req.status}`);
                 }
             } else {
                 // Fallback al proxy si no hay token
                 console.log("🔄 Intentando sincronización vía Proxy...");
                 const response = await fetch("/api/downloadSync", { signal: controller.signal });
+                
+                if (response.status === 401 || response.status === 403 || response.status === 404) {
+                    showErrorUI("No tienes acceso al archivo fuente. Comunícate con el administrador.");
+                    if (loader) loader.style.display = 'none';
+                    return; // VITAL para no reiniciar app
+                }
+
                 if (response.ok) {
                     arrayBuffer = await response.arrayBuffer();
                 } else {
-                    if (response.status === 401 || response.status === 403 || response.status === 404) {
-                        throw new Error(`Acceso denegado al archivo fuente (HTTP ${response.status}). Comunícate con el administrador.`);
-                    }
                     throw new Error(`HTTP Error: ${response.status}`);
                 }
             }
@@ -500,7 +543,7 @@ async function fetchMasterData(token = null) {
         
     } catch (error) {
         if (error.message && (error.message.includes("403") || error.message.includes("404") || error.message.includes("401") || error.message.includes("Forbidden") || error.message.includes("Not Found") || error.message.includes("Acceso denegado"))) {
-            alert('❌ Acceso denegado: No tienes permisos para leer el archivo fuente en SharePoint/OneDrive. Comunícate con el administrador.');
+            showErrorUI('No tienes permisos para leer el archivo fuente en SharePoint/OneDrive. Comunícate con el administrador.');
             if (statusEl) {
                 statusEl.style.background = '#fee2e2';
                 statusEl.style.color = '#991b1b';
@@ -508,7 +551,6 @@ async function fetchMasterData(token = null) {
                 statusEl.innerHTML = "⚠️ Acceso denegado. Presione 'Conectar Office 365' con otra cuenta o use carga manual.";
             }
             if (loader) loader.style.display = 'none';
-            if (window.handleZeroState) window.handleZeroState();
             return; // Aborta la ejecución para evitar que MSAL u otro flujo redireccione por accidente
         } else if (error.message && error.message.includes("El enlace es privado")) {
             console.warn("Auto-sync fallback triggered (expected):", error.message);
@@ -606,8 +648,8 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 const redirectResponse = await msalInstance.handleRedirectPromise();
                 if (redirectResponse) {
-                    // Limpia el token gigante de la URL (hash)
-                    window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+                    // Limpia el token gigante de la URL (hash) inmediatamente para evitar colapso en móviles
+                    window.history.replaceState({}, document.title, window.location.pathname);
                     fetchMasterData(redirectResponse.accessToken);
                     return;
                 }
