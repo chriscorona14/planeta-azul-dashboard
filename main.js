@@ -12,7 +12,6 @@ window.addEventListener('error', function(e) {
 });
 
 window.addEventListener('unhandledrejection', function(e) {
-    console.error("Unhandled Promise rejection:", e.reason);
     // Silencio en la UI para no interrumpir al usuario con errores de extensiones o red menores
 });
 
@@ -439,22 +438,30 @@ async function fetchMasterData(token = null) {
         }
         // --- FIN DEL BLOQUE DE SINCRONIZACIÓN ---
 
-        // Desbloquear el Hilo Principal usando Promises y setTimeout
-        await new Promise(resolve => setTimeout(resolve, 0));
-        let workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array', cellDates: true });
-        
-        // Garabage Collection del buffer
+        const engineResult = await new Promise((resolve, reject) => {
+            const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+            worker.onmessage = (e) => {
+                const data = e.data;
+                if (data.type === 'progress') {
+                    if (loader) {
+                        loader.innerHTML = `<div class="spinner"></div><div id="loaderStatusText" style="margin-top:16px; font-weight: 500;">${data.message}</div>`;
+                    }
+                } else if (data.type === 'error') {
+                    reject(new Error(data.error));
+                    worker.terminate();
+                } else if (data.type === 'done') {
+                    resolve(data.engineResult);
+                    worker.terminate();
+                }
+            };
+            worker.onerror = (err) => {
+                reject(err);
+                worker.terminate();
+            };
+            // Transfer transferrable objects directly if possible, else copy
+            worker.postMessage({ buffer: arrayBuffer }, [arrayBuffer]);
+        });
         arrayBuffer = null;
-
-        await new Promise(resolve => setTimeout(resolve, 0));
-        let engineResult = financialEngine(workbook);
-        
-        // Limpieza de memoria
-        workbook = null;
-        
-        if (engineResult.error || !engineResult.data || engineResult.data.length === 0) {
-            throw new Error(engineResult.error || "No se pudieron extraer datos numéricos del archivo.");
-        }
         
         if (statusEl) {
             statusEl.innerHTML = "✅ Sincronizado con O365";
@@ -1156,27 +1163,30 @@ async function processFile(file, progressCallback) {
 
         reader.onload = async (event) => {
             try {
-                if (progressCallback) progressCallback(30, "Analizando hojas Excel... (Puede tardar unos segundos)");
+                if (progressCallback) progressCallback(30, "Enviando al procesador en segundo plano...");
                 
-                // Limpieza de buffer temporal
-                let bufferData = new Uint8Array(event.target.result);
+                const bufferData = event.target.result;
 
-                // Desbloqueo del main thread antes de lectura pesada
-                await new Promise(resolve => setTimeout(resolve, 0));
-                let workbook = XLSX.read(bufferData, { type: 'array', cellDates: true });
-                bufferData = null; // Garbage Collection
-                
-                if (progressCallback) progressCallback(60, "Extrayendo métricas financieras...");
-                
-                // Desbloqueo del main thread antes procesamiento de motor
-                await new Promise(resolve => setTimeout(resolve, 0));
-                let engineResult = financialEngine(workbook);
-                workbook = null; // Garbage Collection
-                
-                if (engineResult.error || !engineResult.data || engineResult.data.length === 0) {
-                    clearInterval(progressInterval);
-                    return reject(new Error(engineResult.error || "No se pudieron extraer datos numéricos del archivo."));
-                }
+                const engineResult = await new Promise((resolve, reject) => {
+                    const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+                    worker.onmessage = (e) => {
+                        const data = e.data;
+                        if (data.type === 'progress') {
+                            if (progressCallback) progressCallback(data.progress, data.message);
+                        } else if (data.type === 'error') {
+                            reject(new Error(data.error));
+                            worker.terminate();
+                        } else if (data.type === 'done') {
+                            resolve(data.engineResult);
+                            worker.terminate();
+                        }
+                    };
+                    worker.onerror = (err) => {
+                        reject(new Error(err.message || "Error en el worker"));
+                        worker.terminate();
+                    };
+                    worker.postMessage({ buffer: bufferData }, [bufferData]);
+                });
                 
                 if (progressCallback) progressCallback(80, "Validando estructura de datos...");
                 
@@ -1276,7 +1286,7 @@ async function handleFileUpload(e) {
                     engineResult.data[lastIdx].alerts = [...(engineResult.data[lastIdx].alerts || []), ...aiResponse.alerts];
                 }
             } catch (aiErr) {
-                console.error("AI Error:", aiErr);
+                window.handleAiError("Upload AI Check", aiErr);
                 if (uploadMessage) uploadMessage.textContent = `⚠️ Usando motor local.`;
             }
         }
