@@ -312,38 +312,33 @@ if (window.msal) {
 const SHARPOINT_FILE_URL = import.meta.env.VITE_ONEDRIVE_FILE_URL || import.meta.env.VITE_ONEDRIVE_ITEM_ID;
 
 async function connectM365() {
-    if (!msalInstance) {
-        alert("MSAL no inicializado.");
-        return;
-    }
+    if (!msalInstance) return;
+
+    // Detectar si es móvil
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    const authRequest = {
+        scopes: ["User.Read", "Files.Read", "Files.Read.All"],
+        prompt: "select_account"
+    };
 
     try {
-        // En versiones recientes, debemos asegurarnos del estado local si usamos msal
-        await msalInstance.initialize?.(); 
-        await msalInstance.handleRedirectPromise?.();
+        await msalInstance.initialize?.();
 
-        const loginResponse = await msalInstance.loginPopup({
-            scopes: ["User.Read", "Files.Read", "Files.Read.All"],
-            prompt: "select_account"
-        });
-        const token = loginResponse.accessToken;
-        
-        await fetchMasterData(token);
+        if (isMobile) {
+            // En móviles, vamos directo a Redirect para evitar bloqueos
+            console.log("📱 Móvil detectado: Iniciando login por redirección...");
+            await msalInstance.loginRedirect(authRequest);
+        } else {
+            // En Desktop, el popup sigue siendo más elegante
+            const loginResponse = await msalInstance.loginPopup(authRequest);
+            await fetchMasterData(loginResponse.accessToken);
+        }
     } catch (error) {
-        if (error.errorCode === "user_cancelled" || (error.message && error.message.includes("user_cancelled"))) {
-            console.log("El usuario canceló el inicio de sesión.");
-            return;
+        console.error("Error de autenticación:", error);
+        // Fallback agresivo si el popup falla en cualquier entorno
+        if (error.message.includes("popup_window_error") || error.errorCode === "interaction_in_progress") {
+            await msalInstance.loginRedirect(authRequest);
         }
-        if (error.errorCode === "interaction_in_progress" || (error.message && error.message.includes("popup_window_error"))) {
-            console.warn("Popup bloqueado o interacción en progreso. Iniciando login por redirección...");
-            await msalInstance.loginRedirect({
-                 scopes: ["User.Read", "Files.Read", "Files.Read.All"],
-                 prompt: "select_account"
-            });
-            return;
-        }
-        console.error(error);
-        alert("Error autenticando con Office 365: " + error.message);
     }
 }
 
@@ -575,6 +570,12 @@ async function fetchMasterData(token = null) {
         window.simSummaryCache = {};
         
         globalFinancialData = engineResult.data;
+        // Justo después de: globalFinancialData = engineResult.data;
+if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+    console.log("✂️ Podando datos para ahorro de RAM en móvil...");
+    // Solo dejamos los últimos 12 registros para que el móvil no sufra
+    globalFinancialData = globalFinancialData.slice(-12);
+}
         renderDashboard(globalFinancialData);
         if (loader) loader.style.display = 'none';
         
@@ -683,16 +684,21 @@ document.addEventListener('DOMContentLoaded', () => {
     if (msalInstance) {
         msalInstance.initialize?.().then(async () => {
             try {
+                // --- AQUÍ VA EL CÓDIGO ---
                 const redirectResponse = await msalInstance.handleRedirectPromise();
                 if (redirectResponse) {
                     // Limpia el token gigante de la URL (hash) inmediatamente para evitar colapso en móviles
                     window.history.replaceState({}, document.title, window.location.pathname);
-                    fetchMasterData(redirectResponse.accessToken);
-                    return;
+                    
+                    // IMPORTANTE: Añadimos el await aquí para móviles
+                    await fetchMasterData(redirectResponse.accessToken); 
+                    return; // Detenemos ejecución aquí, ya estamos procesando
                 }
             } catch (err) {
                 console.error("MSAL Redirect Error:", err);
             }
+            
+// --- FIN DEL BLOQUE ---
 
             const accounts = msalInstance.getAllAccounts();
             if (accounts.length > 0) {
@@ -1167,42 +1173,43 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Handle window resize for D3 Charts redrawing and Mobile Accordions
-    window.addEventListener('resize', () => {
-        if (globalFinancialData && globalFinancialData.length > 0 && monthSelector) {
+    // --- OPTIMIZACIÓN MÓVIL: Resize con Debounce ---
+let resizeTimeout;
+window.addEventListener('resize', () => {
+    clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(() => {
+        if (globalFinancialData && globalFinancialData.length > 0) {
             const idx = parseInt(monthSelector.value);
             if (!isNaN(idx)) {
-                // Throttle maybe not strictly needed for this scale, but good practice
-                const rollingData = globalFinancialData.slice(Math.max(0, idx - 11), idx + 1).filter(d => isYear2026(d));
-                renderMarginChart(rollingData);
-                renderCashFlowChart(rollingData);
-                renderWaterfallChart(globalFinancialData, idx);
-                renderMarginTrendChart(globalFinancialData, idx);
-                renderCashBridgeChart(globalFinancialData, idx);
-                renderCovenantGauges(globalFinancialData, idx);
+                // Solo redibujamos gráficos si la pestaña lo requiere
+                window.dispatchEvent(new Event('resize-charts'));
                 
-                // Rebuild Mobile Accordions if crossing breakpoint
-                buildMobileAccordionsFromTable('pnlDetailedTable', 'pnlMobileContainer');
-                buildMobileAccordionsFromTable('balanceTable', 'balanceMobileContainer');
-                buildMobileAccordionsFromTable('covenantTable', 'covenantMobileContainer');
-                buildMobileAccordionsFromTable('cashflowTable', 'cashflowMobileContainer');
-                buildMobileAccordionsFromTable('cfMetricsTable', 'cfMetricsMobileContainer');
-                
-                // Resumen
-                const lastData = globalFinancialData[idx];
-                const kpis = lastData.kpis || { ingresos: 0, ebitda: 0, margen_ebitda: 0 };
-                const categories = (lastData.pnl && lastData.pnl.categorias) ? lastData.pnl.categorias : {};
-                const totalCost = categories["Costo de Ventas"] || 0;
-                buildMobileAccordionsFromTable('tableResumenOperativo', 'resumenOperativoMobileContainer', 'Resumen Operativo', '');
-                buildMobileAccordionsFromTable('tableVentasSegmento', 'ventasSegmentoMobileContainer', 'Segmentos de Venta', formatCurrency(kpis.ingresos));
-                buildMobileAccordionsFromTable('tableCostosSegmento', 'costosSegmentoMobileContainer', 'Desglose de Costos', formatCurrency(totalCost));
-                buildMobileAccordionsFromTable('tableMargenSegmento', 'margenSegmentoMobileContainer', 'Margen Bruto por Segmento', '');
-                const currentOpex = (lastData.pnl && lastData.pnl.opexDetalle) ? Object.values(lastData.pnl.opexDetalle).reduce((acc, val) => acc + val, 0) : 0;
-                buildMobileAccordionsFromTable('tableOpex', 'opexMobileContainer', 'Detalle de Gastos OPEX', formatCurrency(currentOpex));
+                // Solo reconstruimos lo que el usuario está viendo
+                const activeMenu = document.querySelector('.menu-item a.active')?.id;
+                if (activeMenu) {
+                    console.log("📱 Refrescando vista activa:", activeMenu);
+                    refreshActiveMobileView(activeMenu, idx);
+                }
             }
         }
-    });
+    }, 300); // Espera a que el usuario deje de mover el dedo
 });
+
+// Esta función debe ir FUERA del event listener de resize
+function refreshActiveMobileView(menuId, idx) {
+    if (window.innerWidth >= 1024) return;
+    
+    if (menuId === 'menu-pnl') buildMobileAccordionsFromTable('pnlDetailedTable', 'pnlMobileContainer');
+    if (menuId === 'menu-balance') buildMobileAccordionsFromTable('balanceTable', 'balanceMobileContainer');
+    if (menuId === 'menu-cashflow') {
+        buildMobileAccordionsFromTable('cashflowTable', 'cashflowMobileContainer');
+        buildMobileAccordionsFromTable('cfMetricsTable', 'cfMetricsMobileContainer');
+    }
+    if (menuId === 'menu-resumen') {
+        buildMobileAccordionsFromTable('tableResumenOperativo', 'resumenOperativoMobileContainer');
+        buildMobileAccordionsFromTable('tableVentasSegmento', 'ventasSegmentoMobileContainer');
+    }
+}
 
 function exportToExcelSuite(data) {
     const wb = XLSX.utils.book_new();
@@ -1552,16 +1559,31 @@ function showError(msg) {
  */
 function buildMobileAccordionsFromTable(tableId, containerId, customTitle = null, customSummary = null) {
     const table = document.getElementById(tableId);
-    if (!table) return;
-    const isMobile = window.innerWidth < 768;
     const container = document.getElementById(containerId);
-    if(!container) return;
+    if (!table || !container) return;
+    const isMobile = window.innerWidth < 1024;
 
     if (!isMobile) {
         table.style.display = '';
         container.style.display = 'none';
         return;
     }
+
+    // Proceso de creación
+    let rows = Array.from(table.querySelectorAll('tbody tr'));
+    if (tableId === 'pnlDetailedTable' && rows.length > 80) { // Reducimos a 80 para más seguridad
+        rows = rows.slice(0, 80); 
+    }
+
+    // ... (aquí va tu lógica actual de generar el HTML del acordeón) ...
+    // Asegúrate de mantener la lógica de 'createMobileCard' que ya tienes.
+
+    // --- EL TRUCO FINAL ---
+    // Una vez que el contenedor móvil tiene los datos, vaciamos la tabla original 
+    // para que el móvil no tenga que mantener 1000 nodos de texto invisibles.
+    table.innerHTML = ''; 
+    console.log(`🧹 RAM Limpiada: Tabla ${tableId} vaciada tras generar vista móvil.`);
+}
 
     // Determine if table is inside a section or just bare
     table.style.setProperty('display', 'none', 'important');
@@ -1694,31 +1716,56 @@ function renderDashboard(data) {
 
 function updateUI(data, index) {
     if (!data || !data[index]) return;
+    const isMobile = window.innerWidth < 1024;
     const curr = data[index];
-    
-    // Identificar el anterior operativo (excluyendo el año base 2025 para comparaciones MoM)
-    const operationalData = data.filter(d => isYear2026(d));
-    const currIdxInOp = operationalData.findIndex(d => d.date === curr.date);
-    const prev = currIdxInOp > 0 ? operationalData[currIdxInOp - 1] : curr;
-    
-    // Safety guards for kpis
-    const kpis = curr.kpis || { ingresos: 0, ebitda: 0, cashflow: 0, margen_ebitda: 0 };
-    const prevKpis = prev.kpis || kpis;
+    const activeMenu = document.querySelector('.menu-item a.active')?.id || 'menu-resumen';
 
-    // Integrity Badge logic
-    const integrityBadge = document.getElementById('integrityBadge');
-    if (integrityBadge && curr.integrity) {
-        integrityBadge.style.display = 'flex';
-        if (curr.integrity.isBroken) {
-            integrityBadge.className = 'integrity-fail';
-            integrityBadge.innerHTML = `⚠️ Ajuste Detectado (Abs: ${formatCurrency(curr.integrity.gap)})`;
-            integrityBadge.title = "La suma de Ingresos - Costos - Gastos no coincide con el EBITDA reportado por un margen > 1%";
-        } else {
-            integrityBadge.className = 'integrity-ok';
-            integrityBadge.innerHTML = `✓ P&L Cuadrado`;
-            integrityBadge.title = "Integridad de datos verificada operativamente";
-        }
+    // 1. Limpieza de "Vistas Zombis" (SOLO EN MÓVIL)
+    if (isMobile) {
+        const containers = ['pnlMobileContainer', 'balanceMobileContainer', 'cashflowMobileContainer', 'resumenOperativoMobileContainer'];
+        containers.forEach(id => {
+            const el = document.getElementById(id);
+            if (el && !el.closest('.view-container').classList.contains('active')) {
+                el.innerHTML = ''; // Borramos físicamente el HTML para liberar RAM
+            }
+        });
     }
+
+    // 2. Elementos comunes ligeros
+    document.getElementById('kpi-ventas').textContent = formatCurrency(curr.kpis?.ingresos || 0);
+    document.getElementById('kpi-ebitda').textContent = formatCurrency(curr.kpis?.ebitda || 0);
+    document.getElementById('periodLabel').textContent = `Periodo: ${curr.date || 'Actual'}`;
+
+    // 3. RENDERIZADO BAJO DEMANDA CON BLOQUEO DE ESCRITORIO
+    if (activeMenu === 'menu-kpi') {
+        renderKPIDashboard(data, index);
+    } else if (activeMenu === 'menu-resumen') {
+        if (!isMobile) renderDetailedPnL(data, index); // Bloqueado en móvil
+        renderWaterfallChart(data, index);
+    } else if (activeMenu === 'menu-pnl') {
+        if (!isMobile) renderDetailedPnL(data, index); // Bloqueado en móvil
+        renderMarginTrendChart(data, index);
+    } else if (activeMenu === 'menu-balance') {
+        if (!isMobile) renderBalanceSheet(data, index); // Bloqueado en móvil
+        renderCovenantGauges(data, index);
+    } else if (activeMenu === 'menu-cashflow') {
+        if (!isMobile) renderCashFlow(data, index); // Bloqueado en móvil
+        renderCashBridgeChart(data, index);
+    }
+
+    // 4. Generación de vista móvil (Solo la necesaria)
+    if (isMobile) {
+        setTimeout(() => {
+            refreshActiveMobileView(activeMenu, index);
+            
+            // Refrescar buscador si hay algo escrito
+            const searchInput = document.getElementById('accountSearch');
+            if (searchInput?.value.trim() !== '') {
+                searchInput.dispatchEvent(new Event('input'));
+            }
+        }, 150);
+    }
+}
 
     document.getElementById('kpi-ventas').textContent = formatCurrency(kpis.ingresos);
     document.getElementById('kpi-ebitda').textContent = formatCurrency(kpis.ebitda);
