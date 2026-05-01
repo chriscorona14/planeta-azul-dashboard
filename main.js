@@ -1569,36 +1569,22 @@ function buildMobileAccordionsFromTable(tableId, containerId, customTitle = null
         return;
     }
 
-    // Proceso de creación
+    // Proceso de creación: limitamos filas en móvil para evitar colapso de RAM
     let rows = Array.from(table.querySelectorAll('tbody tr'));
-    if (tableId === 'pnlDetailedTable' && rows.length > 80) { // Reducimos a 80 para más seguridad
+    if (tableId === 'pnlDetailedTable' && rows.length > 80) {
         rows = rows.slice(0, 80); 
     }
 
-    // ... (aquí va tu lógica actual de generar el HTML del acordeón) ...
-    // Asegúrate de mantener la lógica de 'createMobileCard' que ya tienes.
-
-    // --- EL TRUCO FINAL ---
-    // Una vez que el contenedor móvil tiene los datos, vaciamos la tabla original 
-    // para que el móvil no tenga que mantener 1000 nodos de texto invisibles.
-    table.innerHTML = ''; 
-    console.log(`🧹 RAM Limpiada: Tabla ${tableId} vaciada tras generar vista móvil.`);
-}
-
-    // Determine if table is inside a section or just bare
     table.style.setProperty('display', 'none', 'important');
     container.style.display = 'block';
 
     const ths = Array.from(table.querySelectorAll('thead th'));
     const headers = ths.slice(1).map(th => th.innerText);
-
-    const rows = Array.from(table.querySelectorAll('tbody tr'));
     
     let html = '';
     let currentGroupHtml = '';
     let currentGroupTitle = customTitle || 'Categoría / Cuentas';
     let currentGroupSummary = customSummary || '';
-    
     let isSingleGroupTable = !rows.some(tr => tr.classList.contains('row-category'));
 
     const flushGroup = (newTitle, newSummary) => {
@@ -1611,10 +1597,7 @@ function buildMobileAccordionsFromTable(tableId, containerId, customTitle = null
                     </div>
                     <i data-lucide="chevron-down" style="width:20px;height:20px;"></i>
                 </div>
-                <!-- Remove display none by default if it's a single group table so it opens by default or let user open it -->
-                <div class="mobile-accordion-content ${isSingleGroupTable ? 'open' : ''}">
-                    ${currentGroupHtml}
-                </div>
+                <div class="mobile-accordion-content ${isSingleGroupTable ? 'open' : ''}">${currentGroupHtml}</div>
              </div>`;
         }
         currentGroupHtml = '';
@@ -1624,94 +1607,29 @@ function buildMobileAccordionsFromTable(tableId, containerId, customTitle = null
 
     rows.forEach((tr, i) => {
         const tds = Array.from(tr.querySelectorAll('td'));
-        if (tds.length < 2) return; // empty row or spacer
-
+        if (tds.length < 2) return;
         const label = tds[0].innerText;
         const vals = tds.slice(1).map(td => td.innerText);
-        
-        const isTotal = tr.classList.contains('row-total');
-        const isCategory = tr.classList.contains('row-category');
-        
-        if (isCategory) {
+        if (tr.classList.contains('row-category')) {
             flushGroup(label);
-        } else if (isTotal) {
-            // Find a valid numerical string to show as summary for the accordion
+        } else if (tr.classList.contains('row-total')) {
             let summaryVal = '';
-            for(let j = vals.length - 1; j >= 0; j--) {
-                if(vals[j] && vals[j] !== '-') { summaryVal = vals[j]; break; }
-            }
+            for(let j = vals.length - 1; j >= 0; j--) { if(vals[j] && vals[j] !== '-') { summaryVal = vals[j]; break; } }
             if(!currentGroupSummary) currentGroupSummary = summaryVal || vals[vals.length - 1];
             currentGroupHtml += createMobileCard(label, headers, vals);
             if (currentGroupTitle === 'Categoría') currentGroupTitle = label;
-            
-            // Only flush if we're dealing with a multi-category table like P&L
-            if (!isSingleGroupTable && i < rows.length - 1) {
-                flushGroup();
-            }
+            if (!isSingleGroupTable && i < rows.length - 1) flushGroup();
         } else {
             currentGroupHtml += createMobileCard(label, headers, vals);
-            // If it's the last row and a single group table, and we don't have a summary, we can try to guess it.
         }
     });
 
-    flushGroup(); // flush remaining
-    
-    if (html === '') {
-       container.innerHTML = '<div style="padding:20px; text-align:center; font-size:12px; color:var(--text-secondary);">No hay datos formatados para mostrar.</div>';
-    } else {
-       // Add Swipe Indicator (as requested by user)
-       container.innerHTML = `<div class="swipe-indicator"> <i data-lucide="chevrons-down" style="width:14px;height:14px;display:inline-block;vertical-align:middle;"></i> Toca para interactuar</div>` + html;
-       if (typeof lucide !== 'undefined') lucide.createIcons();
-    }
-}
+    flushGroup();
+    container.innerHTML = html === '' ? '<div style="padding:20px; text-align:center;">No hay datos.</div>' : `<div class="swipe-indicator">Toca para interactuar</div>` + html;
+    if (typeof lucide !== 'undefined') lucide.createIcons();
 
-function createMobileCard(label, headers, vals) {
-    let cardHtml = `<div class="mobile-vertical-card">
-        <div class="mobile-vertical-card-title">
-            <span style="max-width:80%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${label}</span>
-            <i data-lucide="trending-up" style="width:14px;height:14px;opacity:0.5;"></i>
-        </div>`;
-    vals.forEach((v, idx) => {
-        if (headers[idx]) {
-            cardHtml += `<div class="mobile-vertical-card-row">
-                <span style="color:var(--text-secondary);">${headers[idx]}</span>
-                <span style="font-weight:700;">${v}</span>
-            </div>`;
-        }
-    });
-    cardHtml += `</div>`;
-    return cardHtml;
-}
-
-// Global UI Updater Function
-function renderDashboard(data) {
-    if (!data || data.length === 0) return;
-    
-    window.handleZeroState();
-    
-    // Filtro: No permitir seleccionar datos del 2025 en el dropdown global
-    const filteredForSelector = data.map((d, i) => ({ d, i })).filter(item => isYear2026(item.d));
-    
-    monthSelector.innerHTML = filteredForSelector.map(item => `<option value="${item.i}">${item.d.date || 'Periodo'}</option>`).join('');
-    monthSelector.style.display = 'block';
-    
-    // Show search input if one of the detailed views is active
-    const searchWrapper = document.getElementById('searchContainerWrapper');
-    if (searchWrapper) {
-        const activeMenu = document.querySelector('.menu-item a.active');
-        const viewsWithSearch = ['menu-resumen', 'menu-pnl', 'menu-balance', 'menu-cashflow'];
-        if (activeMenu && viewsWithSearch.includes(activeMenu.id)) {
-            searchWrapper.style.display = 'flex';
-        }
-    }
-    
-    const lastIdx = filteredForSelector.length > 0 ? filteredForSelector[filteredForSelector.length - 1].i : data.length - 1;
-    monthSelector.value = lastIdx;
-    
-    // Yield rendering to prevent main thread blocking on mobile
-    setTimeout(() => {
-        updateUI(data, lastIdx);
-    }, 10);
+    // Limpieza final de RAM
+    table.innerHTML = ''; 
 }
 
 function updateUI(data, index) {
@@ -1720,49 +1638,40 @@ function updateUI(data, index) {
     const curr = data[index];
     const activeMenu = document.querySelector('.menu-item a.active')?.id || 'menu-resumen';
 
-    // 1. Limpieza de "Vistas Zombis" (SOLO EN MÓVIL)
+    // 1. Limpieza de memoria (Vistas Zombis)
     if (isMobile) {
         const containers = ['pnlMobileContainer', 'balanceMobileContainer', 'cashflowMobileContainer', 'resumenOperativoMobileContainer'];
         containers.forEach(id => {
             const el = document.getElementById(id);
-            if (el && !el.closest('.view-container').classList.contains('active')) {
-                el.innerHTML = ''; // Borramos físicamente el HTML para liberar RAM
-            }
+            if (el && !el.closest('.view-container').classList.contains('active')) el.innerHTML = '';
         });
     }
 
-    // 2. Elementos comunes ligeros
+    // 2. Datos básicos
     document.getElementById('kpi-ventas').textContent = formatCurrency(curr.kpis?.ingresos || 0);
     document.getElementById('kpi-ebitda').textContent = formatCurrency(curr.kpis?.ebitda || 0);
     document.getElementById('periodLabel').textContent = `Periodo: ${curr.date || 'Actual'}`;
 
-    // 3. RENDERIZADO BAJO DEMANDA CON BLOQUEO DE ESCRITORIO
+    // 3. Renderizado Condicional
     if (activeMenu === 'menu-kpi') {
         renderKPIDashboard(data, index);
     } else if (activeMenu === 'menu-resumen') {
-        if (!isMobile) renderDetailedPnL(data, index); // Bloqueado en móvil
+        if (!isMobile) renderDetailedPnL(data, index);
         renderWaterfallChart(data, index);
     } else if (activeMenu === 'menu-pnl') {
-        if (!isMobile) renderDetailedPnL(data, index); // Bloqueado en móvil
+        if (!isMobile) renderDetailedPnL(data, index);
         renderMarginTrendChart(data, index);
     } else if (activeMenu === 'menu-balance') {
-        if (!isMobile) renderBalanceSheet(data, index); // Bloqueado en móvil
-        renderCovenantGauges(data, index);
+        if (!isMobile) renderBalanceSheet(data, index);
     } else if (activeMenu === 'menu-cashflow') {
-        if (!isMobile) renderCashFlow(data, index); // Bloqueado en móvil
+        if (!isMobile) renderCashFlow(data, index);
         renderCashBridgeChart(data, index);
     }
 
-    // 4. Generación de vista móvil (Solo la necesaria)
+    // 4. Acordeones Móvil
     if (isMobile) {
         setTimeout(() => {
             refreshActiveMobileView(activeMenu, index);
-            
-            // Refrescar buscador si hay algo escrito
-            const searchInput = document.getElementById('accountSearch');
-            if (searchInput?.value.trim() !== '') {
-                searchInput.dispatchEvent(new Event('input'));
-            }
         }, 150);
     }
 }
