@@ -391,13 +391,16 @@ async function fetchMasterData(token = null) {
     const viewContainers = document.querySelectorAll('.view-container');
     const dropZone = document.getElementById('dropZone');
     
-    // Oculta los gráficos y la zona de drop mientras carga
-    viewContainers.forEach(v => v.style.display = 'none');
-    if (dropZone) dropZone.style.display = 'none';
+    const isMagicLoaded = globalFinancialData && globalFinancialData.length > 0;
 
-    if (loader) {
-        loader.innerHTML = '<div class="spinner"></div><div style="margin-top:16px; font-weight: 500;">⏳ Sincronizando datos con Planeta Azul...</div>';
-        loader.style.display = 'flex';
+    if (!isMagicLoaded) {
+        viewContainers.forEach(v => v.style.display = 'none');
+        if (dropZone) dropZone.style.display = 'none';
+
+        if (loader) {
+            loader.innerHTML = '<div class="spinner"></div><div style="margin-top:16px; font-weight: 500;">⏳ Sincronizando datos con Planeta Azul...</div>';
+            loader.style.display = 'flex';
+        }
     }
     
     const loginBtn = document.getElementById('loginM365Btn');
@@ -554,7 +557,7 @@ async function fetchMasterData(token = null) {
                 tx.oncomplete = resolve;
                 tx.onerror = reject;
             });
-            console.log("✅ JSON procesado guardado en IndexedDB con éxito.");
+            console.log("✨ La Gran Victoria: JSON procesado guardado en IndexedDB con éxito.");
         } catch (e) {
             console.warn("⚠️ Error guardando caché en IndexedDB:", e);
         }
@@ -678,8 +681,57 @@ window.handleMSALLoginFailure = function() {
     window.handleZeroState();
 };
 
-document.addEventListener('DOMContentLoaded', () => {
-    window.handleZeroState();
+async function loadCacheInstant() {
+    try {
+        const CACHE_KEY = 'planeta_azul_engine_result';
+        const db = await new Promise((resolve, reject) => {
+            const req = indexedDB.open('PlanetaAzulDB', 1);
+            req.onupgradeneeded = (e) => {
+                if (!e.target.result.objectStoreNames.contains('finance_cache')) {
+                    e.target.result.createObjectStore('finance_cache');
+                }
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+
+        const cachedData = await new Promise((resolve) => {
+            const req = db.transaction('finance_cache', 'readonly').objectStore('finance_cache').get(CACHE_KEY);
+            req.onsuccess = () => {
+                const result = req.result;
+                if (result && result.timestamp && Date.now() - result.timestamp < 86400000) {
+                    resolve(result.data);
+                } else {
+                    resolve(null);
+                }
+            };
+            req.onerror = () => resolve(null);
+        });
+
+        if (cachedData) {
+            console.log("🚀 Magic Load ejecutado: Restaurando dashboard desde disco local al instante.");
+            globalFinancialData = cachedData;
+            renderDashboard(globalFinancialData);
+            const loaderEl = document.getElementById('loader');
+            if (loaderEl) loaderEl.style.display = 'none';
+            return true;
+        }
+    } catch (e) {
+        console.warn("⚠️ Magic Load omitido (caché no disponible):", e);
+    }
+    return false;
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    // 1. Escudo de Caché: Intenta cargar inmediatamente de SSD/IndexedDB
+    const loadedFromCache = await loadCacheInstant();
+    
+    // 2. Si no hay caché, asegurar que se muestre Zero State
+    if (!loadedFromCache) {
+        window.handleZeroState();
+    }
+
+
     if (msalInstance) {
         msalInstance.initialize?.().then(async () => {
             try {
@@ -1451,7 +1503,7 @@ async function handleFileUpload(e) {
                     tx.oncomplete = resolve;
                     tx.onerror = reject;
                 });
-                console.log("✅ JSON de carga manual guardado en IndexedDB con éxito.");
+                console.log("✨ La Gran Victoria: JSON procesado guardado en IndexedDB con éxito.");
             } catch (e) {
                 console.warn("⚠️ Error guardando caché manual en IndexedDB:", e);
             }
