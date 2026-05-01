@@ -52,7 +52,69 @@ function base64ToArrayBuffer(base64) {
     return bytes.buffer;
 }
 
-let globalFinancialData = [];
+// --- INDEXEDDB PERSISTENCE ENGINE ---
+async function openDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open('PlanetaAzulDB', 2); // Increment version
+        request.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains('finance_data')) {
+                db.createObjectStore('finance_data', { keyPath: 'index' });
+            }
+            if (!db.objectStoreNames.contains('finance_meta')) {
+                db.createObjectStore('finance_meta');
+            }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+}
+
+async function saveFinanceRecords(data) {
+    const db = await openDB();
+    const tx = db.transaction(['finance_data', 'finance_meta'], 'readwrite');
+    const store = tx.objectStore('finance_data');
+    const metaStore = tx.objectStore('finance_meta');
+    
+    // Clear old data first
+    store.clear();
+    
+    // Save each month as a separate record to minimize RAM during fetch
+    data.forEach((month, idx) => {
+        store.put({ ...month, index: idx });
+    });
+    
+    // Save metadata for the selector
+    const metadata = data.map(d => ({ date: d.date, sortDate: d.sortDate }));
+    metaStore.put(metadata, 'period_list');
+    metaStore.put(Date.now(), 'last_sync');
+    
+    return new Promise((resolve, reject) => {
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+    });
+}
+
+async function getFinanceMonth(index) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const req = db.transaction('finance_data', 'readonly').objectStore('finance_data').get(index);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+async function getFinanceMetadata() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const req = db.transaction('finance_meta', 'readonly').objectStore('finance_meta').get('period_list');
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+let globalFinancialData = null; // Changed from [] to null to indicate empty RAM
+let periodMetadata = []; // Keep only light dates in RAM
 let isYTDMode = false;
 const loader = document.getElementById('loader');
 const monthSelector = document.getElementById('monthSelector');
@@ -123,9 +185,9 @@ document.addEventListener('DOMContentLoaded', () => {
             modal.style.display = 'none';
             applyAiUIState();
             // Try to generate summary for current view if present
-            if (globalFinancialData && globalFinancialData.length > 0) {
-                const idx = monthSelector ? parseInt(monthSelector.value, 10) : globalFinancialData.length - 1;
-                generateExecutiveSummary(globalFinancialData, isNaN(idx) ? globalFinancialData.length - 1 : idx);
+            if (periodMetadata && periodMetadata.length > 0) {
+                const idx = monthSelector ? parseInt(monthSelector.value, 10) : 0;
+                generateExecutiveSummary(idx);
             }
         } else {
             alert('Acceso Denegado. Contraseña incorrecta.');
@@ -142,11 +204,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-async function generateExecutiveSummary(data, index) {
+async function generateExecutiveSummary(index) {
     if (!window.aiEnabled) return;
     
     const box = document.getElementById('aiSummaryBox');
-    const curr = data[index];
+    const curr = await getFinanceMonth(index);
     if (!box || !curr) return;
     
     const mesKey = curr.date || `m_${index}`;
@@ -439,8 +501,8 @@ async function fetchMasterData(token = null) {
 
         if (cachedData) {
             console.log("⚡ Datos procesados encontrados en caché. Cargando vista previa rápida...");
-            globalFinancialData = cachedData;
-            renderDashboard(globalFinancialData);
+            periodMetadata = cachedData.map(d => ({ date: d.date, sortDate: d.sortDate }));
+            renderDashboard(periodMetadata); // Render with metadata list
             if (loader) loader.style.display = 'none';
             if (statusEl) statusEl.innerHTML = "✅ Caché local listo (sincronizando en fondo...)";
         }
@@ -536,27 +598,25 @@ async function fetchMasterData(token = null) {
         });
         arrayBuffer = null;
         
-        // --- GUARDAR JSON PROCESADO EN INDEXEDDB ---
+        // --- GUARDAR EN DISCO (INDEXEDDB) Y LIBERAR RAM ---
         try {
-            const db = await new Promise((resolve, reject) => {
-                const req = indexedDB.open('PlanetaAzulDB', 1);
-                req.onupgradeneeded = (e) => {
-                    if (!e.target.result.objectStoreNames.contains('finance_cache')) {
-                        e.target.result.createObjectStore('finance_cache');
-                    }
-                };
-                req.onsuccess = () => resolve(req.result);
-                req.onerror = () => reject(req.error);
-            });
-            await new Promise((resolve, reject) => {
-                const tx = db.transaction('finance_cache', 'readwrite');
-                tx.objectStore('finance_cache').put({ data: engineResult.data, timestamp: Date.now() }, CACHE_KEY);
-                tx.oncomplete = resolve;
-                tx.onerror = reject;
-            });
-            console.log("✅ JSON procesado guardado en IndexedDB con éxito.");
+            if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+                console.log("✂️ Poda extrema para estabilidad móvil...");
+                engineResult.data = engineResult.data.slice(-6);
+            }
+            
+            await saveFinanceRecords(engineResult.data);
+            periodMetadata = engineResult.data.map(d => ({ date: d.date, sortDate: d.sortDate }));
+            
+            // EL MOMENTO CRÍTICO: Matamos el objeto gigante en RAM
+            engineResult.data = null; 
+            globalFinancialData = null;
+            
+            console.log("✅ Datos persistidos en IndexedDB. RAM Liberada.");
         } catch (e) {
-            console.warn("⚠️ Error guardando caché en IndexedDB:", e);
+            console.warn("⚠️ Error protectores de RAM (IndexedDB):", e);
+            // Fallback: si falla el disco, usamos la RAM pero avisamos
+            alert("Error de almacenamiento local. La navegación podría ser lenta.");
         }
         
         if (statusEl) {
@@ -569,17 +629,12 @@ async function fetchMasterData(token = null) {
             sidebarSyncText.style.color = 'var(--success)';
         }
         
-        // Clear caches to prevent memory leaks and stale data
+        // Clear caches
         window.aiSummaryCache = {};
         window.aiAlertsCache = {};
         window.simSummaryCache = {};
         
-        globalFinancialData = engineResult.data;
-        if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
-            console.log("✂️ Poda extrema para estabilidad móvil...");
-            globalFinancialData = globalFinancialData.slice(-6);
-        }
-        renderDashboard(globalFinancialData);
+        renderDashboard(periodMetadata);
         if (loader) loader.style.display = 'none';
         
     } catch (error) {
@@ -635,7 +690,7 @@ window.syncNavigationUI = function(menuId) {
 };
 
 window.handleZeroState = function() {
-    const hasData = globalFinancialData && globalFinancialData.length > 0;
+    const hasData = (periodMetadata && periodMetadata.length > 0) || (globalFinancialData && globalFinancialData.length > 0);
     
     const sidebar = document.querySelector('.sidebar');
     const headerActions = document.querySelector('.header-actions');
@@ -682,8 +737,23 @@ window.handleMSALLoginFailure = function() {
     window.handleZeroState();
 };
 
-document.addEventListener('DOMContentLoaded', () => {
-    window.handleZeroState();
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        const db = await openDB();
+        const metaReq = db.transaction('finance_meta', 'readonly').objectStore('finance_meta').get('period_list');
+        metaReq.onsuccess = () => {
+            if (metaReq.result) {
+                periodMetadata = metaReq.result;
+                console.log("🔋 Restaurando metadatos de sesión anterior...");
+                renderDashboard(periodMetadata);
+            } else {
+                window.handleZeroState();
+            }
+        };
+        metaReq.onerror = () => window.handleZeroState();
+    } catch (e) {
+        window.handleZeroState();
+    }
     if (msalInstance) {
         msalInstance.initialize?.().then(async () => {
             try {
@@ -738,19 +808,23 @@ document.addEventListener('DOMContentLoaded', () => {
     // Setup Export and Mobile Menu
     const btnExportExcel = document.getElementById('btnExportExcel');
     if (btnExportExcel) {
-        btnExportExcel.addEventListener('click', () => {
-            if (!globalFinancialData || globalFinancialData.length === 0) {
+        btnExportExcel.addEventListener('click', async () => {
+            const db = await openDB();
+            const allDataReq = db.transaction('finance_data', 'readonly').objectStore('finance_data').getAll();
+            const data = await new Promise(r => allDataReq.onsuccess = () => r(allDataReq.result));
+
+            if (!data || data.length === 0) {
                 alert('No hay datos para exportar.');
                 return;
             }
-            exportToExcelSuite(globalFinancialData);
+            exportToExcelSuite(data);
         });
     }
 
     const btnExportPDF = document.getElementById('btnExportPDF');
     if (btnExportPDF) {
-        btnExportPDF.addEventListener('click', () => {
-            if (!globalFinancialData || globalFinancialData.length === 0) {
+        btnExportPDF.addEventListener('click', async () => {
+            if (!periodMetadata || periodMetadata.length === 0) {
                 alert('No hay datos para exportar.');
                 return;
             }
@@ -885,7 +959,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (monthSelector) {
         monthSelector.addEventListener('change', (e) => {
             const index = parseInt(e.target.value);
-            if (!isNaN(index)) updateUI(globalFinancialData, index);
+            if (!isNaN(index)) updateUI(index);
         });
     }
 
@@ -905,7 +979,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             const index = parseInt(monthSelector.value);
-            if (!isNaN(index)) updateUI(globalFinancialData, index);
+            if (!isNaN(index)) updateUI(index);
         });
     }
 
@@ -977,9 +1051,9 @@ document.addEventListener('DOMContentLoaded', () => {
             // CRÍTICO: Disparar resize para D3.js
             window.dispatchEvent(new Event('resize'));
             
-            if (globalFinancialData && globalFinancialData.length > 0 && monthSelector) {
+            if (periodMetadata && periodMetadata.length > 0 && monthSelector) {
                 const idx = parseInt(monthSelector.value);
-                if (!isNaN(idx)) updateUI(globalFinancialData, idx);
+                if (!isNaN(idx)) updateUI(idx);
             }
         });
     });
@@ -1171,38 +1245,11 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Handle window resize for D3 Charts redrawing and Mobile Accordions
-    window.addEventListener('resize', () => {
-        if (globalFinancialData && globalFinancialData.length > 0 && monthSelector) {
+    window.addEventListener('resize', async () => {
+        if (monthSelector) {
             const idx = parseInt(monthSelector.value);
             if (!isNaN(idx)) {
-                // Throttle maybe not strictly needed for this scale, but good practice
-                const rollingData = globalFinancialData.slice(Math.max(0, idx - 11), idx + 1).filter(d => isYear2026(d));
-                renderMarginChart(rollingData);
-                renderCashFlowChart(rollingData);
-                renderWaterfallChart(globalFinancialData, idx);
-                renderMarginTrendChart(globalFinancialData, idx);
-                renderCashBridgeChart(globalFinancialData, idx);
-                renderCovenantGauges(globalFinancialData, idx);
-                
-                // Rebuild Mobile Accordions if crossing breakpoint
-                buildMobileAccordionsFromTable('pnlDetailedTable', 'pnlMobileContainer');
-                buildMobileAccordionsFromTable('balanceTable', 'balanceMobileContainer');
-                buildMobileAccordionsFromTable('covenantTable', 'covenantMobileContainer');
-                buildMobileAccordionsFromTable('cashflowTable', 'cashflowMobileContainer');
-                buildMobileAccordionsFromTable('cfMetricsTable', 'cfMetricsMobileContainer');
-                
-                // Resumen
-                const lastData = globalFinancialData[idx];
-                const kpis = lastData.kpis || { ingresos: 0, ebitda: 0, margen_ebitda: 0 };
-                const categories = (lastData.pnl && lastData.pnl.categorias) ? lastData.pnl.categorias : {};
-                const totalCost = categories["Costo de Ventas"] || 0;
-                buildMobileAccordionsFromTable('tableResumenOperativo', 'resumenOperativoMobileContainer', 'Resumen Operativo', '');
-                buildMobileAccordionsFromTable('tableVentasSegmento', 'ventasSegmentoMobileContainer', 'Segmentos de Venta', formatCurrency(kpis.ingresos));
-                buildMobileAccordionsFromTable('tableCostosSegmento', 'costosSegmentoMobileContainer', 'Desglose de Costos', formatCurrency(totalCost));
-                buildMobileAccordionsFromTable('tableMargenSegmento', 'margenSegmentoMobileContainer', 'Margen Bruto por Segmento', '');
-                const currentOpex = (lastData.pnl && lastData.pnl.opexDetalle) ? Object.values(lastData.pnl.opexDetalle).reduce((acc, val) => acc + val, 0) : 0;
-                buildMobileAccordionsFromTable('tableOpex', 'opexMobileContainer', 'Detalle de Gastos OPEX', formatCurrency(currentOpex));
+                await updateUI(idx);
             }
         }
     });
@@ -1427,44 +1474,31 @@ async function handleFileUpload(e) {
         }
         if (resetUploadBtn) resetUploadBtn.style.display = 'inline-block';
         
-        // Show success, then render
         setTimeout(async () => {
-            // Clear caches to prevent memory leaks and stale data
+            // Clear caches
             window.aiSummaryCache = {};
             window.aiAlertsCache = {};
             window.simSummaryCache = {};
             
-            globalFinancialData = engineResult.data;
             if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
                 console.log("✂️ Poda extrema para estabilidad móvil...");
-                globalFinancialData = globalFinancialData.slice(-6);
+                engineResult.data = engineResult.data.slice(-6);
             }
             
-            // --- GUARDAR JSON PROCESADO EN INDEXEDDB ---
+            // Guardar en disco y limpiar RAM
             try {
-                const CACHE_KEY = 'planeta_azul_engine_result';
-                const db = await new Promise((resolve, reject) => {
-                    const req = indexedDB.open('PlanetaAzulDB', 1);
-                    req.onupgradeneeded = (e) => {
-                        if (!e.target.result.objectStoreNames.contains('finance_cache')) {
-                            e.target.result.createObjectStore('finance_cache');
-                        }
-                    };
-                    req.onsuccess = () => resolve(req.result);
-                    req.onerror = () => reject(req.error);
-                });
-                await new Promise((resolve, reject) => {
-                    const tx = db.transaction('finance_cache', 'readwrite');
-                    tx.objectStore('finance_cache').put({ data: engineResult.data, timestamp: Date.now() }, CACHE_KEY);
-                    tx.oncomplete = resolve;
-                    tx.onerror = reject;
-                });
-                console.log("✅ JSON de carga manual guardado en IndexedDB con éxito.");
+                await saveFinanceRecords(engineResult.data);
+                periodMetadata = engineResult.data.map(d => ({ date: d.date, sortDate: d.sortDate }));
+                
+                engineResult.data = null;
+                globalFinancialData = null;
+                console.log("✅ Carga manual persistida y RAM liberada.");
             } catch (e) {
-                console.warn("⚠️ Error guardando caché manual en IndexedDB:", e);
+                console.error("Error persistiendo datos manuales:", e);
+                alert("Error de almacenamiento local.");
             }
 
-            renderDashboard(globalFinancialData);
+            renderDashboard(periodMetadata);
         }, 500);
 
     } catch (err) {
@@ -1675,18 +1709,17 @@ function createMobileCard(label, headers, vals) {
 }
 
 // Global UI Updater Function
-function renderDashboard(data) {
-    if (!data || data.length === 0) return;
+function renderDashboard(metadataList) {
+    if (!metadataList || metadataList.length === 0) return;
     
     window.handleZeroState();
     
-    // Filtro: No permitir seleccionar datos del 2025 en el dropdown global
-    const filteredForSelector = data.map((d, i) => ({ d, i })).filter(item => isYear2026(item.d));
+    // Filtro: Usamos metadatos para el selector
+    const filteredForSelector = metadataList.map((d, i) => ({ d, i })).filter(item => isYear2026(item.d));
     
     monthSelector.innerHTML = filteredForSelector.map(item => `<option value="${item.i}">${item.d.date || 'Periodo'}</option>`).join('');
     monthSelector.style.display = 'block';
     
-    // Show search input if one of the detailed views is active
     const searchWrapper = document.getElementById('searchContainerWrapper');
     if (searchWrapper) {
         const activeMenu = document.querySelector('.menu-item a.active');
@@ -1696,23 +1729,35 @@ function renderDashboard(data) {
         }
     }
     
-    const lastIdx = filteredForSelector.length > 0 ? filteredForSelector[filteredForSelector.length - 1].i : data.length - 1;
+    const lastIdx = filteredForSelector.length > 0 ? filteredForSelector[filteredForSelector.length - 1].i : metadataList.length - 1;
     monthSelector.value = lastIdx;
     
-    // Yield rendering to prevent main thread blocking on mobile
     setTimeout(() => {
-        updateUI(data, lastIdx);
+        updateUI(lastIdx);
     }, 10);
 }
 
-function updateUI(data, index) {
-    if (!data || !data[index]) return;
-    const curr = data[index];
+async function updateUI(index) {
+    // 1. FETCH ON-DEMAND FROM INDEXEDDB
+    let curr, prev;
+    curr = await getFinanceMonth(index);
+    if (!curr) return;
+
+    // Identificar el anterior operativo (excluyendo el año base 2025 para comparaciones MoM)
+    // Usamos periodMetadata para encontrar el índice anterior que sea 2026
+    const operationalIndices = periodMetadata
+        .map((d, i) => ({ d, i }))
+        .filter(item => isYear2026(item.d));
+    
+    const currIdxInOp = operationalIndices.findIndex(item => item.i === index);
+    const prevIndex = currIdxInOp > 0 ? operationalIndices[currIdxInOp - 1].i : index;
+    prev = await getFinanceMonth(prevIndex);
+    if (!prev) prev = curr;
     
     const isMobile = window.innerWidth < 1024;
     const activeMenu = document.querySelector('.menu-item a.active')?.id || 'menu-resumen';
 
-    // 1. Limpieza de memoria inmediata (Solo en móvil)
+    // 2. Limpieza de memoria inmediata (Solo en móvil)
     if (isMobile) {
         const containers = ['pnlMobileContainer', 'balanceMobileContainer', 'cashflowMobileContainer', 'resumenOperativoMobileContainer'];
         containers.forEach(id => {
@@ -1721,11 +1766,6 @@ function updateUI(data, index) {
         });
     }
 
-    // Identificar el anterior operativo (excluyendo el año base 2025 para comparaciones MoM)
-    const operationalData = data.filter(d => isYear2026(d));
-    const currIdxInOp = operationalData.findIndex(d => d.date === curr.date);
-    const prev = currIdxInOp > 0 ? operationalData[currIdxInOp - 1] : curr;
-    
     // Safety guards for kpis
     const kpis = curr.kpis || { ingresos: 0, ebitda: 0, cashflow: 0, margen_ebitda: 0 };
     const prevKpis = prev.kpis || kpis;
@@ -2020,6 +2060,13 @@ function updateUI(data, index) {
 
     // 3. BLOQUEO MAESTRO: Si es móvil, NO ejecutamos nada de D3.js ni Tablas PC
     if (!isMobile) {
+        // Here we need some data window for charts, we could fetch it if needed.
+        // For simplicity and to match the 'Update Window' logic, we load some neighbours or the full list if !isMobile
+        // Since PC has RAM, we can afford a bit more, but let's be careful.
+        const db = await openDB();
+        const allDataReq = db.transaction('finance_data', 'readonly').objectStore('finance_data').getAll();
+        const data = await new Promise(r => allDataReq.onsuccess = () => r(allDataReq.result));
+
         if (activeMenu === 'menu-kpi') {
             renderKPIDashboard(data, index);
         } else if (activeMenu === 'menu-resumen') {
@@ -2071,6 +2118,41 @@ function updateUI(data, index) {
             }
         }, 150);
     }
+}
+
+// Function to assist mobile refresh by loading partial data if needed
+async function refreshActiveMobileView(menuId, index) {
+    const curr = await getFinanceMonth(index);
+    if (!curr) return;
+    
+    // We only pass the current month to mobile builders since they are atomic cards
+    // If a mobile builder needs more, it should fetch it.
+    // For now, these functions rely on tables being present. 
+    // We already have the logic where Tables are rendered in hidden containers on Desktop.
+    // But since we matamos the tables in BUILDER, we need to ensure the building logic works.
+    
+    // To keep it simple without refactoring every sub-render:
+    // On mobile, we render the Desktop tables briefly then convert them.
+    // Since we are in the 'else' (isMobile), we manually call the table renders but hidden.
+    
+    const fakeDataArray = [];
+    fakeDataArray[index] = curr; 
+
+    if (menuId === 'menu-resumen' || menuId === 'menu-pnl') {
+        renderDetailedPnL(fakeDataArray, index);
+    } else if (menuId === 'menu-balance') {
+        renderBalanceSheet(fakeDataArray, index);
+    } else if (menuId === 'menu-cashflow') {
+        renderCashFlow(fakeDataArray, index);
+    }
+
+    // Now trigger the conversion
+    buildMobileAccordionsFromTable('pnlDetailedTable', 'pnlMobileContainer');
+    buildMobileAccordionsFromTable('balanceTable', 'balanceMobileContainer');
+    buildMobileAccordionsFromTable('covenantTable', 'covenantMobileContainer');
+    buildMobileAccordionsFromTable('cashflowTable', 'cashflowMobileContainer');
+    buildMobileAccordionsFromTable('cfMetricsTable', 'cfMetricsMobileContainer');
+    buildMobileAccordionsFromTable('tableResumenOperativo', 'resumenOperativoMobileContainer', 'Resumen Operativo', '');
 }
 
 /**
@@ -3104,7 +3186,7 @@ function renderKPIDashboard(data, selectedIndex) {
         btnGenerateAI.parentNode.replaceChild(newBtn, btnGenerateAI);
         
         newBtn.addEventListener('click', () => {
-            generateExecutiveSummary(data, selectedIndex);
+            generateExecutiveSummary(selectedIndex);
         });
     }
 }
@@ -4460,11 +4542,11 @@ document.addEventListener('DOMContentLoaded', () => {
         chatMessages.scrollTop = chatMessages.scrollHeight;
     };
 
-    function getDashboardContext() {
-        if (!globalFinancialData || globalFinancialData.length === 0) return "No hay datos financieros cargados.";
+    async function getDashboardContext() {
         const monthSelector = document.getElementById('monthSelector');
-        const idx = monthSelector ? parseInt(monthSelector.value, 10) : globalFinancialData.length - 1;
-        const curr = globalFinancialData[idx || globalFinancialData.length - 1];
+        const idx = monthSelector ? parseInt(monthSelector.value, 10) : 0;
+        const curr = await getFinanceMonth(idx);
+        if (!curr) return "No hay datos financieros cargados.";
 
         return `
         Datos actuales del dashboard al ${curr.date}:
@@ -4489,7 +4571,7 @@ document.addEventListener('DOMContentLoaded', () => {
         appendMessage(question, true);
         aiChatInput.value = '';
 
-        const context = getDashboardContext();
+        const context = await getDashboardContext();
         appendMessage('<i data-lucide="loader" class="spin-icon"></i> Analizando...', false);
         lucide.createIcons();
 
@@ -4566,14 +4648,14 @@ Pregunta: ${question}`;
 
     if (btnRunSim) {
         btnRunSim.addEventListener('click', async () => {
-            if (!globalFinancialData || globalFinancialData.length === 0) {
+            const monthSelector = document.getElementById('monthSelector');
+            const idx = monthSelector ? parseInt(monthSelector.value, 10) : 0;
+            const curr = await getFinanceMonth(idx);
+
+            if (!curr) {
                 alert("Por favor, sube los datos financieros primero.");
                 return;
             }
-
-            const monthSelector = document.getElementById('monthSelector');
-            const idx = monthSelector ? parseInt(monthSelector.value, 10) : globalFinancialData.length - 1;
-            const curr = globalFinancialData[idx || globalFinancialData.length - 1];
 
             // Setup Real values (Base Actual)
             const realIngresos = curr.kpis?.ingresos || 0;
