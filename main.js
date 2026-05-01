@@ -296,7 +296,6 @@ const msalConfig = {
         clientId: import.meta.env.VITE_MSAL_CLIENT_ID || import.meta.env.VITE_MICROSOFT_CLIENT_ID,
         authority: import.meta.env.VITE_MSAL_TENANT_ID ? `https://login.microsoftonline.com/${import.meta.env.VITE_MSAL_TENANT_ID}` : "https://login.microsoftonline.com/common",
         redirectUri: window.location.origin,
-        navigateToLoginRequestUrl: false,
     },
     cache: {
         cacheLocation: "localStorage",
@@ -347,27 +346,28 @@ async function connectM365() {
     }
 }
 
-function showErrorUI(mensaje) {
-    // 1. Detener procesos en segundo plano
-    if (window.stop) window.stop();
-
-    // 2. Limpiar la pantalla y aplicar el nuevo estilo corporativo
-    document.body.innerHTML = `
-        <div style="position:fixed; top:0; left:0; width:100%; height:100%; background:#f3f4f6; display:flex; align-items:center; justify-content:center; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; z-index:999999;">
-            <div style="background:white; padding:40px; border-radius:12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align:center; max-width:450px; width:90%;">
-                <div style="color:#004a99; font-size:50px; margin-bottom:20px;">🔒</div>
-                <h2 style="color:#111827; margin:0 0 10px 0; font-size:1.5rem;">Acceso Restringido</h2>
-                <p style="color:#6b7280; line-height:1.5; margin-bottom:30px;">${mensaje}<br><br>Por favor, contacta al administrador del sistema.</p>
-                
-                <button onclick="sessionStorage.clear(); localStorage.clear(); location.href='/';" 
-                        style="background:#004a99; color:white; border:none; padding:12px 24px; border-radius:6px; font-weight:600; cursor:pointer; width:100%; transition: background 0.2s;">
-                    Cerrar Sesión / Cambiar Cuenta
-                </button>
-                
-                <p style="margin-top:20px; font-size:0.85rem; color:#9ca3af;">Finance Dashboard Pro | Planeta Azul</p>
-            </div>
-        </div>
-    `;
+function showErrorUI(msg) {
+    let errDiv = document.getElementById('critical-error-banner');
+    if (!errDiv) {
+        errDiv = document.createElement('div');
+        errDiv.id = 'critical-error-banner';
+        errDiv.style.position = 'fixed';
+        errDiv.style.top = '50%';
+        errDiv.style.left = '50%';
+        errDiv.style.transform = 'translate(-50%, -50%)';
+        errDiv.style.backgroundColor = '#dc2626';
+        errDiv.style.color = '#fff';
+        errDiv.style.padding = '30px';
+        errDiv.style.borderRadius = '12px';
+        errDiv.style.zIndex = '999999';
+        errDiv.style.boxShadow = '0 25px 50px -12px rgba(0,0,0,0.5)';
+        errDiv.style.textAlign = 'center';
+        errDiv.style.maxWidth = '90%';
+        errDiv.style.width = '400px';
+        errDiv.style.fontFamily = 'system-ui, sans-serif';
+        document.body.appendChild(errDiv);
+    }
+    errDiv.innerHTML = `<h3 style="margin-top:0;font-size:1.5rem;font-weight:700;">Acceso Denegado</h3><p style="font-size:1.1rem;line-height:1.5;margin-bottom:20px;">${msg}</p><button onclick="window.handleMSALLoginFailure(); document.getElementById('critical-error-banner').remove();" style="padding:10px 20px; background:#fff; color:#dc2626; border:none; border-radius:6px; font-weight:bold; cursor:pointer; font-size:1rem;">Entendido</button>`;
 }
 
 async function fetchMasterData(token = null) {
@@ -404,51 +404,25 @@ async function fetchMasterData(token = null) {
     if (loginBtn) loginBtn.style.display = 'none';
 
     try {
-        // --- CACHE (IndexedDB) ---
-        const CACHE_KEY = 'planeta_azul_engine_result';
-        const SYNC_TIMEOUT = 45000;
-        let cachedData = null;
+        // --- INICIO DEL NUEVO BLOQUE DE SINCRONIZACIÓN ---
+        let arrayBuffer;
+        const CACHE_KEY = 'planeta_azul_excel_cache';
+        const SYNC_TIMEOUT = 45000; // 45 segundos para el móvil
 
-        try {
-            const db = await new Promise((resolve, reject) => {
-                const req = indexedDB.open('PlanetaAzulDB', 1);
-                req.onupgradeneeded = (e) => {
-                    if (!e.target.result.objectStoreNames.contains('finance_cache')) {
-                        e.target.result.createObjectStore('finance_cache');
-                    }
-                };
-                req.onsuccess = () => resolve(req.result);
-                req.onerror = () => reject(req.error);
-            });
-            const req = db.transaction('finance_cache', 'readonly').objectStore('finance_cache').get(CACHE_KEY);
-            cachedData = await new Promise((resolve) => {
-                req.onsuccess = () => {
-                    const result = req.result;
-                    // Limpieza automática si tienen > 24 horas (24 * 60 * 60 * 1000 = 86400000)
-                    if (result && result.timestamp && Date.now() - result.timestamp < 86400000) {
-                        resolve(result.data);
-                    } else {
-                        resolve(null);
-                    }
-                };
-                req.onerror = () => resolve(null);
-            });
-        } catch (e) {
-            console.warn("⚠️ Error leyendo caché de IndexedDB:", e);
-        }
-
-        if (cachedData) {
-            console.log("⚡ Datos procesados encontrados en caché. Cargando vista previa rápida...");
-            globalFinancialData = cachedData;
-            renderDashboard(globalFinancialData);
-            if (loader) loader.style.display = 'none';
-            if (statusEl) statusEl.innerHTML = "✅ Caché local listo (sincronizando en fondo...)";
+        // 1. INTENTO DE CARGA INSTANTÁNEA DESDE CACHÉ
+        const cachedFile = localStorage.getItem(CACHE_KEY);
+        if (cachedFile) {
+            console.log("⚡ Datos encontrados en caché. Cargando vista previa...");
+            try {
+                arrayBuffer = base64ToArrayBuffer(cachedFile);
+            } catch (e) {
+                console.warn("Error decodificando caché:", e);
+            }
         }
 
         // 2. SINCRONIZACIÓN CON TIMEOUT (Microsoft o Proxy)
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), SYNC_TIMEOUT);
-        let arrayBuffer = null;
 
         try {
             if (token) {
@@ -462,31 +436,37 @@ async function fetchMasterData(token = null) {
                     signal: controller.signal
                 });
 
-                if (!req.ok) {
-                    if (req.status === 401 || req.status === 403 || req.status === 404) {
-                        showErrorUI("Tu cuenta no tiene permisos para acceder a los datos financieros de Planeta Azul.");
-                        if (loader) loader.style.display = 'none';
-                        return; // VITAL para no reiniciar app
-                    }
-                    throw new Error(`Error de servidor: ${req.status}`);
+                if (req.status === 401 || req.status === 403 || req.status === 404) {
+                    showErrorUI("No tienes acceso al archivo fuente. Comunícate con el administrador.");
+                    if (loader) loader.style.display = 'none';
+                    return; // VITAL para no reiniciar app
                 }
-                
-                arrayBuffer = await req.arrayBuffer();
+
+                if (req.ok) {
+                    arrayBuffer = await req.arrayBuffer();
+                    // Guardar en caché para la próxima vez
+                    const base64Data = arrayBufferToBase64(arrayBuffer);
+                    localStorage.setItem(CACHE_KEY, base64Data);
+                    console.log("✅ Caché actualizado.");
+                } else {
+                    throw new Error(`HTTP Error: ${req.status}`);
+                }
             } else {
                 // Fallback al proxy si no hay token
                 console.log("🔄 Intentando sincronización vía Proxy...");
                 const response = await fetch("/api/downloadSync", { signal: controller.signal });
                 
-                if (!response.ok) {
-                    if (response.status === 401 || response.status === 403 || response.status === 404) {
-                        showErrorUI("Tu cuenta no tiene permisos para acceder a los datos financieros de Planeta Azul.");
-                        if (loader) loader.style.display = 'none';
-                        return; // VITAL para no reiniciar app
-                    }
-                    throw new Error(`Error de servidor: ${response.status}`);
+                if (response.status === 401 || response.status === 403 || response.status === 404) {
+                    showErrorUI("No tienes acceso al archivo fuente. Comunícate con el administrador.");
+                    if (loader) loader.style.display = 'none';
+                    return; // VITAL para no reiniciar app
                 }
 
-                arrayBuffer = await response.arrayBuffer();
+                if (response.ok) {
+                    arrayBuffer = await response.arrayBuffer();
+                } else {
+                    throw new Error(`HTTP Error: ${response.status}`);
+                }
             }
             clearTimeout(timeoutId);
         } catch (err) {
@@ -494,7 +474,7 @@ async function fetchMasterData(token = null) {
                 console.warn("⚠️ Tiempo de espera agotado. Se mantendrán los datos del caché.");
             } else {
                 console.error("Error en la descarga:", err);
-                if (err.message && (err.message.includes('401') || err.message.includes('403') || err.message.includes('404') || err.message.includes("Acceso denegado") || err.message.toLowerCase().includes("denied"))) {
+                if (err.message && (err.message.includes('401') || err.message.includes('403') || err.message.includes('404') || err.message.includes("Acceso denegado"))) {
                     throw err;
                 }
             }
@@ -502,12 +482,6 @@ async function fetchMasterData(token = null) {
         // --- FIN DEL BLOQUE DE SINCRONIZACIÓN ---
 
         if (!arrayBuffer) {
-            if (cachedData) {
-                // Si no se pudo obtener de red pero tenemos caché, silenciamos el error y terminamos la promesa
-                console.warn("⚠️ No se pudo bajar el archivo nuevo, utilizando datos de caché.");
-                if (statusEl) statusEl.innerHTML = "✅ Conectado (Modo Sin Conexión)";
-                return;
-            }
             throw new Error("No se pudo obtener el archivo fuente y no hay datos en caché. Verifica tu conexión o contáctate con el administrador.");
         }
 
@@ -516,7 +490,7 @@ async function fetchMasterData(token = null) {
             worker.onmessage = (e) => {
                 const data = e.data;
                 if (data.type === 'progress') {
-                    if (loader && !cachedData) { // Solo si no hay preview
+                    if (loader) {
                         loader.innerHTML = `<div class="spinner"></div><div id="loaderStatusText" style="margin-top:16px; font-weight: 500;">${data.message}</div>`;
                     }
                 } else if (data.type === 'error') {
@@ -535,29 +509,6 @@ async function fetchMasterData(token = null) {
             worker.postMessage({ buffer: arrayBuffer }, [arrayBuffer]);
         });
         arrayBuffer = null;
-        
-        // --- GUARDAR JSON PROCESADO EN INDEXEDDB ---
-        try {
-            const db = await new Promise((resolve, reject) => {
-                const req = indexedDB.open('PlanetaAzulDB', 1);
-                req.onupgradeneeded = (e) => {
-                    if (!e.target.result.objectStoreNames.contains('finance_cache')) {
-                        e.target.result.createObjectStore('finance_cache');
-                    }
-                };
-                req.onsuccess = () => resolve(req.result);
-                req.onerror = () => reject(req.error);
-            });
-            await new Promise((resolve, reject) => {
-                const tx = db.transaction('finance_cache', 'readwrite');
-                tx.objectStore('finance_cache').put({ data: engineResult.data, timestamp: Date.now() }, CACHE_KEY);
-                tx.oncomplete = resolve;
-                tx.onerror = reject;
-            });
-            console.log("✅ JSON procesado guardado en IndexedDB con éxito.");
-        } catch (e) {
-            console.warn("⚠️ Error guardando caché en IndexedDB:", e);
-        }
         
         if (statusEl) {
             statusEl.innerHTML = "✅ Sincronizado con O365";
@@ -579,8 +530,8 @@ async function fetchMasterData(token = null) {
         if (loader) loader.style.display = 'none';
         
     } catch (error) {
-        if (error.message && (error.message.includes("403") || error.message.includes("404") || error.message.includes("401") || error.message.includes("Forbidden") || error.message.includes("Not Found") || error.message.includes("Acceso denegado") || error.message.toLowerCase().includes("denied"))) {
-            showErrorUI("Acceso restringido al archivo fuente.");
+        if (error.message && (error.message.includes("403") || error.message.includes("404") || error.message.includes("401") || error.message.includes("Forbidden") || error.message.includes("Not Found") || error.message.includes("Acceso denegado"))) {
+            showErrorUI('No tienes permisos para leer el archivo fuente en SharePoint/OneDrive. Comunícate con el administrador.');
             if (statusEl) {
                 statusEl.style.background = '#fee2e2';
                 statusEl.style.color = '#991b1b';
@@ -588,6 +539,7 @@ async function fetchMasterData(token = null) {
                 statusEl.innerHTML = "⚠️ Acceso denegado. Presione 'Conectar Office 365' con otra cuenta o use carga manual.";
             }
             if (loader) loader.style.display = 'none';
+            if (window.handleZeroState) window.handleZeroState();
             return; // Aborta la ejecución para evitar que MSAL u otro flujo redireccione por accidente
         } else if (error.message && error.message.includes("El enlace es privado")) {
             console.warn("Auto-sync fallback triggered (expected):", error.message);
@@ -1424,38 +1376,13 @@ async function handleFileUpload(e) {
         if (resetUploadBtn) resetUploadBtn.style.display = 'inline-block';
         
         // Show success, then render
-        setTimeout(async () => {
+        setTimeout(() => {
             // Clear caches to prevent memory leaks and stale data
             window.aiSummaryCache = {};
             window.aiAlertsCache = {};
             window.simSummaryCache = {};
             
             globalFinancialData = engineResult.data;
-            
-            // --- GUARDAR JSON PROCESADO EN INDEXEDDB ---
-            try {
-                const CACHE_KEY = 'planeta_azul_engine_result';
-                const db = await new Promise((resolve, reject) => {
-                    const req = indexedDB.open('PlanetaAzulDB', 1);
-                    req.onupgradeneeded = (e) => {
-                        if (!e.target.result.objectStoreNames.contains('finance_cache')) {
-                            e.target.result.createObjectStore('finance_cache');
-                        }
-                    };
-                    req.onsuccess = () => resolve(req.result);
-                    req.onerror = () => reject(req.error);
-                });
-                await new Promise((resolve, reject) => {
-                    const tx = db.transaction('finance_cache', 'readwrite');
-                    tx.objectStore('finance_cache').put({ data: engineResult.data, timestamp: Date.now() }, CACHE_KEY);
-                    tx.oncomplete = resolve;
-                    tx.onerror = reject;
-                });
-                console.log("✅ JSON de carga manual guardado en IndexedDB con éxito.");
-            } catch (e) {
-                console.warn("⚠️ Error guardando caché manual en IndexedDB:", e);
-            }
-
             renderDashboard(globalFinancialData);
         }, 500);
 
