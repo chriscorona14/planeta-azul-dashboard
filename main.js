@@ -1167,43 +1167,42 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- OPTIMIZACIÓN MÓVIL: Resize con Debounce ---
-let resizeTimeout;
-window.addEventListener('resize', () => {
-    clearTimeout(resizeTimeout);
-    resizeTimeout = setTimeout(() => {
-        if (globalFinancialData && globalFinancialData.length > 0) {
+    // Handle window resize for D3 Charts redrawing and Mobile Accordions
+    window.addEventListener('resize', () => {
+        if (globalFinancialData && globalFinancialData.length > 0 && monthSelector) {
             const idx = parseInt(monthSelector.value);
             if (!isNaN(idx)) {
-                // Solo redibujamos gráficos si la pestaña lo requiere
-                window.dispatchEvent(new Event('resize-charts'));
+                // Throttle maybe not strictly needed for this scale, but good practice
+                const rollingData = globalFinancialData.slice(Math.max(0, idx - 11), idx + 1).filter(d => isYear2026(d));
+                renderMarginChart(rollingData);
+                renderCashFlowChart(rollingData);
+                renderWaterfallChart(globalFinancialData, idx);
+                renderMarginTrendChart(globalFinancialData, idx);
+                renderCashBridgeChart(globalFinancialData, idx);
+                renderCovenantGauges(globalFinancialData, idx);
                 
-                // Solo reconstruimos lo que el usuario está viendo
-                const activeMenu = document.querySelector('.menu-item a.active')?.id;
-                if (activeMenu) {
-                    console.log("📱 Refrescando vista activa:", activeMenu);
-                    refreshActiveMobileView(activeMenu, idx);
-                }
+                // Rebuild Mobile Accordions if crossing breakpoint
+                buildMobileAccordionsFromTable('pnlDetailedTable', 'pnlMobileContainer');
+                buildMobileAccordionsFromTable('balanceTable', 'balanceMobileContainer');
+                buildMobileAccordionsFromTable('covenantTable', 'covenantMobileContainer');
+                buildMobileAccordionsFromTable('cashflowTable', 'cashflowMobileContainer');
+                buildMobileAccordionsFromTable('cfMetricsTable', 'cfMetricsMobileContainer');
+                
+                // Resumen
+                const lastData = globalFinancialData[idx];
+                const kpis = lastData.kpis || { ingresos: 0, ebitda: 0, margen_ebitda: 0 };
+                const categories = (lastData.pnl && lastData.pnl.categorias) ? lastData.pnl.categorias : {};
+                const totalCost = categories["Costo de Ventas"] || 0;
+                buildMobileAccordionsFromTable('tableResumenOperativo', 'resumenOperativoMobileContainer', 'Resumen Operativo', '');
+                buildMobileAccordionsFromTable('tableVentasSegmento', 'ventasSegmentoMobileContainer', 'Segmentos de Venta', formatCurrency(kpis.ingresos));
+                buildMobileAccordionsFromTable('tableCostosSegmento', 'costosSegmentoMobileContainer', 'Desglose de Costos', formatCurrency(totalCost));
+                buildMobileAccordionsFromTable('tableMargenSegmento', 'margenSegmentoMobileContainer', 'Margen Bruto por Segmento', '');
+                const currentOpex = (lastData.pnl && lastData.pnl.opexDetalle) ? Object.values(lastData.pnl.opexDetalle).reduce((acc, val) => acc + val, 0) : 0;
+                buildMobileAccordionsFromTable('tableOpex', 'opexMobileContainer', 'Detalle de Gastos OPEX', formatCurrency(currentOpex));
             }
         }
-    }, 300); // Espera a que el usuario deje de mover el dedo
+    });
 });
-
-// Esta función debe ir FUERA del event listener de resize
-function refreshActiveMobileView(menuId, idx) {
-    if (window.innerWidth >= 1024) return;
-    
-    if (menuId === 'menu-pnl') buildMobileAccordionsFromTable('pnlDetailedTable', 'pnlMobileContainer');
-    if (menuId === 'menu-balance') buildMobileAccordionsFromTable('balanceTable', 'balanceMobileContainer');
-    if (menuId === 'menu-cashflow') {
-        buildMobileAccordionsFromTable('cashflowTable', 'cashflowMobileContainer');
-        buildMobileAccordionsFromTable('cfMetricsTable', 'cfMetricsMobileContainer');
-    }
-    if (menuId === 'menu-resumen') {
-        buildMobileAccordionsFromTable('tableResumenOperativo', 'resumenOperativoMobileContainer');
-        buildMobileAccordionsFromTable('tableVentasSegmento', 'ventasSegmentoMobileContainer');
-    }
-}
 
 function exportToExcelSuite(data) {
     const wb = XLSX.utils.book_new();
@@ -1696,42 +1695,30 @@ function renderDashboard(data) {
 function updateUI(data, index) {
     if (!data || !data[index]) return;
     const curr = data[index];
-    const activeMenu = document.querySelector('.menu-item a.active')?.id || 'menu-resumen';
     
-    // 1. Elementos comunes (Siempre ligeros)
-    document.getElementById('kpi-ventas').textContent = formatCurrency(curr.kpis?.ingresos || 0);
-    document.getElementById('kpi-ebitda').textContent = formatCurrency(curr.kpis?.ebitda || 0);
-    document.getElementById('periodLabel').textContent = `Periodo de Análisis: ${curr.date || 'Actual'}`;
+    // Identificar el anterior operativo (excluyendo el año base 2025 para comparaciones MoM)
+    const operationalData = data.filter(d => isYear2026(d));
+    const currIdxInOp = operationalData.findIndex(d => d.date === curr.date);
+    const prev = currIdxInOp > 0 ? operationalData[currIdxInOp - 1] : curr;
+    
+    // Safety guards for kpis
+    const kpis = curr.kpis || { ingresos: 0, ebitda: 0, cashflow: 0, margen_ebitda: 0 };
+    const prevKpis = prev.kpis || kpis;
 
-    // 2. Renderizado SELECTIVO (Solo lo que el usuario está viendo)
-    // Esto ahorra un 70% de uso de CPU en móviles
-    if (activeMenu === 'menu-kpi') {
-        renderKPIDashboard(data, index);
-    } else if (activeMenu === 'menu-resumen') {
-        renderDetailedPnL(data, index); // Base para el resumen
-        renderWaterfallChart(data, index);
-    } else if (activeMenu === 'menu-pnl') {
-        renderDetailedPnL(data, index);
-        renderMarginTrendChart(data, index);
-    } else if (activeMenu === 'menu-balance') {
-        renderBalanceSheet(data, index);
-        renderCovenantGauges(data, index);
-    } else if (activeMenu === 'menu-cashflow') {
-        renderCashFlow(data, index);
-        renderCashBridgeChart(data, index);
-    }
-
-    // 3. Generación de acordeones móvil (Solo la vista actual)
-    setTimeout(() => {
-        refreshActiveMobileView(activeMenu, index);
-        
-        // El buscador solo filtra lo que ya está renderizado
-        const searchInput = document.getElementById('accountSearch');
-        if (searchInput?.value.trim() !== '') {
-            searchInput.dispatchEvent(new Event('input'));
+    // Integrity Badge logic
+    const integrityBadge = document.getElementById('integrityBadge');
+    if (integrityBadge && curr.integrity) {
+        integrityBadge.style.display = 'flex';
+        if (curr.integrity.isBroken) {
+            integrityBadge.className = 'integrity-fail';
+            integrityBadge.innerHTML = `⚠️ Ajuste Detectado (Abs: ${formatCurrency(curr.integrity.gap)})`;
+            integrityBadge.title = "La suma de Ingresos - Costos - Gastos no coincide con el EBITDA reportado por un margen > 1%";
+        } else {
+            integrityBadge.className = 'integrity-ok';
+            integrityBadge.innerHTML = `✓ P&L Cuadrado`;
+            integrityBadge.title = "Integridad de datos verificada operativamente";
         }
-    }, 100);
-}
+    }
 
     document.getElementById('kpi-ventas').textContent = formatCurrency(kpis.ingresos);
     document.getElementById('kpi-ebitda').textContent = formatCurrency(kpis.ebitda);
