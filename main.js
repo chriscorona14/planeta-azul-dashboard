@@ -576,8 +576,8 @@ async function fetchMasterData(token = null) {
         
         globalFinancialData = engineResult.data;
         if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
-            console.log("✂️ Podando datos para ahorro de RAM en móvil...");
-            globalFinancialData = globalFinancialData.slice(-12);
+            console.log("✂️ Poda extrema para estabilidad móvil...");
+            globalFinancialData = globalFinancialData.slice(-6);
         }
         renderDashboard(globalFinancialData);
         if (loader) loader.style.display = 'none';
@@ -1436,8 +1436,8 @@ async function handleFileUpload(e) {
             
             globalFinancialData = engineResult.data;
             if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
-                console.log("✂️ Podando datos para ahorro de RAM en móvil...");
-                globalFinancialData = globalFinancialData.slice(-12);
+                console.log("✂️ Poda extrema para estabilidad móvil...");
+                globalFinancialData = globalFinancialData.slice(-6);
             }
             
             // --- GUARDAR JSON PROCESADO EN INDEXEDDB ---
@@ -2018,51 +2018,49 @@ function updateUI(data, index) {
         }
     }
 
-    // 3. Renderizado bajo demanda (Lazy Loading)
-    // Solo ejecutamos las funciones pesadas según la pestaña activa
-    if (activeMenu === 'menu-kpi') {
-        renderKPIDashboard(data, index);
-    } else if (activeMenu === 'menu-resumen') {
-        if (!isMobile) renderDetailedPnL(data, index);
-        renderWaterfallChart(data, index);
-    } else if (activeMenu === 'menu-pnl') {
-        if (!isMobile) renderDetailedPnL(data, index);
-        renderMarginTrendChart(data, index);
-    } else if (activeMenu === 'menu-balance') {
-        if (!isMobile) renderBalanceSheet(data, index);
-        let covenantsContainer = document.getElementById('covenantsContainer');
-        if (!covenantsContainer) {
-            covenantsContainer = document.createElement('div');
-            covenantsContainer.id = 'covenantsContainer';
-            covenantsContainer.style.display = 'flex';
-            covenantsContainer.style.flexDirection = 'row';
-            covenantsContainer.style.flexWrap = 'wrap';
-            covenantsContainer.style.marginTop = '10px';
-            covenantsContainer.style.marginBottom = '20px';
-            covenantsContainer.style.gap = '15px';
-            const alertsSection = document.getElementById('dashboard-alerts-section');
-            if (alertsSection) alertsSection.parentNode.insertBefore(covenantsContainer, alertsSection);
-        }
-        renderCovenantGauges(data, index);
-    } else if (activeMenu === 'menu-cashflow') {
-        if (!isMobile) renderCashFlow(data, index);
-        renderCashBridgeChart(data, index);
-    } else {
-        // Fallback or explicit trigger for remaining views
-        if (!isMobile) {
+    // 3. BLOQUEO MAESTRO: Si es móvil, NO ejecutamos nada de D3.js ni Tablas PC
+    if (!isMobile) {
+        if (activeMenu === 'menu-kpi') {
+            renderKPIDashboard(data, index);
+        } else if (activeMenu === 'menu-resumen') {
+            renderDetailedPnL(data, index);
+            renderWaterfallChart(data, index);
+        } else if (activeMenu === 'menu-pnl') {
+            renderDetailedPnL(data, index);
+            renderMarginTrendChart(data, index);
+        } else if (activeMenu === 'menu-balance') {
+            renderBalanceSheet(data, index);
+            
+            let covenantsContainer = document.getElementById('covenantsContainer');
+            if (!covenantsContainer) {
+                covenantsContainer = document.createElement('div');
+                covenantsContainer.id = 'covenantsContainer';
+                covenantsContainer.style.display = 'flex';
+                covenantsContainer.style.flexDirection = 'row';
+                covenantsContainer.style.flexWrap = 'wrap';
+                covenantsContainer.style.marginTop = '10px';
+                covenantsContainer.style.marginBottom = '20px';
+                covenantsContainer.style.gap = '15px';
+                const alertsSection = document.getElementById('dashboard-alerts-section');
+                if (alertsSection) alertsSection.parentNode.insertBefore(covenantsContainer, alertsSection);
+            }
+            renderCovenantGauges(data, index);
+            
+        } else if (activeMenu === 'menu-cashflow') {
+            renderCashFlow(data, index);
+            renderCashBridgeChart(data, index);
+        } else {
             renderDetailedPnL(data, index);
             renderBalanceSheet(data, index);
             renderCashFlow(data, index);
+            renderKPIDashboard(data, index);
+            renderEstadosFinancieros(data, index);
+            renderWaterfallChart(data, index);
+            renderMarginTrendChart(data, index);
+            renderCashBridgeChart(data, index);
         }
-        renderKPIDashboard(data, index);
-        renderEstadosFinancieros(data, index);
-        renderWaterfallChart(data, index);
-        renderMarginTrendChart(data, index);
-        renderCashBridgeChart(data, index);
-    }
-
-    // 4. Generación de vista móvil
-    if (isMobile) {
+    } else {
+        // MODO MÓVIL: Solo texto y acordeones
         setTimeout(() => {
             refreshActiveMobileView(activeMenu, index);
             
