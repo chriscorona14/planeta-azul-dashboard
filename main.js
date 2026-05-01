@@ -391,13 +391,16 @@ async function fetchMasterData(token = null) {
     const viewContainers = document.querySelectorAll('.view-container');
     const dropZone = document.getElementById('dropZone');
     
-    // Oculta los gráficos y la zona de drop mientras carga
-    viewContainers.forEach(v => v.style.display = 'none');
-    if (dropZone) dropZone.style.display = 'none';
+    const isMagicLoaded = globalFinancialData && globalFinancialData.length > 0;
 
-    if (loader) {
-        loader.innerHTML = '<div class="spinner"></div><div style="margin-top:16px; font-weight: 500;">⏳ Sincronizando datos con Planeta Azul...</div>';
-        loader.style.display = 'flex';
+    if (!isMagicLoaded) {
+        viewContainers.forEach(v => v.style.display = 'none');
+        if (dropZone) dropZone.style.display = 'none';
+
+        if (loader) {
+            loader.innerHTML = '<div class="spinner"></div><div style="margin-top:16px; font-weight: 500;">⏳ Sincronizando datos con Planeta Azul...</div>';
+            loader.style.display = 'flex';
+        }
     }
     
     const loginBtn = document.getElementById('loginM365Btn');
@@ -1673,6 +1676,9 @@ function buildMobileAccordionsFromTable(tableId, containerId, customTitle = null
     });
 
     flushGroup(); // flush remaining
+    
+    // RAM Clean up: Clear the DOM of the table to prevent browser collapse
+    table.innerHTML = '';
     
     if (html === '') {
        container.innerHTML = '<div style="padding:20px; text-align:center; font-size:12px; color:var(--text-secondary);">No hay datos formatados para mostrar.</div>';
