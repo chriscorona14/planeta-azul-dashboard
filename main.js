@@ -1632,13 +1632,19 @@ function buildMobileAccordionsFromTable(tableId, containerId, customTitle = null
     table.innerHTML = ''; 
 }
 
+/**
+ * 🚀 UPDATE UI (Versión Limpia y Protegida)
+ */
 function updateUI(data, index) {
     if (!data || !data[index]) return;
+    
     const isMobile = window.innerWidth < 1024;
     const curr = data[index];
+    const prev = data[index - 1] || curr; // ✅ Tu fix: Evita undefined en el primer mes
+    const kpis = curr.kpis || {};
     const activeMenu = document.querySelector('.menu-item a.active')?.id || 'menu-resumen';
 
-    // 1. Limpieza de memoria (Vistas Zombis)
+    // 1. Limpieza de memoria inmediata (Solo en móvil)
     if (isMobile) {
         const containers = ['pnlMobileContainer', 'balanceMobileContainer', 'cashflowMobileContainer', 'resumenOperativoMobileContainer'];
         containers.forEach(id => {
@@ -1647,12 +1653,17 @@ function updateUI(data, index) {
         });
     }
 
-    // 2. Datos básicos
-    document.getElementById('kpi-ventas').textContent = formatCurrency(curr.kpis?.ingresos || 0);
-    document.getElementById('kpi-ebitda').textContent = formatCurrency(curr.kpis?.ebitda || 0);
-    document.getElementById('periodLabel').textContent = `Periodo: ${curr.date || 'Actual'}`;
+    // 2. Actualización de KPIs Globales (Ahora protegidos dentro del scope)
+    const vEl = document.getElementById('kpi-ventas');
+    const eEl = document.getElementById('kpi-ebitda');
+    if (vEl) vEl.textContent = formatCurrency(kpis.ingresos || 0);
+    if (eEl) eEl.textContent = formatCurrency(kpis.ebitda || 0);
+    
+    const pLabel = document.getElementById('periodLabel');
+    if (pLabel) pLabel.textContent = `Periodo: ${curr.date || 'Actual'}`;
 
-    // 3. Renderizado Condicional
+    // 3. Renderizado bajo demanda (Lazy Loading)
+    // Solo ejecutamos las funciones pesadas según la pestaña activa
     if (activeMenu === 'menu-kpi') {
         renderKPIDashboard(data, index);
     } else if (activeMenu === 'menu-resumen') {
@@ -1663,12 +1674,13 @@ function updateUI(data, index) {
         renderMarginTrendChart(data, index);
     } else if (activeMenu === 'menu-balance') {
         if (!isMobile) renderBalanceSheet(data, index);
+        renderCovenantGauges(data, index);
     } else if (activeMenu === 'menu-cashflow') {
         if (!isMobile) renderCashFlow(data, index);
         renderCashBridgeChart(data, index);
     }
 
-    // 4. Acordeones Móvil
+    // 4. Generación de vista móvil
     if (isMobile) {
         setTimeout(() => {
             refreshActiveMobileView(activeMenu, index);
