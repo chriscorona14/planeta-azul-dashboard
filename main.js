@@ -407,22 +407,24 @@ async function fetchMasterData(token = null) {
         
         if (loader) {
             loader.innerHTML = `
-                <div style="width: 280px; text-align: center;">
-                    <div class="spinner" style="margin: 0 auto; margin-bottom: 16px;"></div>
-                    <div id="loadingText" style="font-weight: 500; font-size: 14px; text-shadow: none; color: var(--text-primary); margin-bottom: 12px;">⏳ Conectando con Planeta Azul...</div>
-                    <div style="width: 100%; background: #e2e8f0; border-radius: 4px; height: 6px; overflow: hidden;">
-                        <div id="progressBar" style="width: 10%; height: 100%; background: var(--primary); transition: width 0.3s ease;"></div>
+                <div style="background: white; padding: 40px; border-radius: 16px; box-shadow: var(--shadow-lg); width: 320px; text-align: center; border: 1px solid var(--border);">
+                    <i data-lucide="loader" class="spin-icon" style="width: 48px; height: 48px; color: var(--primary); margin: 0 auto; margin-bottom: 20px; display: block;"></i>
+                    <h4 style="font-size: 1.1rem; color: var(--text-primary); margin-bottom: 12px; font-weight: 600;">Sincronizando con M365...</h4>
+                    <div style="width: 100%; height: 8px; background: #eef2f5; border-radius: 4px; overflow: hidden; margin-bottom: 12px;">
+                        <div id="progressBar" style="width: 0%; height: 100%; background: var(--primary); transition: width 0.3s ease;"></div>
                     </div>
+                    <p id="loadingText" style="font-size: 0.9rem; color: var(--text-secondary); margin: 0;">Conectando...</p>
                 </div>
             `;
             loader.style.display = 'flex';
+            if (window.lucide) window.lucide.createIcons();
 
             // Animación suave de progreso para la etapa de red
             if (window._m365Interval) clearInterval(window._m365Interval);
-            window._m365Progress = 10;
+            window._m365Progress = 5;
             window._m365Interval = setInterval(() => {
-                if (window._m365Progress < 40) {
-                    window._m365Progress += Math.random() * 3 + 1; // Crece poco a poco
+                if (window._m365Progress < 45) {
+                    window._m365Progress += Math.random() * 4 + 1; // Crece poco a poco
                     const pb = document.getElementById('progressBar');
                     if (pb) pb.style.width = `${window._m365Progress}%`;
                 }
@@ -528,11 +530,18 @@ async function fetchMasterData(token = null) {
 
     } catch (error) {
         console.error("Error en sincronización:", error);
+        if (window._m365Interval) clearInterval(window._m365Interval);
+        
         if (loader && !window.isMagicLoaded) loader.style.display = 'none';
         if (statusEl) {
             statusEl.style.background = '#fee2e2';
             statusEl.style.color = '#991b1b';
             statusEl.innerHTML = "⚠️ Sincronización fallida.";
+        }
+        
+        // Si falló y no tenemos caché, devolvemos a O al usuario para que no quede en pantalla blanca fantasma
+        if (!window.isMagicLoaded) {
+            window.handleZeroState();
         }
     }
 }
