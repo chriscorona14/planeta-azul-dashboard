@@ -1559,9 +1559,10 @@ function showError(msg) {
  */
 function buildMobileAccordionsFromTable(tableId, containerId, customTitle = null, customSummary = null) {
     const table = document.getElementById(tableId);
+    if (!table) return;
+    const isMobile = window.innerWidth < 768;
     const container = document.getElementById(containerId);
-    if (!table || !container) return;
-    const isMobile = window.innerWidth < 1024;
+    if(!container) return;
 
     if (!isMobile) {
         table.style.display = '';
@@ -1569,21 +1570,14 @@ function buildMobileAccordionsFromTable(tableId, containerId, customTitle = null
         return;
     }
 
-    // Proceso de creación
+    // --- INSERTAR AQUÍ: PASO 3 (FRAGMENTACIÓN) ---
+    // Obtenemos las filas pero limitamos la cantidad en móviles para evitar colapso de RAM
     let rows = Array.from(table.querySelectorAll('tbody tr'));
-    if (tableId === 'pnlDetailedTable' && rows.length > 80) { // Reducimos a 80 para más seguridad
-        rows = rows.slice(0, 80); 
+    
+    if (tableId === 'pnlDetailedTable' && rows.length > 100) {
+        console.warn("⚠️ Tabla P&L masiva detectada. Limitando a 100 filas para evitar crash en móvil.");
+        rows = rows.slice(0, 100); 
     }
-
-    // ... (aquí va tu lógica actual de generar el HTML del acordeón) ...
-    // Asegúrate de mantener la lógica de 'createMobileCard' que ya tienes.
-
-    // --- EL TRUCO FINAL ---
-    // Una vez que el contenedor móvil tiene los datos, vaciamos la tabla original 
-    // para que el móvil no tenga que mantener 1000 nodos de texto invisibles.
-    table.innerHTML = ''; 
-    console.log(`🧹 RAM Limpiada: Tabla ${tableId} vaciada tras generar vista móvil.`);
-}
 
     // Determine if table is inside a section or just bare
     table.style.setProperty('display', 'none', 'important');
@@ -1716,17 +1710,18 @@ function renderDashboard(data) {
 
 function updateUI(data, index) {
     if (!data || !data[index]) return;
-    const isMobile = window.innerWidth < 1024;
     const curr = data[index];
     const activeMenu = document.querySelector('.menu-item a.active')?.id || 'menu-resumen';
+    const isMobile = window.innerWidth < 1024;
 
     // 1. Limpieza de "Vistas Zombis" (SOLO EN MÓVIL)
+    // Borramos el contenido de lo que NO estamos viendo para liberar RAM
     if (isMobile) {
         const containers = ['pnlMobileContainer', 'balanceMobileContainer', 'cashflowMobileContainer', 'resumenOperativoMobileContainer'];
         containers.forEach(id => {
             const el = document.getElementById(id);
             if (el && !el.closest('.view-container').classList.contains('active')) {
-                el.innerHTML = ''; // Borramos físicamente el HTML para liberar RAM
+                el.innerHTML = ''; // Liberamos la memoria de los nodos DOM
             }
         });
     }
@@ -1736,35 +1731,24 @@ function updateUI(data, index) {
     document.getElementById('kpi-ebitda').textContent = formatCurrency(curr.kpis?.ebitda || 0);
     document.getElementById('periodLabel').textContent = `Periodo: ${curr.date || 'Actual'}`;
 
-    // 3. RENDERIZADO BAJO DEMANDA CON BLOQUEO DE ESCRITORIO
-    if (activeMenu === 'menu-kpi') {
-        renderKPIDashboard(data, index);
-    } else if (activeMenu === 'menu-resumen') {
-        if (!isMobile) renderDetailedPnL(data, index); // Bloqueado en móvil
+    // 3. Renderizado bajo demanda (Lazy Loading)
+    if (activeMenu === 'menu-resumen') {
+        renderDetailedPnL(data, index); 
         renderWaterfallChart(data, index);
     } else if (activeMenu === 'menu-pnl') {
-        if (!isMobile) renderDetailedPnL(data, index); // Bloqueado en móvil
+        renderDetailedPnL(data, index);
         renderMarginTrendChart(data, index);
     } else if (activeMenu === 'menu-balance') {
-        if (!isMobile) renderBalanceSheet(data, index); // Bloqueado en móvil
-        renderCovenantGauges(data, index);
+        renderBalanceSheet(data, index);
     } else if (activeMenu === 'menu-cashflow') {
-        if (!isMobile) renderCashFlow(data, index); // Bloqueado en móvil
+        renderCashFlow(data, index);
         renderCashBridgeChart(data, index);
     }
 
-    // 4. Generación de vista móvil (Solo la necesaria)
-    if (isMobile) {
-        setTimeout(() => {
-            refreshActiveMobileView(activeMenu, index);
-            
-            // Refrescar buscador si hay algo escrito
-            const searchInput = document.getElementById('accountSearch');
-            if (searchInput?.value.trim() !== '') {
-                searchInput.dispatchEvent(new Event('input'));
-            }
-        }, 150);
-    }
+    // 4. Acordeones (Solo si es móvil y con un pequeño delay para dejar respirar a la CPU)
+    setTimeout(() => {
+        refreshActiveMobileView(activeMenu, index);
+    }, 200);
 }
 
     document.getElementById('kpi-ventas').textContent = formatCurrency(kpis.ingresos);
