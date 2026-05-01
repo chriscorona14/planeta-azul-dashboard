@@ -381,19 +381,15 @@ async function fetchMasterData(token = null) {
         sidebarSyncText.style.color = 'var(--warning)';
     }
 
-    if (statusEl) {
-        statusEl.style.background = '#e0f2fe';
-        statusEl.style.color = '#0369a1';
-        statusEl.style.borderColor = '#bae6fd';
-        statusEl.innerHTML = "⏳ Sincronizando modelo remoto...";
-    }
     const mainContainer = document.querySelector('.main-container');
     const viewContainers = document.querySelectorAll('.view-container');
     const dropZone = document.getElementById('dropZone');
-    
-    const isMagicLoaded = globalFinancialData && globalFinancialData.length > 0;
+    const loader = document.getElementById('loader');
+    const loginBtn = document.getElementById('loginM365Btn');
+    if (loginBtn) loginBtn.style.display = 'none';
 
-    if (!isMagicLoaded) {
+    // 🛑 LA BARRERA SILENCIOSA: Solo ocultamos la UI si NO hubo carga mágica
+    if (!window.isMagicLoaded) {
         viewContainers.forEach(v => v.style.display = 'none');
         if (dropZone) dropZone.style.display = 'none';
 
@@ -401,10 +397,18 @@ async function fetchMasterData(token = null) {
             loader.innerHTML = '<div class="spinner"></div><div style="margin-top:16px; font-weight: 500;">⏳ Sincronizando datos con Planeta Azul...</div>';
             loader.style.display = 'flex';
         }
+        if (statusEl) {
+            statusEl.style.background = '#e0f2fe';
+            statusEl.style.color = '#0369a1';
+            statusEl.style.borderColor = '#bae6fd';
+            statusEl.innerHTML = "⏳ Sincronizando modelo remoto...";
+        }
+    } else {
+        // MODO SILENCIOSO: El usuario ya está viendo datos, solo actualizamos el status bar
+        if (statusEl) {
+            statusEl.innerHTML = "🔄 Buscando actualizaciones en segundo plano...";
+        }
     }
-    
-    const loginBtn = document.getElementById('loginM365Btn');
-    if (loginBtn) loginBtn.style.display = 'none';
 
     try {
         // --- CACHE (IndexedDB) ---
@@ -708,8 +712,11 @@ async function loadCacheInstant() {
             req.onerror = () => resolve(null);
         });
 
-        if (cachedData) {
-            console.log("🚀 Magic Load ejecutado: Restaurando dashboard desde disco local al instante.");
+        if (cachedData && cachedData.length > 0) {
+            console.log("🚀 Magic Load F5: Renderizando UI alzada instantáneamente.");
+            
+            window.isMagicLoaded = true; // 🔥 AÑADE ESTA LÍNEA AQUÍ
+            
             globalFinancialData = cachedData;
             renderDashboard(globalFinancialData);
             const loaderEl = document.getElementById('loader');
