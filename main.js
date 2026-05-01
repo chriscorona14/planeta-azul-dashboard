@@ -381,179 +381,140 @@ async function fetchMasterData(token = null) {
         sidebarSyncText.style.color = 'var(--warning)';
     }
 
-    const mainContainer = document.querySelector('.main-container');
     const viewContainers = document.querySelectorAll('.view-container');
     const dropZone = document.getElementById('dropZone');
     const loader = document.getElementById('loader');
     const loginBtn = document.getElementById('loginM365Btn');
     if (loginBtn) loginBtn.style.display = 'none';
 
-    // 🛑 LA BARRERA SILENCIOSA: Solo ocultamos la UI si NO hubo carga mágica
-    if (!window.isMagicLoaded) {
-        viewContainers.forEach(v => v.style.display = 'none');
-        if (dropZone) dropZone.style.display = 'none';
+    // ==========================================
+    // 1. LA MAGIA: LEER CACHÉ (INDEXEDDB) PRIMERO
+    // ==========================================
+    let cachedData = null;
+    const CACHE_KEY = 'planeta_azul_engine_result';
 
-        if (loader) {
-            loader.innerHTML = '<div class="spinner"></div><div style="margin-top:16px; font-weight: 500;">⏳ Sincronizando datos con Planeta Azul...</div>';
-            loader.style.display = 'flex';
-        }
+    try {
+        const db = await new Promise((resolve, reject) => {
+            const req = indexedDB.open('PlanetaAzulDB', 1);
+            req.onupgradeneeded = (e) => {
+                if (!e.target.result.objectStoreNames.contains('finance_cache')) {
+                    e.target.result.createObjectStore('finance_cache');
+                }
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+
+        cachedData = await new Promise((resolve) => {
+            const req = db.transaction('finance_cache', 'readonly').objectStore('finance_cache').get(CACHE_KEY);
+            req.onsuccess = () => {
+                const result = req.result;
+                // Verificar que no sea más vieja de 24 horas
+                if (result && result.timestamp && Date.now() - result.timestamp < 86400000) {
+                    resolve(result.data);
+                } else {
+                    resolve(null);
+                }
+            };
+            req.onerror = () => resolve(null);
+        });
+    } catch (e) {
+        console.warn("⚠️ Error leyendo caché de IndexedDB:", e);
+    }
+
+    // ==========================================
+    // 2. MANEJO DE LA INTERFAZ (SI HAY CACHÉ VS SI NO HAY)
+    // ==========================================
+    if (cachedData && cachedData.length > 0) {
+        console.log("⚡ Magia: Datos encontrados en disco. Cargando al instante...");
+        globalFinancialData = cachedData;
+        
+        // Mostrar contenedores directamente sin pantalla de carga
+        viewContainers.forEach(v => v.style.display = '');
+        if (dropZone) dropZone.style.display = 'none';
+        if (loader) loader.style.display = 'none';
+        
+        renderDashboard(globalFinancialData);
+        
         if (statusEl) {
             statusEl.style.background = '#e0f2fe';
             statusEl.style.color = '#0369a1';
             statusEl.style.borderColor = '#bae6fd';
-            statusEl.innerHTML = "⏳ Sincronizando modelo remoto...";
+            statusEl.innerHTML = "🔄 Sincronizando actualizaciones de O365 en segundo plano...";
         }
     } else {
-        // MODO SILENCIOSO: El usuario ya está viendo datos, solo actualizamos el status bar
-        if (statusEl) {
-            statusEl.innerHTML = "🔄 Buscando actualizaciones en segundo plano...";
+        // ES LA PRIMERA VEZ: Ocultamos UI y mostramos Loader
+        console.log("No hay caché. Iniciando carga completa...");
+        viewContainers.forEach(v => v.style.display = 'none');
+        if (dropZone) dropZone.style.display = 'none';
+        
+        if (loader) {
+            loader.innerHTML = '<div class="spinner"></div><div style="margin-top:16px; font-weight: 500;">⏳ Descargando datos con Planeta Azul...</div>';
+            loader.style.display = 'flex';
         }
+        if (statusEl) statusEl.innerHTML = "⏳ Conectando al servidor...";
     }
 
+    // ==========================================
+    // 3. SINCRONIZACIÓN EN SEGUNDO PLANO (FETCH AL EXCEL)
+    // ==========================================
     try {
-        // --- CACHE (IndexedDB) ---
-        const CACHE_KEY = 'planeta_azul_engine_result';
         const SYNC_TIMEOUT = 45000;
-        let cachedData = null;
-
-        try {
-            const db = await new Promise((resolve, reject) => {
-                const req = indexedDB.open('PlanetaAzulDB', 1);
-                req.onupgradeneeded = (e) => {
-                    if (!e.target.result.objectStoreNames.contains('finance_cache')) {
-                        e.target.result.createObjectStore('finance_cache');
-                    }
-                };
-                req.onsuccess = () => resolve(req.result);
-                req.onerror = () => reject(req.error);
-            });
-            const req = db.transaction('finance_cache', 'readonly').objectStore('finance_cache').get(CACHE_KEY);
-            cachedData = await new Promise((resolve) => {
-                req.onsuccess = () => {
-                    const result = req.result;
-                    // Limpieza automática si tienen > 24 horas (24 * 60 * 60 * 1000 = 86400000)
-                    if (result && result.timestamp && Date.now() - result.timestamp < 86400000) {
-                        resolve(result.data);
-                    } else {
-                        resolve(null);
-                    }
-                };
-                req.onerror = () => resolve(null);
-            });
-        } catch (e) {
-            console.warn("⚠️ Error leyendo caché de IndexedDB:", e);
-        }
-
-        if (cachedData) {
-            console.log("⚡ Datos procesados encontrados en caché. Cargando vista previa rápida...");
-            globalFinancialData = cachedData;
-            renderDashboard(globalFinancialData);
-            if (loader) loader.style.display = 'none';
-            if (statusEl) statusEl.innerHTML = "✅ Caché local listo (sincronizando en fondo...)";
-        }
-
-        // 2. SINCRONIZACIÓN CON TIMEOUT (Microsoft o Proxy)
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), SYNC_TIMEOUT);
         let arrayBuffer = null;
 
         try {
             if (token) {
-                // Lógica de Microsoft Graph
                 const encodedUrl = btoa(SHARPOINT_FILE_URL).replace(/=/g, '').replace(/\//g, '_').replace(/\+/g, '-');
                 const graphUrl = `https://graph.microsoft.com/v1.0/shares/u!${encodedUrl}/driveItem/content`;
-                
-                console.log("🔄 Sincronizando con Microsoft (45s max)...");
-                const req = await fetch(graphUrl, {
-                    headers: { "Authorization": `Bearer ${token}` },
-                    signal: controller.signal
-                });
-
-                if (!req.ok) {
-                    if (req.status === 401 || req.status === 403 || req.status === 404) {
-                        showErrorUI("Tu cuenta no tiene permisos para acceder a los datos financieros de Planeta Azul.");
-                        if (loader) loader.style.display = 'none';
-                        return; // VITAL para no reiniciar app
-                    }
-                    throw new Error(`Error de servidor: ${req.status}`);
-                }
-                
-                arrayBuffer = await req.arrayBuffer();
+                const req = await fetch(graphUrl, { headers: { "Authorization": `Bearer ${token}` }, signal: controller.signal });
+                if (req.ok) arrayBuffer = await req.arrayBuffer();
             } else {
-                // Fallback al proxy si no hay token
-                console.log("🔄 Intentando sincronización vía Proxy...");
                 const response = await fetch("/api/downloadSync", { signal: controller.signal });
-                
-                if (!response.ok) {
-                    if (response.status === 401 || response.status === 403 || response.status === 404) {
-                        showErrorUI("Tu cuenta no tiene permisos para acceder a los datos financieros de Planeta Azul.");
-                        if (loader) loader.style.display = 'none';
-                        return; // VITAL para no reiniciar app
-                    }
-                    throw new Error(`Error de servidor: ${response.status}`);
-                }
-
-                arrayBuffer = await response.arrayBuffer();
+                if (response.ok) arrayBuffer = await response.arrayBuffer();
             }
             clearTimeout(timeoutId);
         } catch (err) {
-            if (err.name === 'AbortError') {
-                console.warn("⚠️ Tiempo de espera agotado. Se mantendrán los datos del caché.");
-            } else {
-                console.error("Error en la descarga:", err);
-                if (err.message && (err.message.includes('401') || err.message.includes('403') || err.message.includes('404') || err.message.includes("Acceso denegado") || err.message.toLowerCase().includes("denied"))) {
-                    throw err;
-                }
-            }
+            if (err.name === 'AbortError') console.warn("Tiempo de espera agotado.");
         }
-        // --- FIN DEL BLOQUE DE SINCRONIZACIÓN ---
 
+        // Si falló la descarga pero tenemos caché, nos quedamos con la caché silenciosamente
         if (!arrayBuffer) {
             if (cachedData) {
-                // Si no se pudo obtener de red pero tenemos caché, silenciamos el error y terminamos la promesa
-                console.warn("⚠️ No se pudo bajar el archivo nuevo, utilizando datos de caché.");
-                if (statusEl) statusEl.innerHTML = "✅ Conectado (Modo Sin Conexión)";
+                if (statusEl) statusEl.innerHTML = "✅ Conectado (Usando caché local)";
+                if (sidebarSyncDot) sidebarSyncDot.style.backgroundColor = 'var(--success)';
+                if (sidebarSyncText) sidebarSyncText.innerText = 'Sincronizado';
                 return;
             }
-            throw new Error("No se pudo obtener el archivo fuente y no hay datos en caché. Verifica tu conexión o contáctate con el administrador.");
+            throw new Error("No se pudo obtener el archivo fuente y no hay caché.");
         }
 
+        // ==========================================
+        // 4. PROCESAR CON WORKER Y GUARDAR (LA GRAN VICTORIA)
+        // ==========================================
         const engineResult = await new Promise((resolve, reject) => {
             const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
             worker.onmessage = (e) => {
                 const data = e.data;
                 if (data.type === 'progress') {
-                    if (loader && !cachedData) { // Solo si no hay preview
-                        loader.innerHTML = `<div class="spinner"></div><div id="loaderStatusText" style="margin-top:16px; font-weight: 500;">${data.message}</div>`;
-                    }
-                } else if (data.type === 'error') {
-                    reject(new Error(data.error));
-                    worker.terminate();
+                    if (loader && !cachedData) loader.innerHTML = `<div class="spinner"></div><div style="margin-top:16px;">${data.message}</div>`;
                 } else if (data.type === 'done') {
                     resolve(data.engineResult);
                     worker.terminate();
+                } else if (data.type === 'error') {
+                    reject(new Error(data.error));
+                    worker.terminate();
                 }
             };
-            worker.onerror = (err) => {
-                reject(err);
-                worker.terminate();
-            };
-            // Transfer transferrable objects directly if possible, else copy
             worker.postMessage({ buffer: arrayBuffer }, [arrayBuffer]);
         });
-        arrayBuffer = null;
-        
-        // --- GUARDAR JSON PROCESADO EN INDEXEDDB ---
+
+        // ✨ LA GRAN VICTORIA: Guardar el JSON procesado
         try {
             const db = await new Promise((resolve, reject) => {
                 const req = indexedDB.open('PlanetaAzulDB', 1);
-                req.onupgradeneeded = (e) => {
-                    if (!e.target.result.objectStoreNames.contains('finance_cache')) {
-                        e.target.result.createObjectStore('finance_cache');
-                    }
-                };
                 req.onsuccess = () => resolve(req.result);
-                req.onerror = () => reject(req.error);
             });
             await new Promise((resolve, reject) => {
                 const tx = db.transaction('finance_cache', 'readwrite');
@@ -565,63 +526,29 @@ async function fetchMasterData(token = null) {
         } catch (e) {
             console.warn("⚠️ Error guardando caché en IndexedDB:", e);
         }
+
+        // 5. ACTUALIZAR INTERFAZ FINAL
+        globalFinancialData = engineResult.data;
+        renderDashboard(globalFinancialData);
         
-        if (statusEl) {
-            statusEl.innerHTML = "✅ Sincronizado con O365";
-        }
-        
+        if (loader) loader.style.display = 'none';
+        if (statusEl) statusEl.innerHTML = "✅ Sincronizado con O365";
         if (sidebarSyncDot) sidebarSyncDot.style.backgroundColor = 'var(--success)';
         if (sidebarSyncText) {
             sidebarSyncText.innerText = 'Sincronizado';
             sidebarSyncText.style.color = 'var(--success)';
         }
-        
-        // Clear caches to prevent memory leaks and stale data
-        window.aiSummaryCache = {};
-        window.aiAlertsCache = {};
-        window.simSummaryCache = {};
-        
-        globalFinancialData = engineResult.data;
-        renderDashboard(globalFinancialData);
-        if (loader) loader.style.display = 'none';
-        
+
     } catch (error) {
-        if (error.message && (error.message.includes("403") || error.message.includes("404") || error.message.includes("401") || error.message.includes("Forbidden") || error.message.includes("Not Found") || error.message.includes("Acceso denegado") || error.message.toLowerCase().includes("denied"))) {
-            showErrorUI("Acceso restringido al archivo fuente.");
-            if (statusEl) {
-                statusEl.style.background = '#fee2e2';
-                statusEl.style.color = '#991b1b';
-                statusEl.style.borderColor = '#fecaca';
-                statusEl.innerHTML = "⚠️ Acceso denegado. Presione 'Conectar Office 365' con otra cuenta o use carga manual.";
-            }
-            if (loader) loader.style.display = 'none';
-            return; // Aborta la ejecución para evitar que MSAL u otro flujo redireccione por accidente
-        } else if (error.message && error.message.includes("El enlace es privado")) {
-            console.warn("Auto-sync fallback triggered (expected):", error.message);
-        } else {
-            console.error("Auto-sync failed:", error);
-        }
+        console.error("Error en sincronización:", error);
+        if (loader && !cachedData) loader.style.display = 'none';
         if (statusEl) {
             statusEl.style.background = '#fee2e2';
             statusEl.style.color = '#991b1b';
-            statusEl.style.borderColor = '#fecaca';
-            statusEl.innerHTML = "⚠️ Sincronización fallida. Presione 'Conectar Office 365' o use la carga manual.";
-            statusEl.title = error.message; 
+            statusEl.innerHTML = "⚠️ Sincronización fallida.";
         }
-        
-        if (sidebarSyncDot) sidebarSyncDot.style.backgroundColor = 'var(--danger)';
-        if (sidebarSyncText) {
-             sidebarSyncText.innerText = 'Desconectado';
-             sidebarSyncText.style.color = 'var(--danger)';
-        }
-        
-        if (loader) loader.style.display = 'none';
-        
-        if (loginBtn) loginBtn.style.display = 'flex'; // Show login button
-        if (window.handleZeroState) window.handleZeroState();
     }
 }
-
 window.syncNavigationUI = function(menuId) {
     const titleLabel = document.getElementById('titleLabel');
     const titles = {
