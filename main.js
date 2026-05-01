@@ -312,33 +312,38 @@ if (window.msal) {
 const SHARPOINT_FILE_URL = import.meta.env.VITE_ONEDRIVE_FILE_URL || import.meta.env.VITE_ONEDRIVE_ITEM_ID;
 
 async function connectM365() {
-    if (!msalInstance) return;
-
-    // Detectar si es móvil
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    const authRequest = {
-        scopes: ["User.Read", "Files.Read", "Files.Read.All"],
-        prompt: "select_account"
-    };
+    if (!msalInstance) {
+        alert("MSAL no inicializado.");
+        return;
+    }
 
     try {
-        await msalInstance.initialize?.();
+        // En versiones recientes, debemos asegurarnos del estado local si usamos msal
+        await msalInstance.initialize?.(); 
+        await msalInstance.handleRedirectPromise?.();
 
-        if (isMobile) {
-            // En móviles, vamos directo a Redirect para evitar bloqueos
-            console.log("📱 Móvil detectado: Iniciando login por redirección...");
-            await msalInstance.loginRedirect(authRequest);
-        } else {
-            // En Desktop, el popup sigue siendo más elegante
-            const loginResponse = await msalInstance.loginPopup(authRequest);
-            await fetchMasterData(loginResponse.accessToken);
-        }
+        const loginResponse = await msalInstance.loginPopup({
+            scopes: ["User.Read", "Files.Read", "Files.Read.All"],
+            prompt: "select_account"
+        });
+        const token = loginResponse.accessToken;
+        
+        await fetchMasterData(token);
     } catch (error) {
-        console.error("Error de autenticación:", error);
-        // Fallback agresivo si el popup falla en cualquier entorno
-        if (error.message.includes("popup_window_error") || error.errorCode === "interaction_in_progress") {
-            await msalInstance.loginRedirect(authRequest);
+        if (error.errorCode === "user_cancelled" || (error.message && error.message.includes("user_cancelled"))) {
+            console.log("El usuario canceló el inicio de sesión.");
+            return;
         }
+        if (error.errorCode === "interaction_in_progress" || (error.message && error.message.includes("popup_window_error"))) {
+            console.warn("Popup bloqueado o interacción en progreso. Iniciando login por redirección...");
+            await msalInstance.loginRedirect({
+                 scopes: ["User.Read", "Files.Read", "Files.Read.All"],
+                 prompt: "select_account"
+            });
+            return;
+        }
+        console.error(error);
+        alert("Error autenticando con Office 365: " + error.message);
     }
 }
 
@@ -678,21 +683,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (msalInstance) {
         msalInstance.initialize?.().then(async () => {
             try {
-                // --- AQUÍ VA EL CÓDIGO ---
                 const redirectResponse = await msalInstance.handleRedirectPromise();
                 if (redirectResponse) {
                     // Limpia el token gigante de la URL (hash) inmediatamente para evitar colapso en móviles
                     window.history.replaceState({}, document.title, window.location.pathname);
-                    
-                    // IMPORTANTE: Añadimos el await aquí para móviles
-                    await fetchMasterData(redirectResponse.accessToken); 
-                    return; // Detenemos ejecución aquí, ya estamos procesando
+                    fetchMasterData(redirectResponse.accessToken);
+                    return;
                 }
             } catch (err) {
                 console.error("MSAL Redirect Error:", err);
             }
-            
-// --- FIN DEL BLOQUE ---
 
             const accounts = msalInstance.getAllAccounts();
             if (accounts.length > 0) {
