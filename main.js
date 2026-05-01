@@ -406,8 +406,27 @@ async function fetchMasterData(token = null) {
         if (dropZone) dropZone.style.display = 'none';
         
         if (loader) {
-            loader.innerHTML = '<div class="spinner"></div><div style="margin-top:16px; font-weight: 500;">⏳ Descargando datos con Planeta Azul...</div>';
+            loader.innerHTML = `
+                <div style="width: 280px; text-align: center;">
+                    <div class="spinner" style="margin: 0 auto; margin-bottom: 16px;"></div>
+                    <div id="loadingText" style="font-weight: 500; font-size: 14px; text-shadow: none; color: var(--text-primary); margin-bottom: 12px;">⏳ Conectando con Planeta Azul...</div>
+                    <div style="width: 100%; background: #e2e8f0; border-radius: 4px; height: 6px; overflow: hidden;">
+                        <div id="progressBar" style="width: 10%; height: 100%; background: var(--primary); transition: width 0.3s ease;"></div>
+                    </div>
+                </div>
+            `;
             loader.style.display = 'flex';
+
+            // Animación suave de progreso para la etapa de red
+            if (window._m365Interval) clearInterval(window._m365Interval);
+            window._m365Progress = 10;
+            window._m365Interval = setInterval(() => {
+                if (window._m365Progress < 40) {
+                    window._m365Progress += Math.random() * 3 + 1; // Crece poco a poco
+                    const pb = document.getElementById('progressBar');
+                    if (pb) pb.style.width = `${window._m365Progress}%`;
+                }
+            }, 600);
         }
         if (statusEl) statusEl.innerHTML = "⏳ Conectando al servidor...";
     }
@@ -437,6 +456,7 @@ async function fetchMasterData(token = null) {
         }
 
         // Si falló la descarga, pero ya estamos viendo el Dashboard gracias a la caché
+        if (window._m365Interval) clearInterval(window._m365Interval);
         if (!arrayBuffer) {
             if (window.isMagicLoaded) {
                 if (statusEl) statusEl.innerHTML = "✅ Operando con Caché Local (Sin conexión nueva)";
@@ -457,7 +477,10 @@ async function fetchMasterData(token = null) {
                 if (data.type === 'progress') {
                     // CRÍTICO: Solo actualizar el texto del loader si NO estamos en modo silencioso
                     if (loader && !window.isMagicLoaded) {
-                        loader.innerHTML = `<div class="spinner"></div><div style="margin-top:16px; font-weight: 500;">${data.message}</div>`;
+                        const lt = document.getElementById('loadingText');
+                        if (lt) lt.innerText = data.message || "Procesando...";
+                        const pb = document.getElementById('progressBar');
+                        if (pb && data.progress) pb.style.width = `${data.progress}%`;
                     }
                 } else if (data.type === 'done') {
                     resolve(data.engineResult);
