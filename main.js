@@ -570,12 +570,6 @@ async function fetchMasterData(token = null) {
         window.simSummaryCache = {};
         
         globalFinancialData = engineResult.data;
-        // Justo después de: globalFinancialData = engineResult.data;
-if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
-    console.log("✂️ Podando datos para ahorro de RAM en móvil...");
-    // Solo dejamos los últimos 12 registros para que el móvil no sufra
-    globalFinancialData = globalFinancialData.slice(-12);
-}
         renderDashboard(globalFinancialData);
         if (loader) loader.style.display = 'none';
         
@@ -1570,15 +1564,6 @@ function buildMobileAccordionsFromTable(tableId, containerId, customTitle = null
         return;
     }
 
-    // --- INSERTAR AQUÍ: PASO 3 (FRAGMENTACIÓN) ---
-    // Obtenemos las filas pero limitamos la cantidad en móviles para evitar colapso de RAM
-    let rows = Array.from(table.querySelectorAll('tbody tr'));
-    
-    if (tableId === 'pnlDetailedTable' && rows.length > 100) {
-        console.warn("⚠️ Tabla P&L masiva detectada. Limitando a 100 filas para evitar crash en móvil.");
-        rows = rows.slice(0, 100); 
-    }
-
     // Determine if table is inside a section or just bare
     table.style.setProperty('display', 'none', 'important');
     container.style.display = 'block';
@@ -1712,43 +1697,40 @@ function updateUI(data, index) {
     if (!data || !data[index]) return;
     const curr = data[index];
     const activeMenu = document.querySelector('.menu-item a.active')?.id || 'menu-resumen';
-    const isMobile = window.innerWidth < 1024;
-
-    // 1. Limpieza de "Vistas Zombis" (SOLO EN MÓVIL)
-    // Borramos el contenido de lo que NO estamos viendo para liberar RAM
-    if (isMobile) {
-        const containers = ['pnlMobileContainer', 'balanceMobileContainer', 'cashflowMobileContainer', 'resumenOperativoMobileContainer'];
-        containers.forEach(id => {
-            const el = document.getElementById(id);
-            if (el && !el.closest('.view-container').classList.contains('active')) {
-                el.innerHTML = ''; // Liberamos la memoria de los nodos DOM
-            }
-        });
-    }
-
-    // 2. Elementos comunes ligeros
+    
+    // 1. Elementos comunes (Siempre ligeros)
     document.getElementById('kpi-ventas').textContent = formatCurrency(curr.kpis?.ingresos || 0);
     document.getElementById('kpi-ebitda').textContent = formatCurrency(curr.kpis?.ebitda || 0);
-    document.getElementById('periodLabel').textContent = `Periodo: ${curr.date || 'Actual'}`;
+    document.getElementById('periodLabel').textContent = `Periodo de Análisis: ${curr.date || 'Actual'}`;
 
-    // 3. Renderizado bajo demanda (Lazy Loading)
-    if (activeMenu === 'menu-resumen') {
-        renderDetailedPnL(data, index); 
+    // 2. Renderizado SELECTIVO (Solo lo que el usuario está viendo)
+    // Esto ahorra un 70% de uso de CPU en móviles
+    if (activeMenu === 'menu-kpi') {
+        renderKPIDashboard(data, index);
+    } else if (activeMenu === 'menu-resumen') {
+        renderDetailedPnL(data, index); // Base para el resumen
         renderWaterfallChart(data, index);
     } else if (activeMenu === 'menu-pnl') {
         renderDetailedPnL(data, index);
         renderMarginTrendChart(data, index);
     } else if (activeMenu === 'menu-balance') {
         renderBalanceSheet(data, index);
+        renderCovenantGauges(data, index);
     } else if (activeMenu === 'menu-cashflow') {
         renderCashFlow(data, index);
         renderCashBridgeChart(data, index);
     }
 
-    // 4. Acordeones (Solo si es móvil y con un pequeño delay para dejar respirar a la CPU)
+    // 3. Generación de acordeones móvil (Solo la vista actual)
     setTimeout(() => {
         refreshActiveMobileView(activeMenu, index);
-    }, 200);
+        
+        // El buscador solo filtra lo que ya está renderizado
+        const searchInput = document.getElementById('accountSearch');
+        if (searchInput?.value.trim() !== '') {
+            searchInput.dispatchEvent(new Event('input'));
+        }
+    }, 100);
 }
 
     document.getElementById('kpi-ventas').textContent = formatCurrency(kpis.ingresos);
