@@ -296,6 +296,7 @@ const msalConfig = {
         clientId: import.meta.env.VITE_MSAL_CLIENT_ID || import.meta.env.VITE_MICROSOFT_CLIENT_ID,
         authority: import.meta.env.VITE_MSAL_TENANT_ID ? `https://login.microsoftonline.com/${import.meta.env.VITE_MSAL_TENANT_ID}` : "https://login.microsoftonline.com/common",
         redirectUri: window.location.origin,
+        navigateToLoginRequestUrl: false,
     },
     cache: {
         cacheLocation: "localStorage",
@@ -346,28 +347,27 @@ async function connectM365() {
     }
 }
 
-function showErrorUI(msg) {
-    let errDiv = document.getElementById('critical-error-banner');
-    if (!errDiv) {
-        errDiv = document.createElement('div');
-        errDiv.id = 'critical-error-banner';
-        errDiv.style.position = 'fixed';
-        errDiv.style.top = '50%';
-        errDiv.style.left = '50%';
-        errDiv.style.transform = 'translate(-50%, -50%)';
-        errDiv.style.backgroundColor = '#dc2626';
-        errDiv.style.color = '#fff';
-        errDiv.style.padding = '30px';
-        errDiv.style.borderRadius = '12px';
-        errDiv.style.zIndex = '999999';
-        errDiv.style.boxShadow = '0 25px 50px -12px rgba(0,0,0,0.5)';
-        errDiv.style.textAlign = 'center';
-        errDiv.style.maxWidth = '90%';
-        errDiv.style.width = '400px';
-        errDiv.style.fontFamily = 'system-ui, sans-serif';
-        document.body.appendChild(errDiv);
-    }
-    errDiv.innerHTML = `<h3 style="margin-top:0;font-size:1.5rem;font-weight:700;">Acceso Denegado</h3><p style="font-size:1.1rem;line-height:1.5;margin-bottom:20px;">${msg}</p><button onclick="window.handleMSALLoginFailure(); document.getElementById('critical-error-banner').remove();" style="padding:10px 20px; background:#fff; color:#dc2626; border:none; border-radius:6px; font-weight:bold; cursor:pointer; font-size:1rem;">Entendido</button>`;
+function showErrorUI(mensaje) {
+    // 1. Detener procesos en segundo plano
+    if (window.stop) window.stop();
+
+    // 2. Limpiar la pantalla y aplicar el nuevo estilo corporativo
+    document.body.innerHTML = `
+        <div style="position:fixed; top:0; left:0; width:100%; height:100%; background:#f3f4f6; display:flex; align-items:center; justify-content:center; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; z-index:999999;">
+            <div style="background:white; padding:40px; border-radius:12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align:center; max-width:450px; width:90%;">
+                <div style="color:#004a99; font-size:50px; margin-bottom:20px;">🔒</div>
+                <h2 style="color:#111827; margin:0 0 10px 0; font-size:1.5rem;">Acceso Restringido</h2>
+                <p style="color:#6b7280; line-height:1.5; margin-bottom:30px;">${mensaje}<br><br>Por favor, contacta al administrador del sistema.</p>
+                
+                <button onclick="sessionStorage.clear(); localStorage.clear(); location.href='/';" 
+                        style="background:#004a99; color:white; border:none; padding:12px 24px; border-radius:6px; font-weight:600; cursor:pointer; width:100%; transition: background 0.2s;">
+                    Cerrar Sesión / Cambiar Cuenta
+                </button>
+                
+                <p style="margin-top:20px; font-size:0.85rem; color:#9ca3af;">Finance Dashboard Pro | Planeta Azul</p>
+            </div>
+        </div>
+    `;
 }
 
 async function fetchMasterData(token = null) {
@@ -381,192 +381,138 @@ async function fetchMasterData(token = null) {
         sidebarSyncText.style.color = 'var(--warning)';
     }
 
-    if (statusEl) {
-        statusEl.style.background = '#e0f2fe';
-        statusEl.style.color = '#0369a1';
-        statusEl.style.borderColor = '#bae6fd';
-        statusEl.innerHTML = "⏳ Sincronizando modelo remoto...";
-    }
-    const mainContainer = document.querySelector('.main-container');
     const viewContainers = document.querySelectorAll('.view-container');
     const dropZone = document.getElementById('dropZone');
-    
-    // Oculta los gráficos y la zona de drop mientras carga
-    viewContainers.forEach(v => v.style.display = 'none');
-    if (dropZone) dropZone.style.display = 'none';
-
-    if (loader) {
-        loader.innerHTML = '<div class="spinner"></div><div style="margin-top:16px; font-weight: 500;">⏳ Sincronizando datos con Planeta Azul...</div>';
-        loader.style.display = 'flex';
-    }
-    
+    const loader = document.getElementById('loader');
     const loginBtn = document.getElementById('loginM365Btn');
     if (loginBtn) loginBtn.style.display = 'none';
 
-    try {
-        // --- INICIO DEL NUEVO BLOQUE DE SINCRONIZACIÓN ---
-        let arrayBuffer;
-        const CACHE_KEY = 'planeta_azul_excel_cache';
-        const SYNC_TIMEOUT = 45000; // 45 segundos para el móvil
-
-        // 1. INTENTO DE CARGA INSTANTÁNEA DESDE CACHÉ
-        const cachedFile = localStorage.getItem(CACHE_KEY);
-        if (cachedFile) {
-            console.log("⚡ Datos encontrados en caché. Cargando vista previa...");
-            try {
-                arrayBuffer = base64ToArrayBuffer(cachedFile);
-            } catch (e) {
-                console.warn("Error decodificando caché:", e);
-            }
+    // ==========================================
+    // 1. LA BARRERA SILENCIOSA (Stale-While-Revalidate)
+    // ==========================================
+    // Si la magia de loadCacheInstant() ya funcionó, NO apagamos la pantalla.
+    if (window.isMagicLoaded) {
+        console.log("⚡ Modo Silencioso: Caché activa. Buscando actualizaciones en O365 sin bloquear la UI...");
+        if (statusEl) {
+            statusEl.style.background = '#e0f2fe';
+            statusEl.style.color = '#0369a1';
+            statusEl.style.borderColor = '#bae6fd';
+            statusEl.innerHTML = "🔄 Sincronizando actualizaciones en segundo plano...";
         }
+    } else {
+        // Es la primera vez que el usuario entra, aquí SÍ mostramos el loader.
+        console.log("No hay caché. Iniciando carga completa bloqueante...");
+        viewContainers.forEach(v => v.style.display = 'none');
+        if (dropZone) dropZone.style.display = 'none';
+        
+        if (loader) {
+            loader.innerHTML = '<div class="spinner"></div><div style="margin-top:16px; font-weight: 500;">⏳ Descargando datos con Planeta Azul...</div>';
+            loader.style.display = 'flex';
+        }
+        if (statusEl) statusEl.innerHTML = "⏳ Conectando al servidor...";
+    }
 
-        // 2. SINCRONIZACIÓN CON TIMEOUT (Microsoft o Proxy)
+    // ==========================================
+    // 2. DESCARGA DEL ARCHIVO (O365 o Proxy)
+    // ==========================================
+    try {
+        const SYNC_TIMEOUT = 45000;
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), SYNC_TIMEOUT);
+        let arrayBuffer = null;
 
         try {
             if (token) {
-                // Lógica de Microsoft Graph
                 const encodedUrl = btoa(SHARPOINT_FILE_URL).replace(/=/g, '').replace(/\//g, '_').replace(/\+/g, '-');
                 const graphUrl = `https://graph.microsoft.com/v1.0/shares/u!${encodedUrl}/driveItem/content`;
-                
-                console.log("🔄 Sincronizando con Microsoft (45s max)...");
-                const req = await fetch(graphUrl, {
-                    headers: { "Authorization": `Bearer ${token}` },
-                    signal: controller.signal
-                });
-
-                if (req.status === 401 || req.status === 403 || req.status === 404) {
-                    showErrorUI("No tienes acceso al archivo fuente. Comunícate con el administrador.");
-                    if (loader) loader.style.display = 'none';
-                    return; // VITAL para no reiniciar app
-                }
-
-                if (req.ok) {
-                    arrayBuffer = await req.arrayBuffer();
-                    // Guardar en caché para la próxima vez
-                    const base64Data = arrayBufferToBase64(arrayBuffer);
-                    localStorage.setItem(CACHE_KEY, base64Data);
-                    console.log("✅ Caché actualizado.");
-                } else {
-                    throw new Error(`HTTP Error: ${req.status}`);
-                }
+                const req = await fetch(graphUrl, { headers: { "Authorization": `Bearer ${token}` }, signal: controller.signal });
+                if (req.ok) arrayBuffer = await req.arrayBuffer();
             } else {
-                // Fallback al proxy si no hay token
-                console.log("🔄 Intentando sincronización vía Proxy...");
                 const response = await fetch("/api/downloadSync", { signal: controller.signal });
-                
-                if (response.status === 401 || response.status === 403 || response.status === 404) {
-                    showErrorUI("No tienes acceso al archivo fuente. Comunícate con el administrador.");
-                    if (loader) loader.style.display = 'none';
-                    return; // VITAL para no reiniciar app
-                }
-
-                if (response.ok) {
-                    arrayBuffer = await response.arrayBuffer();
-                } else {
-                    throw new Error(`HTTP Error: ${response.status}`);
-                }
+                if (response.ok) arrayBuffer = await response.arrayBuffer();
             }
             clearTimeout(timeoutId);
         } catch (err) {
-            if (err.name === 'AbortError') {
-                console.warn("⚠️ Tiempo de espera agotado. Se mantendrán los datos del caché.");
-            } else {
-                console.error("Error en la descarga:", err);
-                if (err.message && (err.message.includes('401') || err.message.includes('403') || err.message.includes('404') || err.message.includes("Acceso denegado"))) {
-                    throw err;
-                }
-            }
+            if (err.name === 'AbortError') console.warn("Tiempo de espera de red agotado.");
         }
-        // --- FIN DEL BLOQUE DE SINCRONIZACIÓN ---
 
+        // Si falló la descarga, pero ya estamos viendo el Dashboard gracias a la caché
         if (!arrayBuffer) {
-            throw new Error("No se pudo obtener el archivo fuente y no hay datos en caché. Verifica tu conexión o contáctate con el administrador.");
+            if (window.isMagicLoaded) {
+                if (statusEl) statusEl.innerHTML = "✅ Operando con Caché Local (Sin conexión nueva)";
+                if (sidebarSyncDot) sidebarSyncDot.style.backgroundColor = 'var(--success)';
+                if (sidebarSyncText) sidebarSyncText.innerText = 'Caché Local';
+                return; // Cortamos aquí, el usuario sigue trabajando normal.
+            }
+            throw new Error("No se pudo obtener el archivo fuente y no hay caché.");
         }
 
+        // ==========================================
+        // 3. PROCESAR CON WORKER
+        // ==========================================
         const engineResult = await new Promise((resolve, reject) => {
             const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
             worker.onmessage = (e) => {
                 const data = e.data;
                 if (data.type === 'progress') {
-                    if (loader) {
-                        loader.innerHTML = `<div class="spinner"></div><div id="loaderStatusText" style="margin-top:16px; font-weight: 500;">${data.message}</div>`;
+                    // CRÍTICO: Solo actualizar el texto del loader si NO estamos en modo silencioso
+                    if (loader && !window.isMagicLoaded) {
+                        loader.innerHTML = `<div class="spinner"></div><div style="margin-top:16px; font-weight: 500;">${data.message}</div>`;
                     }
-                } else if (data.type === 'error') {
-                    reject(new Error(data.error));
-                    worker.terminate();
                 } else if (data.type === 'done') {
                     resolve(data.engineResult);
                     worker.terminate();
+                } else if (data.type === 'error') {
+                    reject(new Error(data.error));
+                    worker.terminate();
                 }
             };
-            worker.onerror = (err) => {
-                reject(err);
-                worker.terminate();
-            };
-            // Transfer transferrable objects directly if possible, else copy
             worker.postMessage({ buffer: arrayBuffer }, [arrayBuffer]);
         });
-        arrayBuffer = null;
-        
-        if (statusEl) {
-            statusEl.innerHTML = "✅ Sincronizado con O365";
+
+        // ==========================================
+        // 4. GUARDAR EN DISCO (INDEXEDDB) Y ACTUALIZAR UI SUAVEMENTE
+        // ==========================================
+        try {
+            const CACHE_KEY = 'planeta_azul_engine_result';
+            const db = await new Promise((resolve, reject) => {
+                const req = indexedDB.open('PlanetaAzulDB', 1);
+                req.onsuccess = () => resolve(req.result);
+            });
+            await new Promise((resolve, reject) => {
+                const tx = db.transaction('finance_cache', 'readwrite');
+                tx.objectStore('finance_cache').put({ data: engineResult.data, timestamp: Date.now() }, CACHE_KEY);
+                tx.oncomplete = resolve;
+                tx.onerror = reject;
+            });
+            console.log("✨ Datos procesados y actualizados en IndexedDB con éxito.");
+        } catch (e) {
+            console.warn("⚠️ Error guardando caché en IndexedDB:", e);
         }
+
+        // Refrescar los números de la pantalla sin que el usuario sufra un parpadeo agresivo
+        globalFinancialData = engineResult.data;
+        window.isMagicLoaded = true; // Consolidamos la bandera
+        renderDashboard(globalFinancialData);
         
+        if (loader) loader.style.display = 'none';
+        if (statusEl) statusEl.innerHTML = "✅ Sincronizado con O365";
         if (sidebarSyncDot) sidebarSyncDot.style.backgroundColor = 'var(--success)';
         if (sidebarSyncText) {
             sidebarSyncText.innerText = 'Sincronizado';
             sidebarSyncText.style.color = 'var(--success)';
         }
-        
-        // Clear caches to prevent memory leaks and stale data
-        window.aiSummaryCache = {};
-        window.aiAlertsCache = {};
-        window.simSummaryCache = {};
-        
-        globalFinancialData = engineResult.data;
-        renderDashboard(globalFinancialData);
-        if (loader) loader.style.display = 'none';
-        
+
     } catch (error) {
-        if (error.message && (error.message.includes("403") || error.message.includes("404") || error.message.includes("401") || error.message.includes("Forbidden") || error.message.includes("Not Found") || error.message.includes("Acceso denegado"))) {
-            showErrorUI('No tienes permisos para leer el archivo fuente en SharePoint/OneDrive. Comunícate con el administrador.');
-            if (statusEl) {
-                statusEl.style.background = '#fee2e2';
-                statusEl.style.color = '#991b1b';
-                statusEl.style.borderColor = '#fecaca';
-                statusEl.innerHTML = "⚠️ Acceso denegado. Presione 'Conectar Office 365' con otra cuenta o use carga manual.";
-            }
-            if (loader) loader.style.display = 'none';
-            if (window.handleZeroState) window.handleZeroState();
-            return; // Aborta la ejecución para evitar que MSAL u otro flujo redireccione por accidente
-        } else if (error.message && error.message.includes("El enlace es privado")) {
-            console.warn("Auto-sync fallback triggered (expected):", error.message);
-        } else {
-            console.error("Auto-sync failed:", error);
-        }
+        console.error("Error en sincronización:", error);
+        if (loader && !window.isMagicLoaded) loader.style.display = 'none';
         if (statusEl) {
             statusEl.style.background = '#fee2e2';
             statusEl.style.color = '#991b1b';
-            statusEl.style.borderColor = '#fecaca';
-            statusEl.innerHTML = "⚠️ Sincronización fallida. Presione 'Conectar Office 365' o use la carga manual.";
-            statusEl.title = error.message; 
+            statusEl.innerHTML = "⚠️ Sincronización fallida.";
         }
-        
-        if (sidebarSyncDot) sidebarSyncDot.style.backgroundColor = 'var(--danger)';
-        if (sidebarSyncText) {
-             sidebarSyncText.innerText = 'Desconectado';
-             sidebarSyncText.style.color = 'var(--danger)';
-        }
-        
-        if (loader) loader.style.display = 'none';
-        
-        if (loginBtn) loginBtn.style.display = 'flex'; // Show login button
-        if (window.handleZeroState) window.handleZeroState();
     }
 }
-
 window.syncNavigationUI = function(menuId) {
     const titleLabel = document.getElementById('titleLabel');
     const titles = {
@@ -630,8 +576,68 @@ window.handleMSALLoginFailure = function() {
     window.handleZeroState();
 };
 
-document.addEventListener('DOMContentLoaded', () => {
-    window.handleZeroState();
+async function loadCacheInstant() {
+    try {
+        const CACHE_KEY = 'planeta_azul_engine_result';
+        const db = await new Promise((resolve, reject) => {
+            const req = indexedDB.open('PlanetaAzulDB', 1);
+            req.onupgradeneeded = (e) => {
+                if (!e.target.result.objectStoreNames.contains('finance_cache')) {
+                    e.target.result.createObjectStore('finance_cache');
+                }
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+
+        const cachedData = await new Promise((resolve) => {
+            const req = db.transaction('finance_cache', 'readonly').objectStore('finance_cache').get(CACHE_KEY);
+            req.onsuccess = () => {
+                const result = req.result;
+                if (result && result.timestamp && Date.now() - result.timestamp < 86400000) {
+                    resolve(result.data);
+                } else if (result) {
+                    // Limpieza Automática: borrar si los datos tienen más de 24 horas
+                    try {
+                        const deleteTx = db.transaction('finance_cache', 'readwrite');
+                        deleteTx.objectStore('finance_cache').delete(CACHE_KEY);
+                        console.log("🧹 Caché antigua eliminada (>24h)");
+                    } catch(e) {}
+                    resolve(null);
+                } else {
+                    resolve(null);
+                }
+            };
+            req.onerror = () => resolve(null);
+        });
+
+        if (cachedData && cachedData.length > 0) {
+            console.log("🚀 Magic Load F5: Renderizando UI alzada instantáneamente.");
+            
+            window.isMagicLoaded = true; // 🔥 AÑADE ESTA LÍNEA AQUÍ
+            
+            globalFinancialData = cachedData;
+            renderDashboard(globalFinancialData);
+            const loaderEl = document.getElementById('loader');
+            if (loaderEl) loaderEl.style.display = 'none';
+            return true;
+        }
+    } catch (e) {
+        console.warn("⚠️ Magic Load omitido (caché no disponible):", e);
+    }
+    return false;
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    // 1. Escudo de Caché: Intenta cargar inmediatamente de SSD/IndexedDB
+    const loadedFromCache = await loadCacheInstant();
+    
+    // 2. Si no hay caché, asegurar que se muestre Zero State
+    if (!loadedFromCache) {
+        window.handleZeroState();
+    }
+
+
     if (msalInstance) {
         msalInstance.initialize?.().then(async () => {
             try {
@@ -927,7 +933,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (globalFinancialData && globalFinancialData.length > 0 && monthSelector) {
                 const idx = parseInt(monthSelector.value);
-                if (!isNaN(idx)) updateUI(globalFinancialData, idx);
+                if (!isNaN(idx)) renderActiveViewLazy(globalFinancialData, idx);
             }
         });
     });
@@ -1120,39 +1126,24 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Handle window resize for D3 Charts redrawing and Mobile Accordions
+    let resizeTimer;
+    let lastWindowWidth = window.innerWidth;
+
     window.addEventListener('resize', () => {
-        if (globalFinancialData && globalFinancialData.length > 0 && monthSelector) {
-            const idx = parseInt(monthSelector.value);
-            if (!isNaN(idx)) {
-                // Throttle maybe not strictly needed for this scale, but good practice
-                const rollingData = globalFinancialData.slice(Math.max(0, idx - 11), idx + 1).filter(d => isYear2026(d));
-                renderMarginChart(rollingData);
-                renderCashFlowChart(rollingData);
-                renderWaterfallChart(globalFinancialData, idx);
-                renderMarginTrendChart(globalFinancialData, idx);
-                renderCashBridgeChart(globalFinancialData, idx);
-                renderCovenantGauges(globalFinancialData, idx);
-                
-                // Rebuild Mobile Accordions if crossing breakpoint
-                buildMobileAccordionsFromTable('pnlDetailedTable', 'pnlMobileContainer');
-                buildMobileAccordionsFromTable('balanceTable', 'balanceMobileContainer');
-                buildMobileAccordionsFromTable('covenantTable', 'covenantMobileContainer');
-                buildMobileAccordionsFromTable('cashflowTable', 'cashflowMobileContainer');
-                buildMobileAccordionsFromTable('cfMetricsTable', 'cfMetricsMobileContainer');
-                
-                // Resumen
-                const lastData = globalFinancialData[idx];
-                const kpis = lastData.kpis || { ingresos: 0, ebitda: 0, margen_ebitda: 0 };
-                const categories = (lastData.pnl && lastData.pnl.categorias) ? lastData.pnl.categorias : {};
-                const totalCost = categories["Costo de Ventas"] || 0;
-                buildMobileAccordionsFromTable('tableResumenOperativo', 'resumenOperativoMobileContainer', 'Resumen Operativo', '');
-                buildMobileAccordionsFromTable('tableVentasSegmento', 'ventasSegmentoMobileContainer', 'Segmentos de Venta', formatCurrency(kpis.ingresos));
-                buildMobileAccordionsFromTable('tableCostosSegmento', 'costosSegmentoMobileContainer', 'Desglose de Costos', formatCurrency(totalCost));
-                buildMobileAccordionsFromTable('tableMargenSegmento', 'margenSegmentoMobileContainer', 'Margen Bruto por Segmento', '');
-                const currentOpex = (lastData.pnl && lastData.pnl.opexDetalle) ? Object.values(lastData.pnl.opexDetalle).reduce((acc, val) => acc + val, 0) : 0;
-                buildMobileAccordionsFromTable('tableOpex', 'opexMobileContainer', 'Detalle de Gastos OPEX', formatCurrency(currentOpex));
-            }
+        if (window.innerWidth === lastWindowWidth) {
+            return;
         }
+        lastWindowWidth = window.innerWidth;
+
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+            if (globalFinancialData && globalFinancialData.length > 0 && monthSelector) {
+                const idx = parseInt(monthSelector.value);
+                if (!isNaN(idx)) {
+                    renderActiveViewLazy(globalFinancialData, idx);
+                }
+            }
+        }, 200);
     });
 });
 
@@ -1376,13 +1367,38 @@ async function handleFileUpload(e) {
         if (resetUploadBtn) resetUploadBtn.style.display = 'inline-block';
         
         // Show success, then render
-        setTimeout(() => {
+        setTimeout(async () => {
             // Clear caches to prevent memory leaks and stale data
             window.aiSummaryCache = {};
             window.aiAlertsCache = {};
             window.simSummaryCache = {};
             
             globalFinancialData = engineResult.data;
+            
+            // --- GUARDAR JSON PROCESADO EN INDEXEDDB ---
+            try {
+                const CACHE_KEY = 'planeta_azul_engine_result';
+                const db = await new Promise((resolve, reject) => {
+                    const req = indexedDB.open('PlanetaAzulDB', 1);
+                    req.onupgradeneeded = (e) => {
+                        if (!e.target.result.objectStoreNames.contains('finance_cache')) {
+                            e.target.result.createObjectStore('finance_cache');
+                        }
+                    };
+                    req.onsuccess = () => resolve(req.result);
+                    req.onerror = () => reject(req.error);
+                });
+                await new Promise((resolve, reject) => {
+                    const tx = db.transaction('finance_cache', 'readwrite');
+                    tx.objectStore('finance_cache').put({ data: engineResult.data, timestamp: Date.now() }, CACHE_KEY);
+                    tx.oncomplete = resolve;
+                    tx.onerror = reject;
+                });
+                console.log("✨ La Gran Victoria: JSON procesado guardado en IndexedDB con éxito.");
+            } catch (e) {
+                console.warn("⚠️ Error guardando caché manual en IndexedDB:", e);
+            }
+
             renderDashboard(globalFinancialData);
         }, 500);
 
@@ -1623,7 +1639,7 @@ function updateUI(data, index) {
     if (!data || !data[index]) return;
     const curr = data[index];
     
-    // Identificar el anterior operativo (excluyendo el año base 2025 para comparaciones MoM)
+    // Identificar el anterior operativo
     const operationalData = data.filter(d => isYear2026(d));
     const currIdxInOp = operationalData.findIndex(d => d.date === curr.date);
     const prev = currIdxInOp > 0 ? operationalData[currIdxInOp - 1] : curr;
@@ -1631,7 +1647,7 @@ function updateUI(data, index) {
     // Safety guards for kpis
     const kpis = curr.kpis || { ingresos: 0, ebitda: 0, cashflow: 0, margen_ebitda: 0 };
     const prevKpis = prev.kpis || kpis;
-
+    
     // Integrity Badge logic
     const integrityBadge = document.getElementById('integrityBadge');
     if (integrityBadge && curr.integrity) {
@@ -1639,7 +1655,7 @@ function updateUI(data, index) {
         if (curr.integrity.isBroken) {
             integrityBadge.className = 'integrity-fail';
             integrityBadge.innerHTML = `⚠️ Ajuste Detectado (Abs: ${formatCurrency(curr.integrity.gap)})`;
-            integrityBadge.title = "La suma de Ingresos - Costos - Gastos no coincide con el EBITDA reportado por un margen > 1%";
+            integrityBadge.title = "La suma de Ingresos - Costos - Gastos no coincide con el EBITDA reportado";
         } else {
             integrityBadge.className = 'integrity-ok';
             integrityBadge.innerHTML = `✓ P&L Cuadrado`;
@@ -1650,216 +1666,12 @@ function updateUI(data, index) {
     document.getElementById('kpi-ventas').textContent = formatCurrency(kpis.ingresos);
     document.getElementById('kpi-ebitda').textContent = formatCurrency(kpis.ebitda);
 
-    // Safety guards for pnl categories
     const categories = (curr.pnl && curr.pnl.categorias) ? curr.pnl.categorias : {};
-    const prevCategories = (prev.pnl && prev.pnl.categorias) ? prev.pnl.categorias : categories;
-
     const totalCost = categories["Costo de Ventas"] || 0;
+    const prevCategories = (prev.pnl && prev.pnl.categorias) ? prev.pnl.categorias : categories;
     const prevTotalCost = prevCategories["Costo de Ventas"] || 0;
 
     document.getElementById('val-ratio').textContent = formatCurrency(totalCost);
-
-    // Renderizar Segmentos
-    const segmentsSection = document.getElementById('segments-section');
-    const segmentsBody = document.getElementById('segmentsBody');
-    const segments = (curr.pnl && curr.pnl.segments) ? curr.pnl.segments : {};
-    const prevSegments = (prev.pnl && prev.pnl.segments) ? prev.pnl.segments : segments;
-    const pptoSegments = (curr.ppto && curr.ppto.pnl && curr.ppto.pnl.segments) ? curr.ppto.pnl.segments : {};
-    
-    if (Object.keys(segments).length > 0) {
-        segmentsSection.style.display = 'block';
-        segmentsBody.innerHTML = Object.entries(segments).map(([name, data]) => {
-            const ventas = data.ventas || 0;
-            const prevVentas = prevSegments[name] ? prevSegments[name].ventas : 0;
-            const pptoVentas = pptoSegments[name] ? pptoSegments[name].ventas : 0;
-            const diff = ventas - prevVentas;
-            const diffPpto = ventas - pptoVentas;
-            const pctPart = kpis.ingresos !== 0 ? (ventas / kpis.ingresos) * 100 : 0;
-            const pctMoM = prevVentas !== 0 ? (diff / Math.abs(prevVentas)) * 100 : 0;
-            const pctPpto = pptoVentas !== 0 ? (diffPpto / Math.abs(pptoVentas)) * 100 : 0;
-            
-            const color = diff >= 0 ? 'var(--success)' : 'var(--danger)'; 
-            const colorPpto = diffPpto >= 0 ? 'var(--success)' : 'var(--danger)';
-            const valColor = ventas < 0 ? 'var(--danger)' : 'inherit';
-            const prevColor = prevVentas < 0 ? 'var(--danger)' : 'inherit';
-            const pptoColor = pptoVentas < 0 ? 'var(--danger)' : 'inherit';
-
-            return `<tr>
-                <td style="font-weight:600">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
-                        <span>${name}</span>
-                        <span style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 500;">${pctPart.toFixed(1)}%</span>
-                    </div>
-                    <div class="bar-container"><div class="bar-fill" style="width: ${Math.min(100, Math.max(0, pctPart))}%"></div></div>
-                </td>
-                <td style="color:${prevColor}">${formatCurrency(prevVentas)}</td>
-                <td style="color:${valColor}">${formatCurrency(ventas)}</td>
-                <td style="color:${pptoColor}">${formatCurrency(pptoVentas)}</td>
-                <td style="color:${color}">${diff >= 0 ? '+' : ''}${formatCurrency(diff)} (${pctMoM > 0 ? '+' : ''}${pctMoM.toFixed(1)}%)</td>
-                <td style="color:${colorPpto}">${diffPpto >= 0 ? '+' : ''}${formatCurrency(diffPpto)} (${pctPpto > 0 ? '+' : ''}${pctPpto.toFixed(1)}%)</td>
-            </tr>`;
-        }).join('');
-    } else {
-        segmentsSection.style.display = 'none';
-    }
-
-    // Renderizar Costos por Segmento (Nuevo)
-    const costSegmentsSection = document.getElementById('cost-segments-section');
-    const costSegmentsBody = document.getElementById('costSegmentsBody');
-    if (Object.keys(segments).length > 0) {
-        costSegmentsSection.style.display = 'block';
-        costSegmentsBody.innerHTML = Object.entries(segments).map(([name, data]) => {
-            const costos = data.costos || 0;
-            const prevCostos = prevSegments[name] ? prevSegments[name].costos : 0;
-            const pptoCostos = pptoSegments[name] ? pptoSegments[name].costos : 0;
-            
-            const diff = costos - prevCostos;
-            const diffPpto = costos - pptoCostos;
-            const pctVar = prevCostos !== 0 ? (diff / Math.abs(prevCostos)) * 100 : 0;
-            const pctVarPpto = pptoCostos !== 0 ? (diffPpto / Math.abs(pptoCostos)) * 100 : 0;
-            
-            // Regla solicitada: Positivo = Verde, Negativo = Rojo
-            const color = diff >= 0 ? 'var(--success)' : 'var(--danger)';
-            const colorPpto = diffPpto >= 0 ? 'var(--success)' : 'var(--danger)';
-            const valColor = costos < 0 ? 'var(--danger)' : 'inherit';
-            const prevColor = prevCostos < 0 ? 'var(--danger)' : 'inherit';
-            const pptoColor = pptoCostos < 0 ? 'var(--danger)' : 'inherit';
-
-            return `<tr>
-                <td style="font-weight:600">${name}</td>
-                <td style="color:${prevColor}">${formatCurrency(prevCostos)}</td>
-                <td style="color:${valColor}">${formatCurrency(costos)}</td>
-                <td style="color:${pptoColor}">${formatCurrency(pptoCostos)}</td>
-                <td style="color:${color}">${diff >= 0 ? '+' : ''}${formatCurrency(diff)} (${pctVar > 0 ? '+' : ''}${pctVar.toFixed(1)}%)</td>
-                <td style="color:${colorPpto}">${diffPpto >= 0 ? '+' : ''}${formatCurrency(diffPpto)} (${pctVarPpto > 0 ? '+' : ''}${pctVarPpto.toFixed(1)}%)</td>
-            </tr>`;
-        }).join('');
-    } else {
-        costSegmentsSection.style.display = 'none';
-    }
-
-    // Renderizar Margen Bruto por Segmento (Nuevo)
-    const margenSegmentsSection = document.getElementById('margen-segments-section');
-    const margenSegmentsBody = document.getElementById('margenSegmentsBody');
-    if (Object.keys(segments).length > 0) {
-        if(margenSegmentsSection) margenSegmentsSection.style.display = 'block';
-        if(margenSegmentsBody) margenSegmentsBody.innerHTML = Object.entries(segments).map(([name, data]) => {
-            const ventas = data.ventas || 0;
-            // Manejar si los costos en el json de origen vienen negativos o positivos
-            const costos = data.costos || 0;
-            const prevVentas = prevSegments[name] ? prevSegments[name].ventas : 0;
-            const prevCostos = prevSegments[name] ? prevSegments[name].costos : 0;
-            const pptoVentas = pptoSegments[name] ? pptoSegments[name].ventas : 0;
-            const pptoCostos = pptoSegments[name] ? pptoSegments[name].costos : 0;
-            
-            const margen = Math.abs(ventas) - Math.abs(costos);
-            const prevMargen = Math.abs(prevVentas) - Math.abs(prevCostos);
-            const pptoMargen = Math.abs(pptoVentas) - Math.abs(pptoCostos);
-            
-            const pctMargen = ventas !== 0 ? (margen / Math.abs(ventas)) * 100 : 0;
-            const pctPrevMargen = prevVentas !== 0 ? (prevMargen / Math.abs(prevVentas)) * 100 : 0;
-            const pctPptoMargen = pptoVentas !== 0 ? (pptoMargen / Math.abs(pptoVentas)) * 100 : 0;
-            
-            const diffPct = pctMargen - pctPrevMargen;
-            const diffPctPpto = pctMargen - pctPptoMargen;
-            
-            const color = diffPct >= 0 ? 'var(--success)' : 'var(--danger)';
-            const colorPpto = diffPctPpto >= 0 ? 'var(--success)' : 'var(--danger)';
-            const valColor = margen < 0 ? 'var(--danger)' : 'inherit';
-            const prevColor = prevMargen < 0 ? 'var(--danger)' : 'inherit';
-
-            return `<tr>
-                <td style="font-weight:600">${name}</td>
-                <td>${pctPrevMargen.toFixed(1)}%</td>
-                <td style="font-weight:700">${pctMargen.toFixed(1)}%</td>
-                <td>${pctPptoMargen.toFixed(1)}%</td>
-                <td style="color:${color}; font-weight:700">${diffPct > 0 ? '+' : ''}${diffPct.toFixed(1)} pp</td>
-                <td style="color:${colorPpto}; font-weight:700">${diffPctPpto > 0 ? '+' : ''}${diffPctPpto.toFixed(1)} pp</td>
-            </tr>`;
-        }).join('');
-    } else {
-        if(margenSegmentsSection) margenSegmentsSection.style.display = 'none';
-    }
-
-    // Renderizar Detalle OPEX
-    const opexSection = document.getElementById('opex-section');
-    const opexBody = document.getElementById('opexBody');
-    const opexDetalle = (curr.pnl && curr.pnl.opexDetalle) ? curr.pnl.opexDetalle : {};
-    const prevOpexDetalle = (prev.pnl && prev.pnl.opexDetalle) ? prev.pnl.opexDetalle : opexDetalle;
-    const pptoOpexDetalle = (curr.ppto && curr.ppto.pnl && curr.ppto.pnl.opexDetalle) ? curr.ppto.pnl.opexDetalle : {};
-
-    if (Object.keys(opexDetalle).length > 0) {
-        opexSection.style.display = 'block';
-        opexBody.innerHTML = Object.entries(opexDetalle).map(([cat, val]) => {
-            const prevVal = prevOpexDetalle[cat] || 0;
-            const pptoVal = pptoOpexDetalle[cat] || 0;
-            // Unificamos lógica: val - prevVal es el impacto en la salud financiera
-            // Si el monto es negativo (gasto), un incremento hacia cero es positivo
-            // Si el monto es positivo (ingreso), un incremento es positivo
-            const diff = val - prevVal; 
-            const diffPpto = val - pptoVal;
-            const pct = prevVal !== 0 ? (diff / Math.abs(prevVal)) * 100 : 0;
-            const pctPpto = pptoVal !== 0 ? (diffPpto / Math.abs(pptoVal)) * 100 : 0;
-            const color = diff >= 0 ? 'var(--success)' : 'var(--danger)'; 
-            const colorPpto = diffPpto >= 0 ? 'var(--success)' : 'var(--danger)'; 
-            const valColor = val < 0 ? 'var(--danger)' : 'inherit';
-            const prevColor = prevVal < 0 ? 'var(--danger)' : 'inherit';
-            const pptoColor = pptoVal < 0 ? 'var(--danger)' : 'inherit';
-
-            return `<tr>
-                <td style="font-weight:600">${cat}</td>
-                <td style="color:${prevColor}">${formatCurrency(prevVal)}</td>
-                <td style="color:${valColor}">${formatCurrency(val)}</td>
-                <td style="color:${pptoColor}">${formatCurrency(pptoVal)}</td>
-                <td style="color:${color}">${diff >= 0 ? '+' : ''}${formatCurrency(diff)} (${pct > 0 ? '+' : ''}${pct.toFixed(1)}%)</td>
-                <td style="color:${colorPpto}">${diffPpto >= 0 ? '+' : ''}${formatCurrency(diffPpto)} (${pctPpto > 0 ? '+' : ''}${pctPpto.toFixed(1)}%)</td>
-            </tr>`;
-        }).join('');
-    } else {
-        opexSection.style.display = 'none';
-    }
-
-    // Renderizar Tabla Detallada
-    const tableBody = document.getElementById('tableBody');
-    if (Object.keys(categories).length > 0) {
-        // Excluimos OPEX y Utilidad Neta para dejar solo indicadores operativos puros
-        const filteredEntries = Object.entries(categories).filter(([cat]) => 
-            !cat.toLowerCase().includes("opex") && 
-            !cat.toLowerCase().includes("extraordinarios") &&
-            !cat.toLowerCase().includes("utilidad")
-        );
-        
-        const pptoCategories = (curr.ppto && curr.ppto.pnl && curr.ppto.pnl.categorias) ? curr.ppto.pnl.categorias : {};
-
-        tableBody.innerHTML = filteredEntries.map(([cat, val]) => {
-            const prevVal = prevCategories[cat] || 0;
-            const pptoVal = pptoCategories[cat] || 0;
-            
-            const diff = val - prevVal;
-            const pct = prevVal !== 0 ? (diff / Math.abs(prevVal)) * 100 : 0;
-            
-            const diffPpto = val - pptoVal;
-            const pctPpto = pptoVal !== 0 ? (diffPpto / Math.abs(pptoVal)) * 100 : 0;
-            
-            // Unificamos lógica de color con el resto de tablas del resumen (Positivo = Verde, Negativo = Rojo)
-            // Para indicadores operativos, un incremento suele ser positivo
-            const color = diff >= 0 ? 'var(--success)' : 'var(--danger)';
-            const colorPpto = diffPpto >= 0 ? 'var(--success)' : 'var(--danger)';
-
-            const valColor = val < 0 ? 'var(--danger)' : 'inherit';
-            const prevColor = prevVal < 0 ? 'var(--danger)' : 'inherit';
-            const pptoColor = pptoVal < 0 ? 'var(--danger)' : 'inherit';
-            
-            return `<tr>
-                <td style="font-weight:600">${cat}</td>
-                <td style="color:${prevColor}">${formatCurrency(prevVal)}</td>
-                <td style="color:${valColor}">${formatCurrency(val)}</td>
-                <td style="color:${pptoColor}">${formatCurrency(pptoVal)}</td>
-                <td style="color:${color}">${diff >= 0 ? '+' : ''}${formatCurrency(diff)} (${pct > 0 ? '+' : ''}${pct.toFixed(1)}%)</td>
-                <td style="color:${colorPpto}">${diffPpto >= 0 ? '+' : ''}${formatCurrency(diffPpto)} (${pctPpto > 0 ? '+' : ''}${pctPpto.toFixed(1)}%)</td>
-            </tr>`;
-        }).join('');
-    }
 
     const statusEl = document.getElementById('engineStatus');
     if (statusEl && curr.pnl && curr.pnl.detectedRows) {
@@ -1872,99 +1684,314 @@ function updateUI(data, index) {
     
     document.getElementById('periodLabel').textContent = `Periodo de Análisis: ${curr.date || 'Actual'}`;
     updateTrend('sub-ventas', kpis.ingresos, prevKpis.ingresos, curr.ppto?.kpis?.ingresos || 0);
-    
-    // EBITDA Trend + Margin
     const margin = ((kpis.margen_ebitda || 0) * 100).toFixed(1);
     updateTrend('sub-ebitda', kpis.ebitda, prevKpis.ebitda, curr.ppto?.kpis?.ebitda || 0, ` | Margen: ${margin}%`);
-    
-    // Costos de Ventas Trend
     updateTrend('sub-ratio', totalCost, prevTotalCost, curr.ppto?.pnl?.categorias?.["Costo de Ventas"] || 0);
 
-    // Render Detailed P&L (Passing current selected index for rolling window)
-    renderDetailedPnL(data, index);
-    
-    // Render Balance Sheet
-    renderBalanceSheet(data, index);
-
-    // Render Cash Flow
-    renderCashFlow(data, index);
-
-    // 🚀 NEW: Render KPI Dashboard
-    renderKPIDashboard(data, index);
-
-    // 🚀 NEW: Render Estados Financieros
-    renderEstadosFinancieros(data, index);
-
-    // Verificación de Contenedores para D3 (Pilar B)
-    let viewPnl = document.getElementById("view-pnl");
-    if (viewPnl) {
-        let pnlDetailTable = viewPnl.querySelector(".pnl-detail-table");
-        if (pnlDetailTable) {
-            if (!document.getElementById("marginTrendChart")) {
-                let marginContainer = document.createElement("div");
-                marginContainer.id = "marginTrendChart";
-                marginContainer.style.width = "100%";
-                marginContainer.style.height = "300px";
-                marginContainer.style.marginBottom = "30px";
-                pnlDetailTable.parentNode.insertBefore(marginContainer, pnlDetailTable);
-            }
-            if (!document.getElementById("waterfallChart")) {
-                let waterfallContainer = document.createElement("div");
-                waterfallContainer.id = "waterfallChart";
-                waterfallContainer.style.width = "100%";
-                waterfallContainer.style.height = "350px";
-                waterfallContainer.style.marginBottom = "30px";
-                pnlDetailTable.parentNode.insertBefore(waterfallContainer, pnlDetailTable);
-            }
-        }
-    }
-    
-    // Verificación de Contenedores para D3 (Pilar C)
-    let viewCashflow = document.getElementById("view-cashflow");
-    if (viewCashflow) {
-        let cfDetailTable = viewCashflow.querySelector(".pnl-detail-table");
-        if (cfDetailTable) {
-            if (!document.getElementById("cashBridgeChart")) {
-                let cashBridgeContainer = document.createElement("div");
-                cashBridgeContainer.id = "cashBridgeChart";
-                cashBridgeContainer.style.width = "100%";
-                cashBridgeContainer.style.height = "350px";
-                cashBridgeContainer.style.marginBottom = "30px";
-                cfDetailTable.parentNode.insertBefore(cashBridgeContainer, cfDetailTable);
-            }
-        }
-    }
-
-    // Llamar nuevas funciones D3
-    renderWaterfallChart(data, index);
-    renderMarginTrendChart(data, index);
-    renderCashBridgeChart(data, index);
-
-    // Build Mobile Views
-    setTimeout(() => {
-        buildMobileAccordionsFromTable('pnlDetailedTable', 'pnlMobileContainer');
-        buildMobileAccordionsFromTable('balanceTable', 'balanceMobileContainer');
-        buildMobileAccordionsFromTable('covenantTable', 'covenantMobileContainer');
-        buildMobileAccordionsFromTable('cashflowTable', 'cashflowMobileContainer');
-        buildMobileAccordionsFromTable('cfMetricsTable', 'cfMetricsMobileContainer');
-        
-        // Resumen Header Acccords
-        buildMobileAccordionsFromTable('tableResumenOperativo', 'resumenOperativoMobileContainer', 'Resumen Operativo', '');
-        buildMobileAccordionsFromTable('tableVentasSegmento', 'ventasSegmentoMobileContainer', 'Segmentos de Venta', formatCurrency(kpis.ingresos));
-        buildMobileAccordionsFromTable('tableCostosSegmento', 'costosSegmentoMobileContainer', 'Desglose de Costos', formatCurrency(totalCost));
-        buildMobileAccordionsFromTable('tableMargenSegmento', 'margenSegmentoMobileContainer', 'Margen Bruto por Segmento', '');
-        
-        const currOpex = (curr.pnl && curr.pnl.opexDetalle) ? Object.values(curr.pnl.opexDetalle).reduce((acc, val) => acc + val, 0) : 0;
-        buildMobileAccordionsFromTable('tableOpex', 'opexMobileContainer', 'Detalle de Gastos OPEX', formatCurrency(currOpex));
-        
-        // Trigger account search filter if active
-        const searchInput = document.getElementById('accountSearch');
-        if (searchInput && searchInput.value.trim() !== '') {
-            searchInput.dispatchEvent(new Event('input'));
-        }
-    }, 50);
+    // Renderizar resto condicionalmente
+    renderActiveViewLazy(data, index);
 }
 
+function renderActiveViewLazy(data, index) {
+    if (!data || !data[index]) return;
+    const curr = data[index];
+    const prevIdx = Math.max(0, index - 1);
+    const prev = data[prevIdx];
+    
+    const operationalData = data.filter(d => isYear2026(d));
+    const currIdxInOp = operationalData.findIndex(d => d.date === curr.date);
+    const operationalPrev = currIdxInOp > 0 ? operationalData[currIdxInOp - 1] : curr;
+    
+    // We defer heavy operations via requestAnimationFrame and target only the view being displayed.
+    requestAnimationFrame(() => {
+        let viewPnl = document.getElementById("view-pnl");
+        if (viewPnl && viewPnl.classList.contains("active")) {
+            renderDetailedPnL(data, index);
+            
+            if (viewPnl) {
+                let pnlDetailTable = viewPnl.querySelector(".pnl-detail-table");
+                if (pnlDetailTable) {
+                    if (!document.getElementById("marginTrendChart")) {
+                        let marginContainer = document.createElement("div");
+                        marginContainer.id = "marginTrendChart";
+                        marginContainer.style.width = "100%";
+                        marginContainer.style.height = "300px";
+                        marginContainer.style.marginBottom = "30px";
+                        pnlDetailTable.parentNode.insertBefore(marginContainer, pnlDetailTable);
+                    }
+                    if (!document.getElementById("waterfallChart")) {
+                        let waterfallContainer = document.createElement("div");
+                        waterfallContainer.id = "waterfallChart";
+                        waterfallContainer.style.width = "100%";
+                        waterfallContainer.style.height = "350px";
+                        waterfallContainer.style.marginBottom = "30px";
+                        pnlDetailTable.parentNode.insertBefore(waterfallContainer, pnlDetailTable);
+                    }
+                }
+            }
+            renderWaterfallChart(data, index);
+            renderMarginTrendChart(data, index);
+            
+            setTimeout(() => {
+                buildMobileAccordionsFromTable('pnlDetailedTable', 'pnlMobileContainer');
+            }, 10);
+        }
+
+        let viewBalance = document.getElementById("view-balance");
+        if (viewBalance && viewBalance.classList.contains("active")) {
+            renderBalanceSheet(data, index);
+            setTimeout(() => {
+                buildMobileAccordionsFromTable('balanceTable', 'balanceMobileContainer');
+                buildMobileAccordionsFromTable('covenantTable', 'covenantMobileContainer');
+            }, 10);
+        }
+
+        let viewCashflow = document.getElementById("view-cashflow");
+        if (viewCashflow && viewCashflow.classList.contains("active")) {
+            renderCashFlow(data, index);
+            
+            let cfDetailTable = viewCashflow.querySelector(".pnl-detail-table");
+            if (cfDetailTable) {
+                if (!document.getElementById("cashBridgeChart")) {
+                    let cashBridgeContainer = document.createElement("div");
+                    cashBridgeContainer.id = "cashBridgeChart";
+                    cashBridgeContainer.style.width = "100%";
+                    cashBridgeContainer.style.height = "350px";
+                    cashBridgeContainer.style.marginBottom = "30px";
+                    cfDetailTable.parentNode.insertBefore(cashBridgeContainer, cfDetailTable);
+                }
+            }
+            renderCashBridgeChart(data, index);
+            
+            setTimeout(() => {
+                buildMobileAccordionsFromTable('cashflowTable', 'cashflowMobileContainer');
+                buildMobileAccordionsFromTable('cfMetricsTable', 'cfMetricsMobileContainer');
+            }, 10);
+        }
+        
+        let viewKpi = document.getElementById("view-kpi");
+        if (viewKpi && viewKpi.classList.contains("active")) {
+            renderKPIDashboard(data, index);
+            renderEstadosFinancieros(data, index);
+        }
+
+        let viewResumen = document.getElementById("view-resumen");
+        if (viewResumen && viewResumen.classList.contains("active")) {
+            // Re-render resumen widgets fully
+            const kpis = curr.kpis || { ingresos: 0, ebitda: 0, cashflow: 0, margen_ebitda: 0 };
+            const categories = (curr.pnl && curr.pnl.categorias) ? curr.pnl.categorias : {};
+            const prevCategories = (operationalPrev.pnl && operationalPrev.pnl.categorias) ? operationalPrev.pnl.categorias : categories;
+            const totalCost = categories["Costo de Ventas"] || 0;
+            const pptoCategories = (curr.ppto && curr.ppto.pnl && curr.ppto.pnl.categorias) ? curr.ppto.pnl.categorias : {};
+
+            const segments = (curr.pnl && curr.pnl.segments) ? curr.pnl.segments : {};
+            const prevSegments = (operationalPrev.pnl && operationalPrev.pnl.segments) ? operationalPrev.pnl.segments : {};
+            const pptoSegments = (curr.ppto && curr.ppto.pnl && curr.ppto.pnl.segments) ? curr.ppto.pnl.segments : {};
+            
+            // Render Segmentos Ventas
+            const segmentsSection = document.getElementById('segments-section');
+            const segmentsBody = document.getElementById('segmentsBody');
+            if (Object.keys(segments).length > 0) {
+                segmentsSection.style.display = 'block';
+                segmentsBody.innerHTML = Object.entries(segments).map(([name, dataSeg]) => {
+                    const ventas = dataSeg.ventas || 0;
+                    const prevVentas = prevSegments[name] ? prevSegments[name].ventas : 0;
+                    const pptoVentas = pptoSegments[name] ? pptoSegments[name].ventas : 0;
+                    const diff = ventas - prevVentas;
+                    const diffPpto = ventas - pptoVentas;
+                    const pctPart = kpis.ingresos !== 0 ? (ventas / kpis.ingresos) * 100 : 0;
+                    const pctMoM = prevVentas !== 0 ? (diff / Math.abs(prevVentas)) * 100 : 0;
+                    const pctPpto = pptoVentas !== 0 ? (diffPpto / Math.abs(pptoVentas)) * 100 : 0;
+                    
+                    const color = diff >= 0 ? 'var(--success)' : 'var(--danger)'; 
+                    const colorPpto = diffPpto >= 0 ? 'var(--success)' : 'var(--danger)';
+                    const valColor = ventas < 0 ? 'var(--danger)' : 'inherit';
+                    const prevColor = prevVentas < 0 ? 'var(--danger)' : 'inherit';
+                    const pptoColor = pptoVentas < 0 ? 'var(--danger)' : 'inherit';
+
+                    return `<tr>
+                        <td style="font-weight:600">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                                <span>${name}</span>
+                                <span style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 500;">${pctPart.toFixed(1)}%</span>
+                            </div>
+                            <div class="bar-container"><div class="bar-fill" style="width: ${Math.min(100, Math.max(0, pctPart))}%;"></div></div>
+                        </td>
+                        <td style="color:${prevColor}">${formatCurrency(prevVentas)}</td>
+                        <td style="color:${valColor}">${formatCurrency(ventas)}</td>
+                        <td style="color:${pptoColor}">${formatCurrency(pptoVentas)}</td>
+                        <td style="color:${color}">${diff >= 0 ? '+' : ''}${formatCurrency(diff)} (${pctMoM > 0 ? '+' : ''}${pctMoM.toFixed(1)}%)</td>
+                        <td style="color:${colorPpto}">${diffPpto >= 0 ? '+' : ''}${formatCurrency(diffPpto)} (${pctPpto > 0 ? '+' : ''}${pctPpto.toFixed(1)}%)</td>
+                    </tr>`;
+                }).join('');
+            } else {
+                segmentsSection.style.display = 'none';
+            }
+            
+            // Render Segmentos Costos
+            const costSegmentsSection = document.getElementById('cost-segments-section');
+            const costSegmentsBody = document.getElementById('costSegmentsBody');
+            if (Object.keys(segments).length > 0) {
+                costSegmentsSection.style.display = 'block';
+                costSegmentsBody.innerHTML = Object.entries(segments).map(([name, dataSeg]) => {
+                    const costos = dataSeg.costos || 0;
+                    const prevCostos = prevSegments[name] ? prevSegments[name].costos : 0;
+                    const pptoCostos = pptoSegments[name] ? pptoSegments[name].costos : 0;
+                    
+                    const diff = costos - prevCostos;
+                    const diffPpto = costos - pptoCostos;
+                    const pctVar = prevCostos !== 0 ? (diff / Math.abs(prevCostos)) * 100 : 0;
+                    const pctVarPpto = pptoCostos !== 0 ? (diffPpto / Math.abs(pptoCostos)) * 100 : 0;
+                    
+                    const color = diff >= 0 ? 'var(--success)' : 'var(--danger)';
+                    const colorPpto = diffPpto >= 0 ? 'var(--success)' : 'var(--danger)';
+                    const valColor = costos < 0 ? 'var(--danger)' : 'inherit';
+                    const prevColor = prevCostos < 0 ? 'var(--danger)' : 'inherit';
+                    const pptoColor = pptoCostos < 0 ? 'var(--danger)' : 'inherit';
+        
+                    return `<tr>
+                        <td style="font-weight:600">${name}</td>
+                        <td style="color:${prevColor}">${formatCurrency(prevCostos)}</td>
+                        <td style="color:${valColor}">${formatCurrency(costos)}</td>
+                        <td style="color:${pptoColor}">${formatCurrency(pptoCostos)}</td>
+                        <td style="color:${color}">${diff >= 0 ? '+' : ''}${formatCurrency(diff)} (${pctVar > 0 ? '+' : ''}${pctVar.toFixed(1)}%)</td>
+                        <td style="color:${colorPpto}">${diffPpto >= 0 ? '+' : ''}${formatCurrency(diffPpto)} (${pctVarPpto > 0 ? '+' : ''}${pctVarPpto.toFixed(1)}%)</td>
+                    </tr>`;
+                }).join('');
+            } else {
+                costSegmentsSection.style.display = 'none';
+            }
+            
+            // Render Margen por segmento
+            const margenSegmentsSection = document.getElementById('margen-segments-section');
+            const margenSegmentsBody = document.getElementById('margenSegmentsBody');
+            if (Object.keys(segments).length > 0) {
+                if(margenSegmentsSection) margenSegmentsSection.style.display = 'block';
+                if(margenSegmentsBody) margenSegmentsBody.innerHTML = Object.entries(segments).map(([name, dataSeg]) => {
+                    const ventas = dataSeg.ventas || 0;
+                    const costos = dataSeg.costos || 0;
+                    const prevVentas = prevSegments[name] ? prevSegments[name].ventas : 0;
+                    const prevCostos = prevSegments[name] ? prevSegments[name].costos : 0;
+                    const pptoVentas = pptoSegments[name] ? pptoSegments[name].ventas : 0;
+                    const pptoCostos = pptoSegments[name] ? pptoSegments[name].costos : 0;
+                    
+                    const margen = Math.abs(ventas) - Math.abs(costos);
+                    const prevMargen = Math.abs(prevVentas) - Math.abs(prevCostos);
+                    const pptoMargen = Math.abs(pptoVentas) - Math.abs(pptoCostos);
+                    
+                    const pctMargen = ventas !== 0 ? (margen / Math.abs(ventas)) * 100 : 0;
+                    const pctPrevMargen = prevVentas !== 0 ? (prevMargen / Math.abs(prevVentas)) * 100 : 0;
+                    const pctPptoMargen = pptoVentas !== 0 ? (pptoMargen / Math.abs(pptoVentas)) * 100 : 0;
+                    
+                    const diffPct = pctMargen - pctPrevMargen;
+                    const diffPctPpto = pctMargen - pctPptoMargen;
+                    
+                    const color = diffPct >= 0 ? 'var(--success)' : 'var(--danger)';
+                    const colorPpto = diffPctPpto >= 0 ? 'var(--success)' : 'var(--danger)';
+                    const valColor = margen < 0 ? 'var(--danger)' : 'inherit';
+                    const prevColor = prevMargen < 0 ? 'var(--danger)' : 'inherit';
+        
+                    return `<tr>
+                        <td style="font-weight:600">${name}</td>
+                        <td>${pctPrevMargen.toFixed(1)}%</td>
+                        <td style="font-weight:700">${pctMargen.toFixed(1)}%</td>
+                        <td>${pctPptoMargen.toFixed(1)}%</td>
+                        <td style="color:${color}; font-weight:700">${diffPct > 0 ? '+' : ''}${diffPct.toFixed(1)} pp</td>
+                        <td style="color:${colorPpto}; font-weight:700">${diffPctPpto > 0 ? '+' : ''}${diffPctPpto.toFixed(1)} pp</td>
+                    </tr>`;
+                }).join('');
+            } else {
+                if(margenSegmentsSection) margenSegmentsSection.style.display = 'none';
+            }
+            
+            // Render OPEX Detalle
+            const opexSection = document.getElementById('opex-section');
+            const opexBody = document.getElementById('opexBody');
+            const opexDetalle = (curr.pnl && curr.pnl.opexDetalle) ? curr.pnl.opexDetalle : {};
+            const prevOpexDetalle = (operationalPrev.pnl && operationalPrev.pnl.opexDetalle) ? operationalPrev.pnl.opexDetalle : opexDetalle;
+            const pptoOpexDetalle = (curr.ppto && curr.ppto.pnl && curr.ppto.pnl.opexDetalle) ? curr.ppto.pnl.opexDetalle : {};
+        
+            if (Object.keys(opexDetalle).length > 0) {
+                opexSection.style.display = 'block';
+                opexBody.innerHTML = Object.entries(opexDetalle).map(([cat, val]) => {
+                    const prevVal = prevOpexDetalle[cat] || 0;
+                    const pptoVal = pptoOpexDetalle[cat] || 0;
+                    const diff = val - prevVal; 
+                    const diffPpto = val - pptoVal;
+                    const pct = prevVal !== 0 ? (diff / Math.abs(prevVal)) * 100 : 0;
+                    const pctPpto = pptoVal !== 0 ? (diffPpto / Math.abs(pptoVal)) * 100 : 0;
+                    const color = diff >= 0 ? 'var(--success)' : 'var(--danger)'; 
+                    const colorPpto = diffPpto >= 0 ? 'var(--success)' : 'var(--danger)'; 
+                    const valColor = val < 0 ? 'var(--danger)' : 'inherit';
+                    const prevColor = prevVal < 0 ? 'var(--danger)' : 'inherit';
+                    const pptoColor = pptoVal < 0 ? 'var(--danger)' : 'inherit';
+        
+                    return `<tr>
+                        <td style="font-weight:600">${cat}</td>
+                        <td style="color:${prevColor}">${formatCurrency(prevVal)}</td>
+                        <td style="color:${valColor}">${formatCurrency(val)}</td>
+                        <td style="color:${pptoColor}">${formatCurrency(pptoVal)}</td>
+                        <td style="color:${color}">${diff >= 0 ? '+' : ''}${formatCurrency(diff)} (${pct > 0 ? '+' : ''}${pct.toFixed(1)}%)</td>
+                        <td style="color:${colorPpto}">${diffPpto >= 0 ? '+' : ''}${formatCurrency(diffPpto)} (${pctPpto > 0 ? '+' : ''}${pctPpto.toFixed(1)}%)</td>
+                    </tr>`;
+                }).join('');
+            } else {
+                opexSection.style.display = 'none';
+            }
+
+            // Render Tabla Detallada General
+            const tableBody = document.getElementById('tableBody');
+            if (Object.keys(categories).length > 0) {
+                const filteredEntries = Object.entries(categories).filter(([cat]) => 
+                    !cat.toLowerCase().includes("opex") && 
+                    !cat.toLowerCase().includes("extraordinarios") &&
+                    !cat.toLowerCase().includes("utilidad")
+                );
+                
+                tableBody.innerHTML = filteredEntries.map(([cat, val]) => {
+                    const prevVal = prevCategories[cat] || 0;
+                    const pptoVal = pptoCategories[cat] || 0;
+                    const diff = val - prevVal;
+                    const pct = prevVal !== 0 ? (diff / Math.abs(prevVal)) * 100 : 0;
+                    const diffPpto = val - pptoVal;
+                    const pctPpto = pptoVal !== 0 ? (diffPpto / Math.abs(pptoVal)) * 100 : 0;
+                    
+                    const color = diff >= 0 ? 'var(--success)' : 'var(--danger)';
+                    const colorPpto = diffPpto >= 0 ? 'var(--success)' : 'var(--danger)';
+                    const valColor = val < 0 ? 'var(--danger)' : 'inherit';
+                    const prevColor = prevVal < 0 ? 'var(--danger)' : 'inherit';
+                    const pptoColor = pptoVal < 0 ? 'var(--danger)' : 'inherit';
+                    
+                    return `<tr>
+                        <td style="font-weight:600">${cat}</td>
+                        <td style="color:${prevColor}">${formatCurrency(prevVal)}</td>
+                        <td style="color:${valColor}">${formatCurrency(val)}</td>
+                        <td style="color:${pptoColor}">${formatCurrency(pptoVal)}</td>
+                        <td style="color:${color}">${diff >= 0 ? '+' : ''}${formatCurrency(diff)} (${pct > 0 ? '+' : ''}${pct.toFixed(1)}%)</td>
+                        <td style="color:${colorPpto}">${diffPpto >= 0 ? '+' : ''}${formatCurrency(diffPpto)} (${pctPpto > 0 ? '+' : ''}${pctPpto.toFixed(1)}%)</td>
+                    </tr>`;
+                }).join('');
+            }
+
+            // Build Mobile views
+            setTimeout(() => {
+                buildMobileAccordionsFromTable('tableResumenOperativo', 'resumenOperativoMobileContainer', 'Resumen Operativo', '');
+                buildMobileAccordionsFromTable('tableVentasSegmento', 'ventasSegmentoMobileContainer', 'Segmentos de Venta', formatCurrency(kpis.ingresos));
+                buildMobileAccordionsFromTable('tableCostosSegmento', 'costosSegmentoMobileContainer', 'Desglose de Costos', formatCurrency(totalCost));
+                buildMobileAccordionsFromTable('tableMargenSegmento', 'margenSegmentoMobileContainer', 'Margen Bruto por Segmento', '');
+                
+                const currOpex = (curr.pnl && curr.pnl.opexDetalle) ? Object.values(curr.pnl.opexDetalle).reduce((acc, val) => acc + val, 0) : 0;
+                buildMobileAccordionsFromTable('tableOpex', 'opexMobileContainer', 'Detalle de Gastos OPEX', formatCurrency(currOpex));
+                
+                // Trigger account search filter if active
+                const searchInput = document.getElementById('accountSearch');
+                if (searchInput && searchInput.value.trim() !== '') {
+                    searchInput.dispatchEvent(new Event('input'));
+                }
+            }, 10);
+        }
+    });
+}
 /**
  * Helper to identify periods
  */
