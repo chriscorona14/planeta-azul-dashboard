@@ -554,7 +554,7 @@ async function fetchMasterData(token = null) {
                 tx.oncomplete = resolve;
                 tx.onerror = reject;
             });
-            console.log("✅ JSON procesado guardado en IndexedDB con éxito.");
+            console.log("✨ La Gran Victoria: JSON procesado guardado en IndexedDB con éxito.");
         } catch (e) {
             console.warn("⚠️ Error guardando caché en IndexedDB:", e);
         }
@@ -678,8 +678,48 @@ window.handleMSALLoginFailure = function() {
     window.handleZeroState();
 };
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     window.handleZeroState();
+    
+    // --- MAGIC LOAD (Carga Instantánea) ---
+    try {
+        const CACHE_KEY = 'planeta_azul_engine_result';
+        const db = await new Promise((resolve, reject) => {
+            const req = indexedDB.open('PlanetaAzulDB', 1);
+            req.onupgradeneeded = (e) => {
+                if (!e.target.result.objectStoreNames.contains('finance_cache')) {
+                    e.target.result.createObjectStore('finance_cache');
+                }
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+
+        const cachedData = await new Promise((resolve) => {
+            const req = db.transaction('finance_cache', 'readonly').objectStore('finance_cache').get(CACHE_KEY);
+            req.onsuccess = () => {
+                const result = req.result;
+                if (result && result.timestamp && Date.now() - result.timestamp < 86400000) {
+                    resolve(result.data);
+                } else {
+                    resolve(null);
+                }
+            };
+            req.onerror = () => resolve(null);
+        });
+
+        if (cachedData) {
+            console.log("🚀 Magic Load ejecutado: Restaurando dashboard desde disco local al instante.");
+            globalFinancialData = cachedData;
+            renderDashboard(globalFinancialData);
+            const loaderEl = document.getElementById('loader');
+            if (loaderEl) loaderEl.style.display = 'none';
+        }
+    } catch (e) {
+        console.warn("⚠️ Magic Load omitido (caché no disponible):", e);
+    }
+    // --- FIN MAGIC LOAD ---
+
     if (msalInstance) {
         msalInstance.initialize?.().then(async () => {
             try {
@@ -1451,7 +1491,7 @@ async function handleFileUpload(e) {
                     tx.oncomplete = resolve;
                     tx.onerror = reject;
                 });
-                console.log("✅ JSON de carga manual guardado en IndexedDB con éxito.");
+                console.log("✨ La Gran Victoria: JSON procesado guardado en IndexedDB con éxito.");
             } catch (e) {
                 console.warn("⚠️ Error guardando caché manual en IndexedDB:", e);
             }
