@@ -388,63 +388,20 @@ async function fetchMasterData(token = null) {
     if (loginBtn) loginBtn.style.display = 'none';
 
     // ==========================================
-    // 1. LA MAGIA: LEER CACHÉ (INDEXEDDB) PRIMERO
+    // 1. LA BARRERA SILENCIOSA (Stale-While-Revalidate)
     // ==========================================
-    let cachedData = null;
-    const CACHE_KEY = 'planeta_azul_engine_result';
-
-    try {
-        const db = await new Promise((resolve, reject) => {
-            const req = indexedDB.open('PlanetaAzulDB', 1);
-            req.onupgradeneeded = (e) => {
-                if (!e.target.result.objectStoreNames.contains('finance_cache')) {
-                    e.target.result.createObjectStore('finance_cache');
-                }
-            };
-            req.onsuccess = () => resolve(req.result);
-            req.onerror = () => reject(req.error);
-        });
-
-        cachedData = await new Promise((resolve) => {
-            const req = db.transaction('finance_cache', 'readonly').objectStore('finance_cache').get(CACHE_KEY);
-            req.onsuccess = () => {
-                const result = req.result;
-                // Verificar que no sea más vieja de 24 horas
-                if (result && result.timestamp && Date.now() - result.timestamp < 86400000) {
-                    resolve(result.data);
-                } else {
-                    resolve(null);
-                }
-            };
-            req.onerror = () => resolve(null);
-        });
-    } catch (e) {
-        console.warn("⚠️ Error leyendo caché de IndexedDB:", e);
-    }
-
-    // ==========================================
-    // 2. MANEJO DE LA INTERFAZ (SI HAY CACHÉ VS SI NO HAY)
-    // ==========================================
-    if (cachedData && cachedData.length > 0) {
-        console.log("⚡ Magia: Datos encontrados en disco. Cargando al instante...");
-        globalFinancialData = cachedData;
-        
-        // Mostrar contenedores directamente sin pantalla de carga
-        viewContainers.forEach(v => v.style.display = '');
-        if (dropZone) dropZone.style.display = 'none';
-        if (loader) loader.style.display = 'none';
-        
-        renderDashboard(globalFinancialData);
-        
+    // Si la magia de loadCacheInstant() ya funcionó, NO apagamos la pantalla.
+    if (window.isMagicLoaded) {
+        console.log("⚡ Modo Silencioso: Caché activa. Buscando actualizaciones en O365 sin bloquear la UI...");
         if (statusEl) {
             statusEl.style.background = '#e0f2fe';
             statusEl.style.color = '#0369a1';
             statusEl.style.borderColor = '#bae6fd';
-            statusEl.innerHTML = "🔄 Sincronizando actualizaciones de O365 en segundo plano...";
+            statusEl.innerHTML = "🔄 Sincronizando actualizaciones en segundo plano...";
         }
     } else {
-        // ES LA PRIMERA VEZ: Ocultamos UI y mostramos Loader
-        console.log("No hay caché. Iniciando carga completa...");
+        // Es la primera vez que el usuario entra, aquí SÍ mostramos el loader.
+        console.log("No hay caché. Iniciando carga completa bloqueante...");
         viewContainers.forEach(v => v.style.display = 'none');
         if (dropZone) dropZone.style.display = 'none';
         
@@ -456,7 +413,7 @@ async function fetchMasterData(token = null) {
     }
 
     // ==========================================
-    // 3. SINCRONIZACIÓN EN SEGUNDO PLANO (FETCH AL EXCEL)
+    // 2. DESCARGA DEL ARCHIVO (O365 o Proxy)
     // ==========================================
     try {
         const SYNC_TIMEOUT = 45000;
@@ -476,29 +433,32 @@ async function fetchMasterData(token = null) {
             }
             clearTimeout(timeoutId);
         } catch (err) {
-            if (err.name === 'AbortError') console.warn("Tiempo de espera agotado.");
+            if (err.name === 'AbortError') console.warn("Tiempo de espera de red agotado.");
         }
 
-        // Si falló la descarga pero tenemos caché, nos quedamos con la caché silenciosamente
+        // Si falló la descarga, pero ya estamos viendo el Dashboard gracias a la caché
         if (!arrayBuffer) {
-            if (cachedData) {
-                if (statusEl) statusEl.innerHTML = "✅ Conectado (Usando caché local)";
+            if (window.isMagicLoaded) {
+                if (statusEl) statusEl.innerHTML = "✅ Operando con Caché Local (Sin conexión nueva)";
                 if (sidebarSyncDot) sidebarSyncDot.style.backgroundColor = 'var(--success)';
-                if (sidebarSyncText) sidebarSyncText.innerText = 'Sincronizado';
-                return;
+                if (sidebarSyncText) sidebarSyncText.innerText = 'Caché Local';
+                return; // Cortamos aquí, el usuario sigue trabajando normal.
             }
             throw new Error("No se pudo obtener el archivo fuente y no hay caché.");
         }
 
         // ==========================================
-        // 4. PROCESAR CON WORKER Y GUARDAR (LA GRAN VICTORIA)
+        // 3. PROCESAR CON WORKER
         // ==========================================
         const engineResult = await new Promise((resolve, reject) => {
             const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
             worker.onmessage = (e) => {
                 const data = e.data;
                 if (data.type === 'progress') {
-                    if (loader && !cachedData) loader.innerHTML = `<div class="spinner"></div><div style="margin-top:16px;">${data.message}</div>`;
+                    // CRÍTICO: Solo actualizar el texto del loader si NO estamos en modo silencioso
+                    if (loader && !window.isMagicLoaded) {
+                        loader.innerHTML = `<div class="spinner"></div><div style="margin-top:16px; font-weight: 500;">${data.message}</div>`;
+                    }
                 } else if (data.type === 'done') {
                     resolve(data.engineResult);
                     worker.terminate();
@@ -510,8 +470,11 @@ async function fetchMasterData(token = null) {
             worker.postMessage({ buffer: arrayBuffer }, [arrayBuffer]);
         });
 
-        // ✨ LA GRAN VICTORIA: Guardar el JSON procesado
+        // ==========================================
+        // 4. GUARDAR EN DISCO (INDEXEDDB) Y ACTUALIZAR UI SUAVEMENTE
+        // ==========================================
         try {
+            const CACHE_KEY = 'planeta_azul_engine_result';
             const db = await new Promise((resolve, reject) => {
                 const req = indexedDB.open('PlanetaAzulDB', 1);
                 req.onsuccess = () => resolve(req.result);
@@ -522,13 +485,14 @@ async function fetchMasterData(token = null) {
                 tx.oncomplete = resolve;
                 tx.onerror = reject;
             });
-            console.log("✨ La Gran Victoria: JSON procesado guardado en IndexedDB con éxito.");
+            console.log("✨ Datos procesados y actualizados en IndexedDB con éxito.");
         } catch (e) {
             console.warn("⚠️ Error guardando caché en IndexedDB:", e);
         }
 
-        // 5. ACTUALIZAR INTERFAZ FINAL
+        // Refrescar los números de la pantalla sin que el usuario sufra un parpadeo agresivo
         globalFinancialData = engineResult.data;
+        window.isMagicLoaded = true; // Consolidamos la bandera
         renderDashboard(globalFinancialData);
         
         if (loader) loader.style.display = 'none';
@@ -541,7 +505,7 @@ async function fetchMasterData(token = null) {
 
     } catch (error) {
         console.error("Error en sincronización:", error);
-        if (loader && !cachedData) loader.style.display = 'none';
+        if (loader && !window.isMagicLoaded) loader.style.display = 'none';
         if (statusEl) {
             statusEl.style.background = '#fee2e2';
             statusEl.style.color = '#991b1b';
