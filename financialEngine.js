@@ -602,6 +602,105 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
         return { error: "No se encontraron periodos o fechas válidas en las cabeceras." };
     }
 
+    const bSheetToUse = balanceSheet || pnlSheet;
+
+    const fullRows = pnlSheet.filter(row => {
+        if (!row || !row[0]) return false;
+        const concept = normalizeText(row[0]);
+        if (concept.includes("formatcode") || concept.includes("unnamed") || concept.length < 2) return false;
+        return dataPeriods.some(p => p.pnlIdx !== -1 && (typeof row[p.pnlIdx] === 'number' || !isNaN(cleanNumber(row[p.pnlIdx]))));
+    }).map(row => {
+        const rowValues = {};
+        dataPeriods.forEach(p => {
+            rowValues[p.date.toLocaleDateString('es-ES', { month: 'short', year: 'numeric' })] = p.pnlIdx !== -1 ? getVal(row, p.pnlIdx) : 0;
+        });
+        const rawConcept = String(row[0]);
+        let renamedConcept = (normalizeText(rawConcept) === "ventas p6") ? "Ventas BON" : rawConcept;
+        if (normalizeText(renamedConcept) === "ganancia del periodo") renamedConcept = "Beneficio Neto del Periodo";
+        return { concept: renamedConcept, values: rowValues };
+    });
+
+    const balanceFullRows = bSheetToUse.filter(row => {
+        if (!row || !row[0]) return false;
+        const conceptStr = String(row[0]);
+        const concept = normalizeText(conceptStr);
+        if (concept.includes("formatcode") || concept.includes("unnamed") || concept.length < 2) return false;
+        
+        const isHeader = concept === "activos" || concept === "pasivos" || concept === "patrimonio" || 
+                         concept === "capital" || concept === "pasivo y capital" || 
+                         concept === "activo" || concept === "pasivo" ||
+                         concept === "ingresos" || concept === "costos" || concept === "gastos";
+        
+        const isAccountingRule = concept.includes("ganancia acumulada") || concept.includes("utilidad acumulada") || 
+                                concept.includes("utilidades retenidas") || concept.includes("ganancia retenida") ||
+                                concept.includes("beneficio neto") || concept.includes("utilidad del ejercicio");
+
+        if (isHeader && !isAccountingRule && !concept.includes("total")) return false;
+        if (!isAccountingRule && (concept.includes("en mdop") || concept.includes("estado de situacion") || concept.includes("reporte pa"))) return false;
+        
+        const monthNamesArr = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+        const shortMonths = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+        if (monthNamesArr.some(m => concept.includes(m)) || shortMonths.some(s => concept.includes(s))) return false;
+        
+        const isTypicalBalance = concept.includes("activo") || concept.includes("pasivo") || 
+                                 concept.includes("patrimonio") || concept.includes("efectivo") || 
+                                 concept.includes("bancos") || concept.includes("cobrar") || 
+                                 concept.includes("inventario") || concept.includes("propiedad") || 
+                                 concept.includes("ppe") || concept.includes("prestamos") || 
+                                 concept.includes("capital") || concept.includes("reserva") ||
+                                 concept.includes("covenant") || concept.includes("deuda neta") ||
+                                 concept.includes("ltm ebitda") || concept.includes("ebitda r12") || 
+                                 concept.includes("deuda bruta") || concept.includes("deuda total") ||
+                                 concept.includes("deuda subordinada") || concept.includes("deuda sin subordinada") ||
+                                 concept.includes("apalancamiento") ||
+                                 concept.includes("capacidad de pago") || concept.includes("capacidad") || 
+                                 concept.includes("razon corriente") ||
+                                 concept.includes("ganancia") || concept.includes("beneficio");
+
+        const isNetIncomeInBalance = (concept.includes("utilidad") || concept.includes("ganancia") || concept.includes("beneficio") || concept.includes("ganancia")) && 
+                                     (concept.includes("ejercicio") || concept.includes("periodo") || concept.includes("neto"));
+
+        if (bSheetToUse === pnlSheet && !isTypicalBalance && !isNetIncomeInBalance) {
+            const pnlStrict = ["ingresos", "ventas netas", "costo de ventas", "utilidad bruta", "ebitda", "ggadm", "ebit"];
+            if (pnlStrict.some(p => concept === p || concept.includes(p))) return false;
+        }
+        
+        if (isTypicalBalance || isNetIncomeInBalance) return true;
+
+        return dataPeriods.some(p => {
+            const curBIdx = p.balanceIdx !== -1 ? p.balanceIdx : p.pnlIdx;
+            if (curBIdx === -1) return false;
+            const val = getBalanceVal(row, curBIdx);
+            return val !== 0 && !isNaN(val);
+        });
+    }).map(row => {
+        const rawConcept = String(row[0]);
+        let renamedConcept = rawConcept;
+        const normConcept = normalizeText(rawConcept);
+        
+        const isTargetNetIncome = normConcept === "ganancia del periodo" || normConcept === "utilidad del ejercicio" || 
+            normConcept === "resultado del periodo" || normConcept.includes("beneficio neto") || 
+            normConcept.includes("utilidad neta") || normConcept.includes("ganancia neta") ||
+            normConcept.includes("resultado neta");
+
+        const rowValues = {};
+        dataPeriods.forEach(p => {
+            const curBIdx = p.balanceIdx !== -1 ? p.balanceIdx : p.pnlIdx;
+            let val = curBIdx !== -1 ? getBalanceVal(row, curBIdx) : 0;
+            
+            if (isTargetNetIncome && val === 0 && curBIdx !== -1) {
+                const gAcum = getBalanceVal(balanceRows.gananciaAcumulada, curBIdx);
+                const uRet = getBalanceVal(balanceRows.utilidadesRetenidas, curBIdx);
+                if (gAcum !== 0 || uRet !== 0) val = uRet - gAcum;
+            }
+            
+            rowValues[p.date.toLocaleDateString('es-ES', { month: 'short', year: 'numeric' })] = val;
+        });
+
+        if (isTargetNetIncome) renamedConcept = "Beneficio Neto del Periodo";
+        return { concept: renamedConcept, values: rowValues };
+    });
+
     const getBalanceIdx = (date, pnlIdx) => {
         const key = `${date.getMonth()}-${date.getFullYear()}`;
         return balanceIndices[key] !== undefined ? balanceIndices[key] : pnlIdx;
@@ -709,104 +808,6 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
                 };
             });
         }
-
-        const fullRows = pnlSheet.filter(row => {
-            if (!row || !row[0]) return false;
-            const concept = normalizeText(row[0]);
-            if (concept.includes("formatcode") || concept.includes("unnamed") || concept.length < 2) return false;
-            return dataPeriods.some(p => p.pnlIdx !== -1 && (typeof row[p.pnlIdx] === 'number' || !isNaN(cleanNumber(row[p.pnlIdx]))));
-        }).map(row => {
-            const rowValues = {};
-            dataPeriods.forEach(p => {
-                rowValues[p.date.toLocaleDateString('es-ES', { month: 'short', year: 'numeric' })] = p.pnlIdx !== -1 ? getVal(row, p.pnlIdx) : 0;
-            });
-            const rawConcept = String(row[0]);
-            let renamedConcept = (normalizeText(rawConcept) === "ventas p6") ? "Ventas BON" : rawConcept;
-            if (normalizeText(renamedConcept) === "ganancia del periodo") renamedConcept = "Beneficio Neto del Periodo";
-            return { concept: renamedConcept, values: rowValues };
-        });
-
-        const bSheetToUse = balanceSheet || pnlSheet;
-        const balanceFullRows = bSheetToUse.filter(row => {
-            if (!row || !row[0]) return false;
-            const conceptStr = String(row[0]);
-            const concept = normalizeText(conceptStr);
-            if (concept.includes("formatcode") || concept.includes("unnamed") || concept.length < 2) return false;
-            
-            const isHeader = concept === "activos" || concept === "pasivos" || concept === "patrimonio" || 
-                             concept === "capital" || concept === "pasivo y capital" || 
-                             concept === "activo" || concept === "pasivo" ||
-                             concept === "ingresos" || concept === "costos" || concept === "gastos";
-            
-            const isAccountingRule = concept.includes("ganancia acumulada") || concept.includes("utilidad acumulada") || 
-                                    concept.includes("utilidades retenidas") || concept.includes("ganancia retenida") ||
-                                    concept.includes("beneficio neto") || concept.includes("utilidad del ejercicio");
-
-            if (isHeader && !isAccountingRule && !concept.includes("total")) return false;
-            if (!isAccountingRule && (concept.includes("en mdop") || concept.includes("estado de situacion") || concept.includes("reporte pa"))) return false;
-            
-            const monthNamesArr = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
-            const shortMonths = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
-            if (monthNamesArr.some(m => concept.includes(m)) || shortMonths.some(s => concept.includes(s))) return false;
-            
-            const isTypicalBalance = concept.includes("activo") || concept.includes("pasivo") || 
-                                     concept.includes("patrimonio") || concept.includes("efectivo") || 
-                                     concept.includes("bancos") || concept.includes("cobrar") || 
-                                     concept.includes("inventario") || concept.includes("propiedad") || 
-                                     concept.includes("ppe") || concept.includes("prestamos") || 
-                                     concept.includes("capital") || concept.includes("reserva") ||
-                                     concept.includes("covenant") || concept.includes("deuda neta") ||
-                                     concept.includes("ltm ebitda") || concept.includes("ebitda r12") || 
-                                     concept.includes("deuda bruta") || concept.includes("deuda total") ||
-                                     concept.includes("deuda subordinada") || concept.includes("deuda sin subordinada") ||
-                                     concept.includes("apalancamiento") ||
-                                     concept.includes("capacidad de pago") || concept.includes("capacidad") || 
-                                     concept.includes("razon corriente") ||
-                                     concept.includes("ganancia") || concept.includes("beneficio");
-
-            const isNetIncomeInBalance = (concept.includes("utilidad") || concept.includes("ganancia") || concept.includes("beneficio") || concept.includes("ganancia")) && 
-                                         (concept.includes("ejercicio") || concept.includes("periodo") || concept.includes("neto"));
-
-            if (bSheetToUse === pnlSheet && !isTypicalBalance && !isNetIncomeInBalance) {
-                const pnlStrict = ["ingresos", "ventas netas", "costo de ventas", "utilidad bruta", "ebitda", "ggadm", "ebit"];
-                if (pnlStrict.some(p => concept === p || concept.includes(p))) return false;
-            }
-            
-            if (isTypicalBalance || isNetIncomeInBalance) return true;
-
-            return dataPeriods.some(p => {
-                const curBIdx = p.balanceIdx !== -1 ? p.balanceIdx : p.pnlIdx;
-                if (curBIdx === -1) return false;
-                const val = getBalanceVal(row, curBIdx);
-                return val !== 0 && !isNaN(val);
-            });
-        }).map(row => {
-            const rawConcept = String(row[0]);
-            let renamedConcept = rawConcept;
-            const normConcept = normalizeText(rawConcept);
-            
-            const isTargetNetIncome = normConcept === "ganancia del periodo" || normConcept === "utilidad del ejercicio" || 
-                normConcept === "resultado del periodo" || normConcept.includes("beneficio neto") || 
-                normConcept.includes("utilidad neta") || normConcept.includes("ganancia neta") ||
-                normConcept.includes("resultado neta");
-
-            const rowValues = {};
-            dataPeriods.forEach(p => {
-                const curBIdx = p.balanceIdx !== -1 ? p.balanceIdx : p.pnlIdx;
-                let val = curBIdx !== -1 ? getBalanceVal(row, curBIdx) : 0;
-                
-                if (isTargetNetIncome && val === 0 && curBIdx !== -1) {
-                    const gAcum = getBalanceVal(balanceRows.gananciaAcumulada, curBIdx);
-                    const uRet = getBalanceVal(balanceRows.utilidadesRetenidas, curBIdx);
-                    if (gAcum !== 0 || uRet !== 0) val = uRet - gAcum;
-                }
-                
-                rowValues[p.date.toLocaleDateString('es-ES', { month: 'short', year: 'numeric' })] = val;
-            });
-
-            if (isTargetNetIncome) renamedConcept = "Beneficio Neto del Periodo";
-            return { concept: renamedConcept, values: rowValues };
-        });
 
         // El cálculo de la integridad suma los elementos ya que pueden venir en negativo.
         // Calculamos la diferencia considerando posibles variaciones de signos contables.
@@ -1021,6 +1022,35 @@ function processWide(sheets) {
     const sampleVal = getVal(rowData.ingresos, dataPoints[0].idx);
     appConfig.isRawData = Math.abs(sampleVal) > 200000;
 
+    // Capturar todas las filas del P&L para la vista detallada (hacer esto fuera del map para evitar O(N^2) y archivos enormes)
+    const fullRows = allRows.filter(row => {
+        if (!row) return false;
+        let conceptRaw = row[0];
+        if (!conceptRaw || String(conceptRaw).trim().toUpperCase() === 'X') conceptRaw = row[1];
+        if (!conceptRaw) return false;
+        const concept = normalizeText(String(conceptRaw));
+        if (concept.includes("formatcode") || concept.includes("unnamed") || concept.length < 2) return false;
+
+        // Filtramos filas que tengan al menos 1 número en los dataPoints, o si son Categorias (sin numeros)
+        // Agregamos también las filas que sean categorias (por ejemplo "Estado de Resultados") aunque no tengan numeros
+        const isCategory = (concept === "estado de resultados" || concept === "estado de situacion" || concept === "kpis y drivers" || concept === "modulo deuda" || concept === "analisis horizontal" || concept === "analisis vertical" || concept === "analisis margen" || concept === "rentabilidad" || concept === "variables macro" || concept === "balances deuda" || concept === "schedule amortizacion" || concept === "kpis deuda");
+        return isCategory || dataPoints.some(p => typeof row[p.idx] === 'number' || (!isNaN(cleanNumber(row[p.idx])) && cleanNumber(row[p.idx]) !== 0));
+    }).map(row => {
+        const rowValues = {};
+        dataPoints.forEach(p => {
+            rowValues[p.date.toLocaleDateString('es-ES', { month: 'short', year: 'numeric' })] = getVal(row, p.idx);
+        });
+        let conceptRaw = row[0];
+        if (!conceptRaw || String(conceptRaw).trim().toUpperCase() === 'X') conceptRaw = row[1];
+        const rawConcept = String(conceptRaw).trim();
+        const renamedConcept = (normalizeText(rawConcept) === "ventas p6") ? "Ventas BON" : rawConcept;
+
+        return {
+            concept: renamedConcept,
+            values: rowValues
+        };
+    });
+
     const result = dataPoints.map(point => {
         const ingresos = getVal(rowData.ingresos, point.idx);
         const costos = rowData.costos ? getVal(rowData.costos, point.idx) : 0;
@@ -1036,35 +1066,6 @@ function processWide(sheets) {
             segments[name] = {
                 ventas: sumVals(data.ventasRows),
                 costos: sumVals(data.costosRows)
-            };
-        });
-
-        // Capturar todas las filas del P&L para la vista detallada
-        const fullRows = allRows.filter(row => {
-            if (!row) return false;
-            let conceptRaw = row[0];
-            if (!conceptRaw || String(conceptRaw).trim().toUpperCase() === 'X') conceptRaw = row[1];
-            if (!conceptRaw) return false;
-            const concept = normalizeText(String(conceptRaw));
-            if (concept.includes("formatcode") || concept.includes("unnamed") || concept.length < 2) return false;
-
-            // Filtramos filas que tengan al menos 1 número en los dataPoints, o si son Categorias (sin numeros)
-            // Agregamos también las filas que sean categorias (por ejemplo "Estado de Resultados") aunque no tengan numeros
-            const isCategory = (concept === "estado de resultados" || concept === "estado de situacion" || concept === "kpis y drivers" || concept === "modulo deuda" || concept === "analisis horizontal" || concept === "analisis vertical" || concept === "analisis margen" || concept === "rentabilidad" || concept === "variables macro" || concept === "balances deuda" || concept === "schedule amortizacion" || concept === "kpis deuda");
-            return isCategory || dataPoints.some(p => typeof row[p.idx] === 'number' || (!isNaN(cleanNumber(row[p.idx])) && cleanNumber(row[p.idx]) !== 0));
-        }).map(row => {
-            const rowValues = {};
-            dataPoints.forEach(p => {
-                rowValues[p.date.toLocaleDateString('es-ES', { month: 'short', year: 'numeric' })] = getVal(row, p.idx);
-            });
-            let conceptRaw = row[0];
-            if (!conceptRaw || String(conceptRaw).trim().toUpperCase() === 'X') conceptRaw = row[1];
-            const rawConcept = String(conceptRaw).trim();
-            const renamedConcept = (normalizeText(rawConcept) === "ventas p6") ? "Ventas BON" : rawConcept;
-
-            return {
-                concept: renamedConcept,
-                values: rowValues
             };
         });
 

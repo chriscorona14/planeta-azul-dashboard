@@ -406,8 +406,29 @@ async function fetchMasterData(token = null) {
         if (dropZone) dropZone.style.display = 'none';
         
         if (loader) {
-            loader.innerHTML = '<div class="spinner"></div><div style="margin-top:16px; font-weight: 500;">⏳ Descargando datos con Planeta Azul...</div>';
+            loader.innerHTML = `
+                <div style="background: white; padding: 40px; border-radius: 16px; box-shadow: var(--shadow-lg); width: 320px; text-align: center; border: 1px solid var(--border);">
+                    <i data-lucide="loader" class="spin-icon" style="width: 48px; height: 48px; color: var(--primary); margin: 0 auto; margin-bottom: 20px; display: block;"></i>
+                    <h4 style="font-size: 1.1rem; color: var(--text-primary); margin-bottom: 12px; font-weight: 600;">Sincronizando con M365...</h4>
+                    <div style="width: 100%; height: 8px; background: #eef2f5; border-radius: 4px; overflow: hidden; margin-bottom: 12px;">
+                        <div id="progressBar" style="width: 0%; height: 100%; background: var(--primary); transition: width 0.3s ease;"></div>
+                    </div>
+                    <p id="loadingText" style="font-size: 0.9rem; color: var(--text-secondary); margin: 0;">Conectando...</p>
+                </div>
+            `;
             loader.style.display = 'flex';
+            if (window.lucide) window.lucide.createIcons();
+
+            // Animación suave de progreso para la etapa de red
+            if (window._m365Interval) clearInterval(window._m365Interval);
+            window._m365Progress = 5;
+            window._m365Interval = setInterval(() => {
+                if (window._m365Progress < 45) {
+                    window._m365Progress += Math.random() * 4 + 1; // Crece poco a poco
+                    const pb = document.getElementById('progressBar');
+                    if (pb) pb.style.width = `${window._m365Progress}%`;
+                }
+            }, 600);
         }
         if (statusEl) statusEl.innerHTML = "⏳ Conectando al servidor...";
     }
@@ -437,6 +458,7 @@ async function fetchMasterData(token = null) {
         }
 
         // Si falló la descarga, pero ya estamos viendo el Dashboard gracias a la caché
+        if (window._m365Interval) clearInterval(window._m365Interval);
         if (!arrayBuffer) {
             if (window.isMagicLoaded) {
                 if (statusEl) statusEl.innerHTML = "✅ Operando con Caché Local (Sin conexión nueva)";
@@ -457,7 +479,10 @@ async function fetchMasterData(token = null) {
                 if (data.type === 'progress') {
                     // CRÍTICO: Solo actualizar el texto del loader si NO estamos en modo silencioso
                     if (loader && !window.isMagicLoaded) {
-                        loader.innerHTML = `<div class="spinner"></div><div style="margin-top:16px; font-weight: 500;">${data.message}</div>`;
+                        const lt = document.getElementById('loadingText');
+                        if (lt) lt.innerText = data.message || "Procesando...";
+                        const pb = document.getElementById('progressBar');
+                        if (pb && data.progress) pb.style.width = `${data.progress}%`;
                     }
                 } else if (data.type === 'done') {
                     resolve(data.engineResult);
@@ -466,6 +491,10 @@ async function fetchMasterData(token = null) {
                     reject(new Error(data.error));
                     worker.terminate();
                 }
+            };
+            worker.onerror = (err) => {
+                reject(new Error(err.message || "Error fatal en el worker (probablemente falta de memoria)."));
+                worker.terminate();
             };
             worker.postMessage({ buffer: arrayBuffer }, [arrayBuffer]);
         });
@@ -476,8 +505,14 @@ async function fetchMasterData(token = null) {
         try {
             const CACHE_KEY = 'planeta_azul_engine_result';
             const db = await new Promise((resolve, reject) => {
-                const req = indexedDB.open('PlanetaAzulDB', 1);
+                const req = indexedDB.open('PlanetaAzulDB', 3);
+                req.onupgradeneeded = (e) => {
+                    if (!e.target.result.objectStoreNames.contains('finance_cache')) {
+                        e.target.result.createObjectStore('finance_cache');
+                    }
+                };
                 req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
             });
             await new Promise((resolve, reject) => {
                 const tx = db.transaction('finance_cache', 'readwrite');
@@ -505,11 +540,18 @@ async function fetchMasterData(token = null) {
 
     } catch (error) {
         console.error("Error en sincronización:", error);
+        if (window._m365Interval) clearInterval(window._m365Interval);
+        
         if (loader && !window.isMagicLoaded) loader.style.display = 'none';
         if (statusEl) {
             statusEl.style.background = '#fee2e2';
             statusEl.style.color = '#991b1b';
             statusEl.innerHTML = "⚠️ Sincronización fallida.";
+        }
+        
+        // Si falló y no tenemos caché, devolvemos a O al usuario para que no quede en pantalla blanca fantasma
+        if (!window.isMagicLoaded) {
+            window.handleZeroState();
         }
     }
 }
@@ -580,7 +622,7 @@ async function loadCacheInstant() {
     try {
         const CACHE_KEY = 'planeta_azul_engine_result';
         const db = await new Promise((resolve, reject) => {
-            const req = indexedDB.open('PlanetaAzulDB', 1);
+            const req = indexedDB.open('PlanetaAzulDB', 3);
             req.onupgradeneeded = (e) => {
                 if (!e.target.result.objectStoreNames.contains('finance_cache')) {
                     e.target.result.createObjectStore('finance_cache');
@@ -1379,7 +1421,7 @@ async function handleFileUpload(e) {
             try {
                 const CACHE_KEY = 'planeta_azul_engine_result';
                 const db = await new Promise((resolve, reject) => {
-                    const req = indexedDB.open('PlanetaAzulDB', 1);
+                    const req = indexedDB.open('PlanetaAzulDB', 3);
                     req.onupgradeneeded = (e) => {
                         if (!e.target.result.objectStoreNames.contains('finance_cache')) {
                             e.target.result.createObjectStore('finance_cache');
