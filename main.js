@@ -53,6 +53,9 @@ function base64ToArrayBuffer(base64) {
 }
 
 let globalFinancialData = [];
+let ceoData = null;
+let ventasCeoData = null; // Will hold { columns: [], rows: [] } mapped
+let ventasCeoCurrentMetric = 'Volumen';
 let isYTDMode = false;
 const loader = document.getElementById('loader');
 const monthSelector = document.getElementById('monthSelector');
@@ -310,6 +313,7 @@ if (window.msal) {
 }
 
 const SHARPOINT_FILE_URL = import.meta.env.VITE_ONEDRIVE_FILE_URL || import.meta.env.VITE_ONEDRIVE_ITEM_ID;
+const SHARPOINT_VENTAS_FILE_URL = import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID;
 
 async function connectM365() {
     if (!msalInstance) {
@@ -469,6 +473,9 @@ async function fetchMasterData(token = null) {
             throw new Error("No se pudo obtener el archivo fuente y no hay caché.");
         }
 
+        // Carga paralela de Ventas CEO
+        loadVentasCeoData(token);
+
         // ==========================================
         // 3. PROCESAR CON WORKER
         // ==========================================
@@ -537,6 +544,9 @@ async function fetchMasterData(token = null) {
             sidebarSyncText.innerText = 'Sincronizado';
             sidebarSyncText.style.color = 'var(--success)';
         }
+        if (window.updateLastUpdatedTime) {
+            window.updateLastUpdatedTime();
+        }
 
     } catch (error) {
         console.error("Error en sincronización:", error);
@@ -560,10 +570,14 @@ window.syncNavigationUI = function(menuId) {
     const titles = {
         'menu-kpi': "Torre de Control: Indicadores Clave",
         'menu-resumen': "Dashboard de Gestión Corporativa (RD$)",
+        'menu-preliminar': "Estado de Resultado",
         'menu-pnl': "Estado de Resultados Detallado (RD$)",
         'menu-balance': "Balance General Consolidado (RD$)",
         'menu-cashflow': "Estado de Flujo de Efectivo (RD$)",
+        'menu-wc': "Capital de Trabajo (RD$)",
+        'menu-estados': "Estados Financieros y KPIs (RD$)",
         'menu-simulador': "Simulador Estratégico (What-If)",
+        'menu-ventas-ceo': "Ventas CEO",
         'menu-config': "Configuración y Auditoría",
         'menu-glosario': "Glosario de Términos y Metodologías Financieras"
     };
@@ -618,6 +632,18 @@ window.handleMSALLoginFailure = function() {
     window.handleZeroState();
 };
 
+window.updateLastUpdatedTime = function(timestamp) {
+    const lastUpdatedStatus = document.getElementById('lastUpdatedStatus');
+    const lastUpdatedTime = document.getElementById('lastUpdatedTime');
+    if (lastUpdatedStatus && lastUpdatedTime) {
+        lastUpdatedStatus.style.display = 'block';
+        const d = timestamp ? new Date(timestamp) : new Date();
+        const dateStr = d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        const timeStr = d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+        lastUpdatedTime.innerText = dateStr + ' ' + timeStr;
+    }
+};
+
 async function loadCacheInstant() {
     try {
         const CACHE_KEY = 'planeta_azul_engine_result';
@@ -632,12 +658,12 @@ async function loadCacheInstant() {
             req.onerror = () => reject(req.error);
         });
 
-        const cachedData = await new Promise((resolve) => {
+        const cachedRecord = await new Promise((resolve) => {
             const req = db.transaction('finance_cache', 'readonly').objectStore('finance_cache').get(CACHE_KEY);
             req.onsuccess = () => {
                 const result = req.result;
                 if (result && result.timestamp && Date.now() - result.timestamp < 86400000) {
-                    resolve(result.data);
+                    resolve(result);
                 } else if (result) {
                     // Limpieza Automática: borrar si los datos tienen más de 24 horas
                     try {
@@ -652,14 +678,37 @@ async function loadCacheInstant() {
             };
             req.onerror = () => resolve(null);
         });
+        
+        // Also load Ventas CEO data
+        const ceoCachedRecord = await new Promise((resolve) => {
+            try {
+                const req = db.transaction('finance_cache', 'readonly').objectStore('finance_cache').get('ventas_ceo_data');
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => resolve(null);
+            } catch (e) {
+                resolve(null);
+            }
+        });
+        
+        if (ceoCachedRecord && ceoCachedRecord.data && ceoCachedRecord.data.length > 0) {
+            ceoData = ceoCachedRecord.data;
+            if (typeof window.renderVentasCEO === 'function' && document.getElementById("view-ventas-ceo") && document.getElementById("view-ventas-ceo").classList.contains("active")) {
+                window.renderVentasCEO();
+            }
+        }
 
-        if (cachedData && cachedData.length > 0) {
+        if (cachedRecord && cachedRecord.data && cachedRecord.data.length > 0) {
             console.log("🚀 Magic Load F5: Renderizando UI alzada instantáneamente.");
             
             window.isMagicLoaded = true; // 🔥 AÑADE ESTA LÍNEA AQUÍ
             
-            globalFinancialData = cachedData;
+            globalFinancialData = cachedRecord.data;
             renderDashboard(globalFinancialData);
+            
+            if (window.updateLastUpdatedTime) {
+                window.updateLastUpdatedTime(cachedRecord.timestamp);
+            }
+
             const loaderEl = document.getElementById('loader');
             if (loaderEl) loaderEl.style.display = 'none';
             return true;
@@ -679,6 +728,51 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.handleZeroState();
     }
 
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', async () => {
+            // Limpiar variables en memoria
+            globalFinancialData = null;
+            ceoData = null;
+            window.isMagicLoaded = false;
+            
+            // Limpiar caché
+            try {
+                const db = await new Promise((resolve, reject) => {
+                    const req = indexedDB.open('PlanetaAzulDB', 3);
+                    req.onsuccess = () => resolve(req.result);
+                    req.onerror = () => reject(req.error);
+                });
+                await new Promise((resolve, reject) => {
+                    const tx = db.transaction('finance_cache', 'readwrite');
+                    tx.objectStore('finance_cache').delete('planeta_azul_engine_result');
+                    tx.objectStore('finance_cache').delete('ventas_ceo_data');
+                    tx.oncomplete = resolve;
+                    tx.onerror = reject;
+                });
+            } catch (e) { console.error('Error clearing cache', e); }
+
+            // Cerrar sesion MSAL
+            if (msalInstance) {
+                const activeAcc = msalInstance.getActiveAccount();
+                if (activeAcc) {
+                    await msalInstance.logoutPopup({ account: activeAcc }).catch(console.error);
+                }
+            }
+
+            // Cambiar UI al estado inicial
+            window.handleZeroState();
+            
+            // Update sidebar dot
+            const sidebarSyncDot = document.getElementById('sidebarSyncDot');
+            const sidebarSyncText = document.getElementById('sidebarSyncText');
+            if (sidebarSyncDot) sidebarSyncDot.style.backgroundColor = 'var(--warning)';
+            if (sidebarSyncText) {
+                sidebarSyncText.innerText = 'Desconectado';
+                sidebarSyncText.style.color = 'rgba(255, 255, 255, 0.7)';
+            }
+        });
+    }
 
     if (msalInstance) {
         msalInstance.initialize?.().then(async () => {
@@ -840,8 +934,61 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    let pendingMainFile = null;
+    let pendingVentasCeoFile = null;
+
+    function updateProcessButton() {
+        const btn = document.getElementById('processManualFilesBtn');
+        if (btn) {
+            if (pendingMainFile || pendingVentasCeoFile) {
+                btn.disabled = false;
+                btn.style.opacity = '1';
+                btn.style.cursor = 'pointer';
+            } else {
+                btn.disabled = true;
+                btn.style.opacity = '0.5';
+                btn.style.cursor = 'not-allowed';
+            }
+        }
+    }
+
     if (fileInput) {
-        fileInput.addEventListener('change', handleFileUpload);
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                pendingMainFile = file;
+                const nameEl = document.getElementById('fileInputName');
+                if (nameEl) nameEl.textContent = file.name;
+                updateProcessButton();
+            }
+        });
+    }
+
+    const uploadVentasCeoHomeInput = document.getElementById('upload-ventas-ceo-home');
+    if (uploadVentasCeoHomeInput) {
+        uploadVentasCeoHomeInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                pendingVentasCeoFile = file;
+                const nameEl = document.getElementById('ventasCeoFileName');
+                if (nameEl) nameEl.textContent = file.name;
+                updateProcessButton();
+            }
+        });
+    }
+
+    const processManualFilesBtn = document.getElementById('processManualFilesBtn');
+    if (processManualFilesBtn) {
+        processManualFilesBtn.addEventListener('click', async () => {
+            if (pendingVentasCeoFile) {
+                await window.processVentasCeoFile(pendingVentasCeoFile);
+            }
+            if (pendingMainFile) {
+                handleFileUpload({ target: { files: [pendingMainFile] } });
+            } else if (pendingVentasCeoFile) {
+                alert("Archivo Ventas CEO procesado exitosamente.");
+            }
+        });
     }
 
     if (dropZone) {
@@ -862,8 +1009,22 @@ document.addEventListener('DOMContentLoaded', async () => {
             dropZone.style.background = 'transparent';
             const files = e.dataTransfer.files;
             if (files.length > 0) {
-                if (fileInput) fileInput.files = files;
-                handleFileUpload({ target: { files }, dataTransfer: e.dataTransfer });
+                const file = files[0];
+                const name = file.name.toLowerCase();
+                
+                // Intento heurístico: si se llama ventasceo lo ponemos en el otro
+                if (name.includes('ventas') && name.includes('ceo')) {
+                    if (uploadVentasCeoHomeInput) uploadVentasCeoHomeInput.files = files;
+                    pendingVentasCeoFile = file;
+                    const nameEl = document.getElementById('ventasCeoFileName');
+                    if (nameEl) nameEl.textContent = file.name;
+                } else {
+                    if (fileInput) fileInput.files = files;
+                    pendingMainFile = file;
+                    const nameEl = document.getElementById('fileInputName');
+                    if (nameEl) nameEl.textContent = file.name;
+                }
+                updateProcessButton();
             }
         });
     }
@@ -962,7 +1123,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             
             if (searchWrapper) {
-                const viewsWithSearch = ['menu-resumen', 'menu-pnl', 'menu-balance', 'menu-cashflow'];
+                const viewsWithSearch = ['menu-resumen', 'menu-preliminar', 'menu-pnl', 'menu-balance', 'menu-cashflow', 'menu-wc'];
                 if (viewsWithSearch.includes(id) && globalFinancialData && globalFinancialData.length > 0) {
                     searchWrapper.style.display = 'flex';
                 } else {
@@ -1284,7 +1445,8 @@ async function processFile(file, progressCallback) {
                         }
                     };
                     worker.onerror = (err) => {
-                        reject(new Error(err.message || "Error en el worker"));
+                        console.error("Worker error details:", err);
+                        reject(new Error("Worker error: " + (err.message || (err.error && err.error.message) || JSON.stringify(err) || "Unknown error")));
                         worker.terminate();
                     };
                     worker.postMessage({ buffer: bufferData }, [bufferData]);
@@ -1662,7 +1824,7 @@ function renderDashboard(data) {
     const searchWrapper = document.getElementById('searchContainerWrapper');
     if (searchWrapper) {
         const activeMenu = document.querySelector('.menu-item a.active');
-        const viewsWithSearch = ['menu-resumen', 'menu-pnl', 'menu-balance', 'menu-cashflow'];
+        const viewsWithSearch = ['menu-resumen', 'menu-preliminar', 'menu-pnl', 'menu-balance', 'menu-cashflow', 'menu-wc'];
         if (activeMenu && viewsWithSearch.includes(activeMenu.id)) {
             searchWrapper.style.display = 'flex';
         }
@@ -1746,6 +1908,11 @@ function renderActiveViewLazy(data, index) {
     
     // We defer heavy operations via requestAnimationFrame and target only the view being displayed.
     requestAnimationFrame(() => {
+        let viewPreliminar = document.getElementById("view-preliminar");
+        if (viewPreliminar && viewPreliminar.classList.contains("active")) {
+            renderPreliminaryView(data, index);
+        }
+
         let viewPnl = document.getElementById("view-pnl");
         if (viewPnl && viewPnl.classList.contains("active")) {
             renderDetailedPnL(data, index);
@@ -1811,10 +1978,29 @@ function renderActiveViewLazy(data, index) {
             }, 10);
         }
         
+        let viewWc = document.getElementById("view-wc");
+        if (viewWc && viewWc.classList.contains("active")) {
+            renderWorkingCapital(data, index);
+            setTimeout(() => {
+                if (typeof buildMobileAccordionsFromTable === 'function') {
+                    buildMobileAccordionsFromTable('wcTable', 'wcMobileContainer');
+                }
+            }, 10);
+        }
+        
         let viewKpi = document.getElementById("view-kpi");
         if (viewKpi && viewKpi.classList.contains("active")) {
             renderKPIDashboard(data, index);
+        }
+
+        let viewEstados = document.getElementById("view-estados");
+        if (viewEstados && viewEstados.classList.contains("active")) {
             renderEstadosFinancieros(data, index);
+            setTimeout(() => {
+                if (typeof buildMobileAccordionsFromTable === 'function') {
+                    buildMobileAccordionsFromTable('table-estados', 'estadosMobileContainer');
+                }
+            }, 10);
         }
 
         let viewResumen = document.getElementById("view-resumen");
@@ -2031,6 +2217,13 @@ function renderActiveViewLazy(data, index) {
                     searchInput.dispatchEvent(new Event('input'));
                 }
             }, 10);
+        }
+        
+        let viewVentasCeo = document.getElementById("view-ventas-ceo");
+        if (viewVentasCeo && viewVentasCeo.classList.contains("active")) {
+            if (typeof window.renderVentasCEO === "function") {
+                window.renderVentasCEO();
+            }
         }
     });
 }
@@ -2326,6 +2519,134 @@ function renderBalanceSheet(data, selectedIndex = -1) {
 }
 
 /**
+ * Render the Working Capital Table
+ */
+function renderWorkingCapital(data, selectedIndex = -1) {
+    const headerEl = document.getElementById('wcHeader');
+    const bodyEl = document.getElementById('wcBody');
+    const periodLabel = document.getElementById('wcPeriodLabel');
+    if (!headerEl || !bodyEl || !data || data.length === 0) return;
+
+    const endIdx = selectedIndex >= 0 ? selectedIndex : data.length - 1;
+    const curr = data[endIdx];
+    
+    const startIdx = Math.max(0, endIdx - 5);
+    // Filtrar para mostrar solo los 6 meses más recientes según lo requerido
+    // Similar al P&L, pero asegurando mostrar +6 ultimos meses que es = los 6 ultimos. "deberia ver desde Febrero a Julio" (6 meses).
+    // Si queremos que sea estricto para 2026, usamos `filter(d => isYear2026(d))` si el usuario lo requiere.
+    let visibleMonths = data.slice(startIdx, endIdx + 1).filter(d => isYear2026(d));
+    if (visibleMonths.length === 0) visibleMonths = data.slice(startIdx, endIdx + 1);
+
+    if (periodLabel) {
+        periodLabel.textContent = `${visibleMonths[0].date} - ${curr.date}`;
+    }
+
+    let headerHTML = '<tr><th>Concepto</th>';
+    visibleMonths.forEach(m => {
+        headerHTML += `<th>${m.date}</th>`;
+    });
+    headerHTML += '</tr>';
+    headerEl.innerHTML = headerHTML;
+
+    if (curr.wcFullRows && curr.wcFullRows.length > 0) {
+        // Render dynamic rows from the Working Capital sheet
+        let bodyHTML = '';
+        curr.wcFullRows.forEach((row) => {
+            if (row.isSpacer) {
+                bodyHTML += `<tr style="border-bottom: none; background-color: transparent;"><td colspan="${visibleMonths.length + 1}" style="height: 1.5rem; padding: 0; border: none;"></td></tr>`;
+                return;
+            }
+            
+            const conceptName = row.concept;
+            const normConcept = conceptName.toLowerCase();
+            
+            // Skip rows that look like full javascript date strings
+            if (normConcept.includes('gmt') || normConcept.includes('00:00:00') || normConcept.includes('hora estándar')) {
+                return;
+            }
+
+            const isDays = normConcept.includes('dso') || normConcept.includes('dpo') || normConcept.includes('dio') || normConcept.includes('days') || normConcept.includes('dias') || normConcept.includes('días');
+            const isPercentage = normConcept.includes('%');
+            const isRate = (normConcept.includes('tasa') && !normConcept.includes('impacto')) || normConcept.includes('var ') || normConcept === 'dop' || normConcept === 'eur' || normConcept === 'usd';
+            
+            bodyHTML += `<tr>
+                <td style="font-weight:600; color:var(--text-main);">${conceptName}</td>`;
+            
+            visibleMonths.forEach(m => {
+                const r = m.wcFullRows?.find(r => r.concept === conceptName);
+                let val = r ? r.values[m.date] || 0 : 0;
+                
+                if (row.isHeader) val = "";
+                
+                if (val === "") {
+                    bodyHTML += `<td></td>`;
+                } else if (isDays) {
+                    bodyHTML += `<td style="color: ${val < 0 ? 'var(--danger)' : 'inherit'};">${val.toFixed(1)}</td>`;
+                } else if (isPercentage) {
+                    bodyHTML += `<td style="color: ${val < 0 ? 'var(--danger)' : 'inherit'};">${(val * 100).toFixed(1)}%</td>`;
+                } else if (isRate) {
+                    bodyHTML += `<td style="color: ${val < 0 ? 'var(--danger)' : 'inherit'};">${val.toFixed(2)}</td>`;
+                } else {
+                    bodyHTML += `<td style="color: ${val < 0 ? 'var(--danger)' : 'inherit'};">${formatCurrency(val)}</td>`;
+                }
+            });
+            bodyHTML += `</tr>`;
+        });
+        bodyEl.innerHTML = bodyHTML;
+        return;
+    }
+
+    const wcConcepts = [
+        { key: 'wc', label: 'Working Capital', isBold: true },
+        // ROW REMOVED as requested by user
+        { key: 'dpo', label: 'DPO (Días de Pago)', isBold: false },
+        { key: 'dio', label: 'DIO (Días de Inventario)', isBold: false },
+        { key: 'cxc', label: 'Cuentas por Cobrar', isBold: false },
+        { key: 'inv', label: 'Inventario', isBold: false },
+        { key: 'cxp', label: 'Cuentas por Pagar', isBold: false }
+    ];
+
+    let bodyHTML = '';
+    wcConcepts.forEach(c => {
+        bodyHTML += `<tr>
+            <td style="${c.isBold ? 'font-weight:700; color:var(--text-main);' : 'padding-left:1.5rem; color:var(--text-secondary);'}">${c.label}</td>`;
+        visibleMonths.forEach(m => {
+            let val = m.wcDetail?.[c.key];
+            if (val === undefined) { val = m.cashflowDetail?.[c.key]; }
+            // If the value doesn't strictly exist mapped in cashflowDetail, try to search it
+            if (val === undefined && m.pnl && m.pnl.fullRows) {
+                 const localRow = m.pnl.fullRows.find(r => r.concept.toLowerCase().includes(c.label.toLowerCase()) || r.concept.toLowerCase() === c.key.toLowerCase());
+                 if (localRow && localRow.values && localRow.values[m.date]) {
+                     val = localRow.values[m.date];
+                 }
+            }
+            if (val === undefined && m.balance && m.balance.fullRows && c.key === 'cxc') {
+                 const localRow = m.balance.fullRows.find(r => r.concept.toLowerCase().includes("cobrar"));
+                 if (localRow && localRow.values && localRow.values[m.date]) val = localRow.values[m.date];
+            }
+            if (val === undefined && m.balance && m.balance.fullRows && c.key === 'cxp') {
+                 const localRow = m.balance.fullRows.find(r => r.concept.toLowerCase().includes("pagar"));
+                 if (localRow && localRow.values && localRow.values[m.date]) val = localRow.values[m.date];
+            }
+            if (val === undefined && m.balance && m.balance.fullRows && c.key === 'inv') {
+                 const localRow = m.balance.fullRows.find(r => r.concept.toLowerCase().includes("inventario"));
+                 if (localRow && localRow.values && localRow.values[m.date]) val = localRow.values[m.date];
+            }
+            if (val === undefined) { val = 0; }
+            
+            if (['dso', 'dpo', 'dio'].includes(c.key)) {
+                bodyHTML += `<td>${val.toFixed(1)}</td>`;
+            } else {
+                bodyHTML += `<td class="${val < 0 ? 'negative-val' : ''}">${formatCurrency(val)}</td>`;
+            }
+        });
+        bodyHTML += `</tr>`;
+    });
+
+    bodyEl.innerHTML = bodyHTML;
+}
+
+/**
  * Render the Cash Flow Table
  */
 function renderCashFlow(data, selectedIndex = -1) {
@@ -2446,6 +2767,497 @@ function renderCashFlow(data, selectedIndex = -1) {
     }
 }
 
+function renderPreliminaryView(data, selectedIndex = -1) {
+    const endIdx = selectedIndex >= 0 ? selectedIndex : data.length - 1;
+    const curr = data[endIdx];
+    if (!curr) return;
+    
+    const labelEl = document.getElementById('preliminarDateLabel');
+    if(labelEl) {
+        labelEl.innerText = isYTDMode ? `YTD ${curr.date}` : curr.date;
+    }
+
+    const prevYearItem = data.find(d => {
+        const dDate = d.sortDate;
+        const cDate = curr.sortDate;
+        return dDate.getMonth() === cDate.getMonth() && dDate.getFullYear() === cDate.getFullYear() - 1;
+    }) || null;
+
+    const tableBody = document.getElementById('preliminarBody');
+    if (!tableBody) return;
+
+    const getVal = (item, keywords, context) => {
+        if (!item) return 0;
+
+        const findValueInRows = (rows, kw) => {
+            // Filter by context if provided
+            let searchRows = rows;
+            if (context) {
+                const idxMargen = rows.findIndex(r => r.concept && r.concept.toLowerCase().includes("margen bruto"));
+                let idxCosto = -1;
+                for (let i = 0; i < rows.length; i++) {
+                     if (rows[i].concept && (rows[i].concept.trim().toLowerCase() === "costo de ventas" || rows[i].concept.trim().toLowerCase() === "costos")) {
+                          idxCosto = i;
+                          break;
+                     }
+                }
+                
+                if (context === "ventas" && idxCosto !== -1) {
+                     searchRows = rows.slice(0, idxCosto);
+                } else if (context === "costos" && idxCosto !== -1) {
+                     const end = idxMargen !== -1 ? idxMargen : rows.length;
+                     searchRows = rows.slice(idxCosto, end);
+                } else if (context === "gastos" && idxMargen !== -1) {
+                     searchRows = rows.slice(idxMargen);
+                }
+            }
+
+            const findValueRobust = (rowObj, searchDate) => {
+                if (!rowObj || !rowObj.values) return null;
+                if (Object.prototype.hasOwnProperty.call(rowObj.values, searchDate)) return rowObj.values[searchDate];
+                // Try to find matching month-year without caring about format
+                const sDate = searchDate.toLowerCase().replace(/[^a-z0-9]/g, '');
+                for (let k in rowObj.values) {
+                    const kStr = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+                    if (kStr.includes(sDate) || sDate.includes(kStr) || kStr === sDate) {
+                        return rowObj.values[k];
+                    }
+                }
+                return null;
+            };
+
+            const exact = searchRows.find(r => r.concept && r.concept.trim().toLowerCase() === kw && !r.concept.toLowerCase().includes('acumulada'));
+            if (exact) {
+                const bestVal = findValueRobust(exact, item.date);
+                if (bestVal !== null) return bestVal;
+            }
+
+            const partials = searchRows.filter(r => r.concept && r.concept.toLowerCase().includes(kw) && !r.concept.toLowerCase().includes('acumulada'));
+            partials.sort((a, b) => a.concept.length - b.concept.length);
+            
+            for (const p of partials) {
+                const bestVal = findValueRobust(p, item.date);
+                if (bestVal !== null) return bestVal;
+            }
+            return null;
+        };
+
+        for (const kw of keywords) {
+            let pnlRows = item.pnl?.fullRows || [];
+            let sourceRows = (kw.includes("descuento") || kw.includes("devolucion") || kw.includes("devolución")) && item.estados && item.estados.fullRows && item.estados.fullRows.length > 0 ? item.estados.fullRows : pnlRows;
+            let val = findValueInRows(sourceRows, kw.trim());
+            if (val !== null && val !== 0) return val;
+
+            if (!context) {
+                val = findValueInRows(item.balance?.fullRows || [], kw.trim());
+                if (val !== null && val !== 0) return val;
+
+                val = findValueInRows(item.wcFullRows || [], kw.trim());
+                if (val !== null && val !== 0) return val;
+            }
+        }
+        
+        for (const kw of keywords) {
+             let pnlRows = item.pnl?.fullRows || [];
+             let sourceRows = (kw.includes("descuento") || kw.includes("devolucion") || kw.includes("devolución")) && item.estados && item.estados.fullRows && item.estados.fullRows.length > 0 ? item.estados.fullRows : pnlRows;
+             let val = findValueInRows(sourceRows, kw.trim());
+             if (val !== null) return val;
+        }
+
+        return 0;
+    };
+
+    const structure = [
+        { label: "Ventas Brutas", match: ["ventas brutas", "ventas bon", "ventas p6"], isTotal: false },
+        { label: "Descuentos y Devoluciones", match: ["descuentos y devoluciones"], isTotal: false, id: "desc" },
+        { label: "Descuentos", match: ["descuentos", "descuento", "descuento sobre ventas", "descuento en ventas", "menos descuentos"], isTotal: false, isSubItem: true, parentId: "desc" },
+        { label: "Devoluciones", match: ["devoluciones", "devolucion", "devoluciones sobre ventas", "devolución", "devolución en ventas", "menos devoluciones"], isTotal: false, isSubItem: true, parentId: "desc" },
+        { label: "Ventas netas", match: ["ventas netas", "ingresos"], isTotal: true, id: "vnetas" },
+        { label: "EVP", match: ["evp"], isTotal: false, isSubItem: true, restrictTo: "ventas", parentId: "vnetas" },
+        { label: "BT5", match: ["bt5"], isTotal: false, isSubItem: true, restrictTo: "ventas", parentId: "vnetas" },
+        { label: "BON", match: ["bon", "p6"], isTotal: false, isSubItem: true, restrictTo: "ventas", parentId: "vnetas" },
+        { label: "Otros Ingresos", match: ["otras ventas", "otros ingresos"], isTotal: false, isSubItem: true, parentId: "vnetas" },
+        { label: "Costo de ventas", match: ["costo de ventas", "costos", "costo"], isTotal: false, id: "costos" },
+        { label: "EVP ", match: ["evp", "costo evp"], isTotal: false, isSubItem: true, restrictTo: "costos", parentId: "costos" },
+        { label: "BT5 ", match: ["bt5", "costo bt5"], isTotal: false, isSubItem: true, restrictTo: "costos", parentId: "costos" },
+        { label: "BON ", match: ["bon", "p6", "costo bon"], isTotal: false, isSubItem: true, restrictTo: "costos", parentId: "costos" },
+        { label: "Margen Bruto", match: ["margen bruto", "gross margin", "utilidad bruta", "gross profit"], isTotal: true },
+        { label: "Gastos Administrativos", match: ["gastos administrativos", "administrativo", "admin "], isTotal: false, id: "gadmin" },
+        { label: "ITBIS", match: ["itbis", "impuesto itbis"], isTotal: false, isSubItem: true, restrictTo: "gastos", parentId: "gadmin" },
+        { label: "Otros Gastos Operativos", match: ["otros gastos operativos", "otros gastos"], isTotal: false, isSubItem: true, restrictTo: "gastos", parentId: "gadmin" },
+        { label: "Gastos Administrativos ", match: ["gastos administrativos", "administrativo", "admin "], isTotal: false, isSubItem: true, restrictTo: "gastos", parentId: "gadmin" },
+        { label: "Gastos de Mercadeo", match: ["gastos de mercadeo", "mercadeo"], isTotal: false },
+        { label: "Gastos de Ventas", match: ["gastos de ventas", "comercial"], isTotal: false },
+        { label: "Gastos de Logística", match: ["gastos de logística", "logistica", "logística"], isTotal: false },
+        { label: "EBITDA", match: ["ebitda"], isTotal: true },
+        { label: "EBITDA (mUSD)", match: ["ebitda usd", "ebitda (usd)", "ebitda us$", "ebitda us", "ebitda en dolares"], isTotal: false },
+        { label: "D & A", match: ["depreciación y amortización", "depreciacion y amortizacion", "d&a", "d & a", "depreciaciones", "depreciacion", "amortizacion"], isTotal: false },
+        { label: "Intereses Netos", match: ["intereses", "financiero"], isTotal: false, id: "intnetos" },
+        { label: "Ingresos Financieros", match: ["ingresos financieros"], isTotal: false, isSubItem: true, parentId: "intnetos" },
+        { label: "Gastos Financieros", match: ["gastos financieros"], isTotal: false, isSubItem: true, parentId: "intnetos" },
+        { label: "Diferencial cambiario", match: ["diferencial cambiario", "cambiario"], isTotal: false },
+        { label: "Ingresos (Gastos) Extraordinarios", match: ["extraordinario", "extraordinarios", "ingresos (gastos) extraordinarios"], isTotal: false },
+        { label: "Utilidad antes de impuesto", match: ["utilidad antes de impuesto", "antes de impuesto", "net income before"], isTotal: true },
+        { label: "Tasa Cambio Cierre", match: ["fx", "tasa cambio", "tasa de cambio", "dop", "tipo de cambio", "t.c", "tc"], isTotal: false }
+    ];
+
+    window.expandedGroups = window.expandedGroups || new Set();
+
+    window.toggleGroup = function(groupId, btn) {
+        const rows = document.querySelectorAll('.subitem-' + groupId);
+        let isHidden = false;
+        rows.forEach(r => {
+            if (r.style.display === 'none') {
+                r.style.display = '';
+                isHidden = false;
+            } else {
+                r.style.display = 'none';
+                isHidden = true;
+            }
+        });
+        if (btn) btn.innerHTML = isHidden ? '+' : '-';
+        
+        if (isHidden) {
+            window.expandedGroups.delete(groupId);
+        } else {
+            window.expandedGroups.add(groupId);
+        }
+    }
+
+    let html = '';
+    
+    const resolveRowStandardVal = (targetItem, rowLabel, rowMatch, context) => {
+        if (!targetItem) return { actual: 0, ppto: 0 };
+        let actual = getVal(targetItem, rowMatch, context);
+        let ppto = 0;
+
+        if (targetItem.ppto && targetItem.ppto.pnl) {
+            if (targetItem.ppto.pnl.categorias) {
+                if (rowLabel === "Ventas netas") ppto = targetItem.ppto.kpis.ingresos || 0;
+                if (rowLabel === "Costo de ventas") ppto = targetItem.ppto.pnl.categorias["Costo de Ventas"] || 0;
+                if (rowLabel === "EBITDA") ppto = targetItem.ppto.kpis.ebitda || targetItem.ppto.pnl.categorias["EBITDA"] || 0;
+                if (rowLabel === "Utilidad antes de impuesto") ppto = targetItem.ppto.kpis.utilidad || 0;
+                if (rowLabel === "Margen Bruto") ppto = (targetItem.ppto.kpis.ingresos || 0) + (targetItem.ppto.pnl.categorias["Costo de Ventas"] || 0);
+                if (rowLabel === "EBITDA (mUSD)") {
+                    const ebitdaPpto = targetItem.ppto.kpis.ebitda || targetItem.ppto.pnl.categorias["EBITDA"] || 0;
+                    const tasaPpto = targetItem.ppto.tasaCambio || 1;
+                    ppto = tasaPpto !== 0 ? (ebitdaPpto / tasaPpto) : 0;
+                }
+
+                if (rowLabel === "Gastos Administrativos" || rowLabel === "Gastos Administrativos ") ppto = targetItem.ppto.pnl.opexDetalle?.["Gastos Administrativos"] || 0;
+                if (rowLabel === "Gastos de Mercadeo") ppto = targetItem.ppto.pnl.opexDetalle?.["Gastos de Mercadeo"] || 0;
+                if (rowLabel === "Gastos de Ventas") ppto = targetItem.ppto.pnl.opexDetalle?.["Gastos de Ventas (Comercial)"] || 0;
+                if (rowLabel === "Gastos de Logística") ppto = targetItem.ppto.pnl.opexDetalle?.["Gastos de Logística"] || 0;
+            }
+            if (targetItem.ppto.pnl.segments) {
+                if (rowLabel.trim() === "EVP") ppto = context === "costos" ? targetItem.ppto.pnl.segments["EVP"]?.costos || 0 : targetItem.ppto.pnl.segments["EVP"]?.ventas || 0;
+                if (rowLabel.trim() === "BT5") ppto = context === "costos" ? targetItem.ppto.pnl.segments["BT5"]?.costos || 0 : targetItem.ppto.pnl.segments["BT5"]?.ventas || 0;
+                if (rowLabel.trim() === "BON" || rowLabel.trim() === "P6") ppto = context === "costos" ? (targetItem.ppto.pnl.segments["BON"]?.costos || targetItem.ppto.pnl.segments["P6"]?.costos || 0) : (targetItem.ppto.pnl.segments["BON"]?.ventas || targetItem.ppto.pnl.segments["P6"]?.ventas || 0);
+                if (rowLabel.trim() === "Otros Ingresos") ppto = (targetItem.ppto.pnl.segments["Otras Ventas"]?.ventas || 0) + (targetItem.ppto.pnl.segments["Otros Ingresos"]?.ventas || 0);
+            }
+        }
+
+        if (rowLabel === "Tasa Cambio Cierre") {
+            if (targetItem.ppto && targetItem.ppto.tasaCambio !== undefined) {
+                ppto = targetItem.ppto.tasaCambio;
+            }
+        }
+
+        if (rowLabel === "Descuentos") {
+            let actualDesc = getVal(targetItem, ["descuentos", "descuento", "descuento sobre ventas", "descuento en ventas", "menos descuentos"]);
+            let actualDev = getVal(targetItem, ["devoluciones", "devolucion", "devoluciones sobre ventas", "devolución", "devolución en ventas", "menos devoluciones"]);
+            actualDesc = actualDesc !== 0 ? -Math.abs(actualDesc) : 0;
+            actualDev = actualDev !== 0 ? -Math.abs(actualDev) : 0;
+            
+            if (targetItem.ppto) {
+                 const pptoVentasNetas = targetItem.ppto?.kpis?.ingresos || 0;
+                 ppto = pptoVentasNetas !== 0 ? pptoVentasNetas * -0.0387749832441863 : 0;
+            }
+            if ((actualDesc + actualDev) === 0) {
+                 const actualVentasNetas = targetItem?.kpis?.ingresos || 0;
+                 actual = actualVentasNetas !== 0 ? actualVentasNetas * -0.0387749832441863 : 0;
+            } else {
+                 actual = actualDesc;
+            }
+        }
+
+        if (rowLabel === "Devoluciones") {
+            let actualDesc = getVal(targetItem, ["descuentos", "descuento", "descuento sobre ventas", "descuento en ventas", "menos descuentos"]);
+            let actualDev = getVal(targetItem, ["devoluciones", "devolucion", "devoluciones sobre ventas", "devolución", "devolución en ventas", "menos devoluciones"]);
+            actualDesc = actualDesc !== 0 ? -Math.abs(actualDesc) : 0;
+            actualDev = actualDev !== 0 ? -Math.abs(actualDev) : 0;
+            
+            if ((actualDesc + actualDev) === 0) {
+                actual = 0;
+            } else {
+                actual = actualDev;
+            }
+        }
+
+        if (rowLabel === "Descuentos y Devoluciones") {
+            let actualDesc = getVal(targetItem, ["descuentos", "descuento", "descuento sobre ventas", "descuento en ventas", "menos descuentos"]);
+            let actualDev = getVal(targetItem, ["devoluciones", "devolucion", "devoluciones sobre ventas", "devolución", "devolución en ventas", "menos devoluciones"]);
+            actualDesc = actualDesc !== 0 ? -Math.abs(actualDesc) : 0;
+            actualDev = actualDev !== 0 ? -Math.abs(actualDev) : 0;
+            let sumD = actualDesc + actualDev;
+            
+            if (targetItem.ppto) {
+                 const pptoVentasNetas = targetItem.ppto?.kpis?.ingresos || 0;
+                 ppto = pptoVentasNetas !== 0 ? pptoVentasNetas * -0.0387749832441863 : 0;
+            }
+            if (sumD === 0) {
+                 const actualVentasNetas = targetItem?.kpis?.ingresos || 0;
+                 actual = actualVentasNetas !== 0 ? actualVentasNetas * -0.0387749832441863 : 0;
+            } else {
+                 actual = sumD;
+            }
+        }
+
+        if (rowLabel === "Ventas Brutas") {
+            const vNet = getVal(targetItem, ["ventas netas", "ingresos"]) || targetItem?.kpis?.ingresos || 0;
+            let actualDesc = getVal(targetItem, ["descuentos", "descuento", "descuento sobre ventas", "descuento en ventas", "menos descuentos"]);
+            let actualDev = getVal(targetItem, ["devoluciones", "devolucion", "devoluciones sobre ventas", "devolución", "devolución en ventas", "menos devoluciones"]);
+            actualDesc = actualDesc !== 0 ? -Math.abs(actualDesc) : 0;
+            actualDev = actualDev !== 0 ? -Math.abs(actualDev) : 0;
+            let sumD = actualDesc + actualDev;
+            
+            if (sumD === 0) {
+                 const actualVentasNetas = targetItem?.kpis?.ingresos || 0;
+                 sumD = actualVentasNetas !== 0 ? actualVentasNetas * -0.0387749832441863 : 0;
+            }
+            actual = vNet + Math.abs(sumD);
+
+            if (targetItem.ppto) {
+                 const pptoVentasNetas = targetItem.ppto?.kpis?.ingresos || 0;
+                 const pptoDescuentos = pptoVentasNetas * -0.0387749832441863;
+                 ppto = pptoVentasNetas + Math.abs(pptoDescuentos);
+            }
+        }
+
+        if (rowLabel === "D & A") {
+            const depActual = getVal(targetItem, ["depreciacion", "depreciación"]) || 0;
+            const amoActual = getVal(targetItem, ["amortizacion", "amortización"]) || 0;
+            const combined = getVal(targetItem, ["depreciacion y amortizacion", "depreciación y amortización", "d&a", "d & a"]);
+            // If we found a combined field, use it, else sum.
+            actual = combined ? combined : (depActual + amoActual);
+        }
+
+        if (rowLabel === "Margen Bruto") {
+            const vNet = getVal(targetItem, ["ventas netas", "ingresos"]) || targetItem?.kpis?.ingresos || 0;
+            const cVentas = getVal(targetItem, ["costo de ventas", "costos", "costo"]) || targetItem?.pnl?.categorias?.["Costo de Ventas"] || 0;
+            actual = vNet + cVentas;
+        }
+
+        if (rowLabel === "Ventas netas") {
+            const evp = getVal(targetItem, ["evp"], "ventas") || 0;
+            const bt5 = getVal(targetItem, ["bt5"], "ventas") || 0;
+            const bon = getVal(targetItem, ["bon", "p6"], "ventas") || 0;
+            const otros = getVal(targetItem, ["otras ventas", "otros ingresos"]) || 0;
+            actual = evp + bt5 + bon + otros;
+        }
+        if (rowLabel === "EBITDA" && !actual) actual = targetItem?.kpis?.ebitda || 0;
+        if (rowLabel === "Costo de ventas" && !actual) actual = targetItem?.pnl?.categorias?.["Costo de Ventas"] || 0;
+        if (rowLabel === "Utilidad antes de impuesto" && !actual) actual = targetItem?.kpis?.utilidad || 0;
+
+        // Generic fallback for any unmapped PPTO value
+        if (targetItem.ppto && targetItem.ppto.pnl && targetItem.ppto.pnl.fullRows && ppto === 0 && rowLabel !== "Margen Bruto" && rowLabel !== "Ventas Brutas" && rowLabel !== "Descuentos y Devoluciones" && rowLabel !== "Ventas netas" && rowLabel !== "Utilidad antes de impuesto" && rowLabel !== "Costo de ventas" && rowLabel !== "EBITDA") {
+            // Re-use `getVal` but against the ppto object!
+            const tempVal = getVal({ pnl: { fullRows: targetItem.ppto.pnl.fullRows }, date: targetItem.date }, rowMatch, context);
+            if (tempVal !== null && tempVal !== 0) {
+                 ppto = tempVal;
+            } else if (rowLabel === "D & A") {
+                 const d1 = getVal({ pnl: { fullRows: targetItem.ppto.pnl.fullRows }, date: targetItem.date }, ["depreciacion", "depreciación"]);
+                 const d2 = getVal({ pnl: { fullRows: targetItem.ppto.pnl.fullRows }, date: targetItem.date }, ["amortizacion", "amortización"]);
+                 const dc = getVal({ pnl: { fullRows: targetItem.ppto.pnl.fullRows }, date: targetItem.date }, ["depreciacion y amortizacion", "d&a"]);
+                 ppto = dc ? dc : (d1 + d2);
+            }
+        }
+
+        return { actual, ppto };
+    };
+
+    const getYtdAggregated = (targetIdx, row) => {
+        if (targetIdx < 0 || targetIdx >= data.length) return { actual: 0, ppto: 0 };
+        const item = data[targetIdx];
+        if (!item) return { actual: 0, ppto: 0 };
+
+        if (isYTDMode && row.label === "Tasa Cambio Cierre") {
+            const targetYear = item.sortDate.getFullYear();
+            let sumEbitdaLocal = 0;
+            let sumEbitdaUsd = 0;
+            
+            const parseDirtyNumber = (val) => {
+                if (!val) return 0;
+                if (typeof val === 'number') return val;
+                let cleaned = val.toString().replace(/[^0-9.-]+/g, "");
+                return Number(cleaned) || 0;
+            };
+
+            for (let k = targetIdx; k >= 0; k--) {
+                const iterItem = data[k];
+                if (iterItem.sortDate.getFullYear() !== targetYear) break;
+                
+                let localVal = 0;
+                let usdVal = 0;
+
+                if (iterItem.pnl && iterItem.pnl.fullRows) {
+                    const localRow = iterItem.pnl.fullRows.find(r => r.concept === "EBITDA");
+                    if (localRow) localVal = localRow.values[iterItem.date] || 0;
+                    if (localVal === 0 && iterItem.kpis?.ebitda) localVal = iterItem.kpis.ebitda;
+
+                    const usdRow = iterItem.pnl.fullRows.find(r => r.concept === "EBITDA US$");
+                    if (usdRow) usdVal = usdRow.values[iterItem.date] || 0;
+                }
+
+                sumEbitdaLocal += parseDirtyNumber(localVal);
+                sumEbitdaUsd += parseDirtyNumber(usdVal);
+            }
+
+            let actualFxAcumulado = 0;
+            if (sumEbitdaUsd !== 0 && sumEbitdaLocal !== 0) {
+                actualFxAcumulado = sumEbitdaLocal / sumEbitdaUsd;
+            } else {
+                actualFxAcumulado = resolveRowStandardVal(item, row.label, row.match, row.restrictTo).actual;
+            }
+            
+            // Calculate YTD PPTO FX 
+            let pptoEbitdaLocal = 0;
+            let pptoEbitdaUsd = 0;
+            
+            for (let k = targetIdx; k >= 0; k--) {
+                const iterItem = data[k];
+                if (iterItem.sortDate.getFullYear() !== targetYear) break;
+                
+                let pptoLocalVal = 0;
+                let pptoRate = iterItem.ppto?.tasaCambio || resolveRowStandardVal(iterItem, row.label, row.match, row.restrictTo).ppto || 1;
+                
+                if (iterItem.ppto?.kpis?.ebitda) {
+                    pptoLocalVal = iterItem.ppto.kpis.ebitda;
+                } else if (iterItem.ppto?.pnl?.fullRows) {
+                    const localRowPpto = iterItem.ppto.pnl.fullRows.find(r => r.concept === "EBITDA");
+                    if (localRowPpto) pptoLocalVal = localRowPpto.values[iterItem.date] || 0;
+                }
+                
+                let valNum = parseDirtyNumber(pptoLocalVal);
+                pptoEbitdaLocal += valNum;
+                if (pptoRate !== 0) {
+                    pptoEbitdaUsd += valNum / pptoRate;
+                }
+            }
+            
+            let pptoFxAcumulado = 0;
+            if (pptoEbitdaUsd !== 0 && pptoEbitdaLocal !== 0) {
+                pptoFxAcumulado = pptoEbitdaLocal / pptoEbitdaUsd;
+            } else {
+                pptoFxAcumulado = resolveRowStandardVal(item, row.label, row.match, row.restrictTo).ppto;
+            }
+            
+            return { actual: actualFxAcumulado, ppto: pptoFxAcumulado };
+        }
+
+        const isTasa = row.label.includes("Tasa") || row.label.includes("Diferencial");
+        if (!isYTDMode || isTasa) return resolveRowStandardVal(item, row.label, row.match, row.restrictTo);
+
+        const targetYear = item.sortDate.getFullYear();
+        let sumActual = 0;
+        let sumPpto = 0;
+        for (let i = targetIdx; i >= 0; i--) {
+            if (data[i].sortDate.getFullYear() !== targetYear) break;
+            const vals = resolveRowStandardVal(data[i], row.label, row.match, row.restrictTo);
+            sumActual += vals.actual;
+            sumPpto += vals.ppto;
+        }
+        return { actual: sumActual, ppto: sumPpto };
+    };
+
+    const endIdxCurr = endIdx;
+    const endIdxPrev = prevYearItem ? data.indexOf(prevYearItem) : -1;
+
+    const vNetPrevVals = getYtdAggregated(endIdxPrev, {label: "Ventas netas", match: ["ventas netas", "ingresos"]});
+    const vNetCurrVals = getYtdAggregated(endIdxCurr, {label: "Ventas netas", match: ["ventas netas", "ingresos"]});
+    const vNetPrev = vNetPrevVals.actual;
+    const vNetCurr = vNetCurrVals.actual;
+    const vNetPpto = vNetCurrVals.ppto;
+
+    const varianceThreshold = 1.0; 
+    let costVar=[], adminVar=[], logisticaVar=[], diffCambiarioVar=[], extraordinariosVar=[];
+
+    structure.forEach(row => {
+        const prevVals = getYtdAggregated(endIdxPrev, row);
+        const currVals = getYtdAggregated(endIdxCurr, row);
+        
+        let prevVal = prevVals.actual;
+        let currVal = currVals.actual;
+        let pptoVal = currVals.ppto;
+
+        let pPrev = vNetPrev ? prevVal / vNetPrev : 0;
+        let pCurr = vNetCurr ? currVal / vNetCurr : 0;
+        let pPpto = vNetPpto ? pptoVal / vNetPpto : 0;
+
+        const isTasa = row.label.includes("Tasa") || row.label.includes("mUSD");
+        const hidePct = row.label === "Ventas Brutas" || row.label === "Descuentos y Devoluciones";
+        let styleText = row.isTotal ? "font-weight:700; background: rgba(0,0,0,0.03);" : "";
+        let bgRow = row.isTotal ? "background: rgba(0,0,0,0.03);" : "";
+        
+        let paddingLeft = "16px";
+        if (row.isSubItem) {
+             paddingLeft = "40px";
+             styleText += " color: var(--text-secondary);";
+        }
+
+        const formatRowVal = (v) => {
+            if (v === 0 || !v) return '-';
+            if (row.label.includes("Tasa")) return '$ ' + v.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            if (row.label.includes("mUSD")) return v.toLocaleString('en-US', {minimumFractionDigits: 1, maximumFractionDigits: 1});
+            return formatCurrency(v);
+        };
+
+        const variancePpto = currVal - pptoVal;
+        
+        if (Math.abs(variancePpto) >= varianceThreshold && !row.isTotal && pptoVal !== 0 && currVal !== 0) {
+            const isNegativeVal = row.label.includes("Costo") || row.label.includes("Gasto");
+            const varFormatted = (variancePpto > 0 ? "+" : "") + variancePpto.toFixed(1) + "mDOP";
+            
+            if (row.label.includes("Costo") || row.label.includes("Mercadeo") || row.label.includes("Ventas") || row.label.includes("Descuentos")) {
+                costVar.push(`${varFormatted} en ${row.label}`);
+            }
+            else if (row.label.includes("Administrativo")) adminVar.push(`${varFormatted} en ${row.label}`);
+            else if (row.label.includes("Logística")) logisticaVar.push(`${varFormatted} en sub-cuentas (aprox.)`);
+            else if (row.label.includes("cambiario")) diffCambiarioVar.push(`${varFormatted}`);
+            else if (row.label.includes("Extraordinarios")) extraordinariosVar.push(`${varFormatted}`);
+        }
+
+        let isExpanded = window.expandedGroups.has(row.id);
+        let collapseBtn = "";
+        if (row.id) {
+            collapseBtn = `<button class="collapse-btn" onclick="toggleGroup('${row.id}', this)">${isExpanded ? '-' : '+'}</button>`;
+        }
+        
+        let idAttr = "";
+        let displayStyle = "";
+        if (row.isSubItem) {
+             idAttr = `class="subitem-row subitem-${row.parentId}"`;
+             let isParentExpanded = window.expandedGroups.has(row.parentId);
+             if (!isParentExpanded) {
+                 displayStyle = "display: none;";
+             }
+        }
+
+        html += `<tr ${idAttr} style="${bgRow} ${displayStyle}">
+            <td style="border-right: 1px solid rgba(0,0,0,0.05); padding: 5px; text-align: center; vertical-align: middle;">${collapseBtn}</td>
+            <td style="border-right: 1px solid rgba(0,0,0,0.05); padding: 14px 16px; padding-left: ${paddingLeft}; font-size: 1.05em; ${styleText}">${row.label}</td>
+            <td style="text-align:right; padding: 14px 16px; font-size: 1.05em; ${styleText}">${formatRowVal(prevVal)}</td>
+            <td style="text-align:right; color:var(--text-secondary); font-size:0.95em; padding: 14px 16px;">${(isTasa || hidePct) ? '' : (Math.abs(pPrev)*100).toFixed(0)+'%'}</td>
+            <td style="text-align:right; border-left: 2px solid var(--sidebar-accent); background:rgba(0, 150, 199, 0.05); padding: 14px 16px; font-size: 1.05em; ${styleText}">${formatRowVal(currVal)}</td>
+            <td style="text-align:right; background:rgba(0, 150, 199, 0.05); font-weight:600; font-size:0.95em; padding: 14px 16px;">${(isTasa || hidePct) ? '' : (Math.abs(pCurr)*100).toFixed(0)+'%'}</td>
+            <td style="text-align:right; border-left: 1px solid rgba(0,0,0,0.05); padding: 14px 16px; font-size: 1.05em; ${styleText}">${formatRowVal(pptoVal)}</td>
+            <td style="text-align:right; color:var(--text-secondary); font-size:0.95em; padding: 14px 16px;">${(isTasa || hidePct) ? '' : (Math.abs(pPpto)*100).toFixed(0)+'%'}</td>
+        </tr>`;
+    });
+
+    tableBody.innerHTML = html;
+}
+
 /**
  * Render the full P&L Detail Table with a 6-month rolling window
  */
@@ -2472,12 +3284,49 @@ function renderDetailedPnL(data, selectedIndex = -1) {
         </tr>
     `;
 
-    // Extract all unique account concepts from visible periods
     let allConcepts = [];
+    const orderedTopConcepts = [
+        "Ventas netas",
+        "Ventas EVP",
+        "Ventas BT5",
+        "Ventas BON",
+        "Ventas P6",
+        "Costo de ventas",
+        "Costos EVP",
+        "Costos BT5",
+        "Costos BON",
+        "Utilidad bruta en ventas ordinarias",
+        "Margen bruto ordinario"
+    ];
+
     visibleMonths.forEach(d => {
         if (d.pnl && d.pnl.fullRows) {
             d.pnl.fullRows.forEach(row => {
-                if (!allConcepts.includes(row.concept)) allConcepts.push(row.concept);
+                const normC = normalizeText(row.concept);
+                orderedTopConcepts.forEach(otc => {
+                    if (normC === normalizeText(otc) && !allConcepts.includes(row.concept)) {
+                        allConcepts.push(row.concept);
+                    }
+                });
+            });
+        }
+    });
+
+    // Sort the top concepts based on our desired order
+    allConcepts.sort((a, b) => {
+        const idxA = orderedTopConcepts.findIndex(o => normalizeText(o) === normalizeText(a));
+        const idxB = orderedTopConcepts.findIndex(o => normalizeText(o) === normalizeText(b));
+        return idxA - idxB;
+    });
+
+    visibleMonths.forEach(d => {
+        if (d.pnl && d.pnl.fullRows) {
+            d.pnl.fullRows.forEach(row => {
+                const normC = normalizeText(row.concept);
+                const isAlreadyTop = orderedTopConcepts.some(otc => normalizeText(otc) === normC);
+                if (!isAlreadyTop && !allConcepts.includes(row.concept)) {
+                    allConcepts.push(row.concept);
+                }
             });
         }
     });
@@ -2486,7 +3335,7 @@ function renderDetailedPnL(data, selectedIndex = -1) {
     allConcepts = allConcepts.filter(c => {
         const nc = normalizeText(c);
         if (nc === "concepto" || nc === "cuentas" || nc === "descripcion" || nc === "p&l" || nc === "resultado" || nc === "detalle") return false;
-        if (nc.includes("en mdop") || nc.includes("reporte pa") || nc.includes("seguimiento gerencial") || nc.includes("margen operacional") || nc === "margen neto") return false;
+        if (nc.includes("en mdop") || nc.includes("reporte pa") || nc.includes("seguimiento gerencial") || nc.includes("margen operacional") || nc === "margen neto" || nc === "margen bruto ordinario") return false;
         return true;
     });
 
@@ -2504,22 +3353,66 @@ function renderDetailedPnL(data, selectedIndex = -1) {
     bodyEl.innerHTML = allConcepts.map(concept => {
         let periodAccumTotal = 0;
         const normConcept = normalizeText(concept);
-        const isPercentage = normConcept.includes("margen neto") || normConcept.includes("margen ebitda") || normConcept.includes("margen bruto ordinario") || normConcept.includes("margen operacional");
-        const isFX = normConcept === "fx" || normConcept.includes("tasa");
+        const isPercentage = normConcept.includes("margen") || normConcept.includes("margin") || normConcept.includes("%");
+        const isFX = normConcept === "fx" || normConcept.includes("tasa de cambio") || normConcept === "tasa cambio" || normConcept === "tasa de cambio cierre" || normConcept === "tipo de cambio" || normConcept.includes("tasa proyectada");
 
+        const isEbitdaMargin = normConcept.includes("ebitda");
+        const isGrossMargin = normConcept.includes("bruto");
+        const isNetMargin = normConcept.includes("neto") || normConcept.includes("utilidad neta") || normConcept.includes("resultado neto");
+        const isGgadm = normConcept.includes("ggadm");
+
+        const targetYearForAccum = data[endIdx].sortDate.getFullYear();
         // Calculate YTD (Year to Date) total from the first data point up to endIdx
         for (let k = 0; k <= endIdx; k++) {
             const periodData = data[k];
-            if (!isYear2026(periodData)) continue; // 🚨 No acumular el año base en el YTD del P&L
+            if (periodData.sortDate.getFullYear() !== targetYearForAccum) continue; 
             
-            const row = periodData.pnl?.fullRows?.find(r => r.concept === concept);
+            let row = periodData.pnl?.fullRows?.find(r => r.concept === concept);
+            
             const val = row ? row.values[periodData.date] || 0 : 0;
             periodAccumTotal += val;
         }
+        
+        const parseDirtyNumberForMargin = (val) => {
+            if (!val) return 0;
+            if (typeof val === 'number') return val;
+            let cleaned = val.toString().replace(/[^0-9.-]+/g, "");
+            return Number(cleaned) || 0;
+        };
 
         const periodCells = visibleMonths.map(period => {
-            const row = period.pnl?.fullRows?.find(r => r.concept === concept);
-            const val = row ? row.values[period.date] || 0 : 0;
+            let row = period.pnl?.fullRows?.find(r => r.concept === concept);
+            let val = row ? row.values[period.date] || 0 : 0;
+            
+            if (isPercentage) {
+                const denRow = period.pnl?.fullRows?.find(r => {
+                    const nc = normalizeText(r.concept);
+                    return nc === "ventas netas" || nc === "total ingresos" || nc === "ingresos" || nc.includes("ventas netas");
+                });
+                let denVal = denRow ? denRow.values[period.date] || 0 : (period.kpis?.ingresos || 0);
+                
+                let numVal = 0;
+                if (isEbitdaMargin) {
+                    const numRow = period.pnl?.fullRows?.find(r => normalizeText(r.concept) === "ebitda" || normalizeText(r.concept).includes("ebitda ") || normalizeText(r.concept).includes(" ebitda"));
+                    numVal = numRow ? numRow.values[period.date] || 0 : (period.kpis?.ebitda || 0);
+                } else if (isGrossMargin) {
+                    const numRow = period.pnl?.fullRows?.find(r => normalizeText(r.concept) === "margen bruto" || normalizeText(r.concept) === "utilidad bruta");
+                    numVal = numRow ? numRow.values[period.date] || 0 : (period.kpis?.margen_bruto * period.kpis?.ingresos || 0);
+                } else if (isNetMargin) {
+                    const numRow = period.pnl?.fullRows?.find(r => normalizeText(r.concept) === "utilidad neta" || normalizeText(r.concept) === "ganancia del periodo" || normalizeText(r.concept) === "resultado neto");
+                    numVal = numRow ? numRow.values[period.date] || 0 : (period.kpis?.utilidad || 0);
+                } else if (isGgadm) {
+                    const numRow = period.pnl?.fullRows?.find(r => normalizeText(r.concept) === "total ggadm" || normalizeText(r.concept).includes("gastos administrativos"));
+                    numVal = numRow ? numRow.values[period.date] || 0 : 0;
+                }
+
+                numVal = parseDirtyNumberForMargin(numVal);
+                denVal = parseDirtyNumberForMargin(denVal);
+
+                if ((isEbitdaMargin || isGrossMargin || isNetMargin || isGgadm) && denVal !== 0) {
+                    val = numVal / denVal;
+                }
+            }
             
             const color = val < 0 ? 'var(--danger)' : 'inherit';
             
@@ -2558,10 +3451,70 @@ function renderDetailedPnL(data, selectedIndex = -1) {
         // Acumulado del periodo
         let displayAccum;
         if (isPercentage) {
-            // El acumulado de un porcentaje es raramente la suma, pero mostramos el valor del último mes o promedio?
-            // Por simplicidad y evitar confusiones, si es porcentaje no mostramos acumulado o mostramos el del periodo actual
-            const lastVal = visibleMonths[visibleMonths.length - 1].pnl?.fullRows?.find(r => r.concept === concept)?.values[visibleMonths[visibleMonths.length - 1].date] || 0;
-            displayAccum = formatPercent(lastVal);
+            const targetYear = data[endIdx].sortDate.getFullYear();
+            let sumNum = 0;
+            let sumDen = 0;
+            
+            const isEbitdaMargin = normConcept.includes("ebitda");
+            const isGrossMargin = normConcept.includes("bruto");
+            const isNetMargin = normConcept.includes("neto") || normConcept.includes("utilidad neta") || normConcept.includes("resultado neto");
+            const isGgadm = normConcept.includes("ggadm");
+            
+            for (let k = endIdx; k >= 0; k--) {
+                const item = data[k];
+                if (item.sortDate.getFullYear() !== targetYear) break;
+                
+                if (item.pnl && item.pnl.fullRows) {
+                    const parseDirtyNumber = (val) => {
+                        if (!val) return 0;
+                        if (typeof val === 'number') return val;
+                        let cleaned = val.toString().replace(/[^0-9.-]+/g, "");
+                        return Number(cleaned) || 0;
+                    };
+
+                    const denRow = item.pnl.fullRows.find(r => {
+                        const nc = normalizeText(r.concept);
+                        return nc === "ventas netas" || nc === "total ingresos" || nc === "ingresos" || nc.includes("ventas netas");
+                    });
+                    let denVal = denRow ? denRow.values[item.date] || 0 : (item.kpis?.ingresos || 0);
+                    
+                    let numVal = 0;
+                    if (isEbitdaMargin) {
+                        const numRow = item.pnl.fullRows.find(r => normalizeText(r.concept) === "ebitda" || normalizeText(r.concept).includes("ebitda ") || normalizeText(r.concept).includes(" ebitda"));
+                        numVal = numRow ? numRow.values[item.date] || 0 : (item.kpis?.ebitda || 0);
+                    } else if (isGrossMargin) {
+                        const numRow = item.pnl.fullRows.find(r => normalizeText(r.concept) === "margen bruto" || normalizeText(r.concept) === "utilidad bruta");
+                        numVal = numRow ? numRow.values[item.date] || 0 : (item.kpis?.margen_bruto * item.kpis?.ingresos || 0);
+                    } else if (isNetMargin) {
+                        const numRow = item.pnl.fullRows.find(r => normalizeText(r.concept) === "utilidad neta" || normalizeText(r.concept) === "ganancia del periodo" || normalizeText(r.concept) === "resultado neto");
+                        numVal = numRow ? numRow.values[item.date] || 0 : (item.kpis?.utilidad || 0);
+                    } else if (isGgadm) {
+                        const numRow = item.pnl.fullRows.find(r => normalizeText(r.concept) === "total ggadm" || normalizeText(r.concept).includes("gastos administrativos"));
+                        numVal = numRow ? numRow.values[item.date] || 0 : 0;
+                    }
+
+                    numVal = parseDirtyNumber(numVal);
+                    denVal = parseDirtyNumber(denVal);
+
+                    if (isEbitdaMargin || isGrossMargin || isNetMargin || isGgadm) {
+                        sumNum += numVal;
+                        sumDen += denVal;
+                    } else {
+                        // For generic percentages not strictly defined, just fallback
+                        const genRow = item.pnl.fullRows.find(r => r.concept === concept);
+                        let genVal = genRow ? genRow.values[item.date] || 0 : 0;
+                        sumNum += parseDirtyNumber(genVal); // Just sum the % if nothing else matches (or use last val as before)
+                        sumDen = 0;
+                    }
+                }
+            }
+            
+            if (sumDen !== 0 && sumNum !== 0) {
+                displayAccum = formatPercent(sumNum / sumDen);
+            } else {
+                const lastVal = visibleMonths[visibleMonths.length - 1].pnl?.fullRows?.find(r => r.concept === concept)?.values[visibleMonths[visibleMonths.length - 1].date] || 0;
+                displayAccum = formatPercent(lastVal);
+            }
         } else if (isFX) {
             let sumEbitdaLocal = 0;
             let sumEbitdaUsd = 0;
@@ -2580,7 +3533,6 @@ function renderDetailedPnL(data, selectedIndex = -1) {
             for (let k = endIdx; k >= 0; k--) {
                 const item = data[k];
                 if (item.sortDate.getFullYear() !== targetYear) break;
-                if (!isYear2026(item)) continue;
                 
                 let localVal = 0;
                 let usdVal = 0;
@@ -2591,8 +3543,15 @@ function renderDetailedPnL(data, selectedIndex = -1) {
                     if (localRow) localVal = localRow.values[item.date] || 0;
                     if (localVal === 0 && item.kpis?.ebitda) localVal = item.kpis.ebitda;
 
-                    const usdRow = item.pnl.fullRows.find(r => r.concept === "EBITDA US$");
-                    if (usdRow) usdVal = usdRow.values[item.date] || 0;
+                    const currentRateRow = item.pnl.fullRows.find(r => r.concept === concept);
+                    const currentRate = currentRateRow ? parseDirtyNumber(currentRateRow.values[item.date]) : 0;
+                    
+                    if (currentRate !== 0) {
+                        usdVal = localVal / currentRate;
+                    } else {
+                        const usdRow = item.pnl.fullRows.find(r => r.concept === "EBITDA US$");
+                        if (usdRow) usdVal = usdRow.values[item.date] || 0;
+                    }
                 }
 
                 sumEbitdaLocal += parseDirtyNumber(localVal);
@@ -2609,8 +3568,13 @@ function renderDetailedPnL(data, selectedIndex = -1) {
             displayAccum = formatCurrency(periodAccumTotal);
         }
 
+        let displayConcept = concept;
+        if (displayConcept.trim() === "Ventas P6") {
+            displayConcept = "Ventas BON";
+        }
+
         return `<tr class="${rowClass}">
-            <td class="${cellClass}">${concept}</td>
+            <td class="${cellClass}">${displayConcept}</td>
             ${periodCells}
             <td style="font-weight:700; background:rgba(0,0,0,0.02);">${displayAccum}</td>
         </tr>`;
@@ -3363,7 +4327,7 @@ async function renderDashboardAlerts(curr, globalData, selectedIndex) {
         }
         
         let text = response.text;
-        text = text.replace(/\`\`\`json/g, '').replace(/\`\`\`/g, '').trim();
+        text = text.replace(/```json/g, '').replace(/```/g, '').trim();
         
         let alertsData = [];
         try {
@@ -3442,6 +4406,7 @@ function updateTrend(id, curr, prev, ppto = null, suffix = "") {
  * Render Estados Financieros based on wide format
  */
 function renderEstadosFinancieros(data, selectedIndex = -1) {
+    console.log("-> renderEstadosFinancieros executing");
     const headerEl = document.getElementById('header-estados');
     const bodyEl = document.getElementById('body-estados');
     if (!headerEl || !bodyEl || !data || data.length === 0) return;
@@ -3454,6 +4419,18 @@ function renderEstadosFinancieros(data, selectedIndex = -1) {
     const visibleMonths = data.slice(startIdx, endIdx + 1).filter(d => isYear2026(d));
     const periods = visibleMonths.map(d => d.date);
 
+    // The financial engine correctly scales values, so we don't need a multiplier hack here
+    const applyMultiplier = 1;
+
+    const formatLocalMillions = (v) => {
+        if (v === 0 || !v) return "-";
+        const formatted = Math.abs(v).toLocaleString('en-US', {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1
+        });
+        return `${v < 0 ? '-' : ''}${formatted}`;
+    };
+
     // Header
     headerEl.innerHTML = `
         <tr>
@@ -3463,86 +4440,245 @@ function renderEstadosFinancieros(data, selectedIndex = -1) {
         </tr>
     `;
 
-    let allConcepts = [];
+    // 1. Gather all concepts present in the data to ensure we don't miss any
+    let allDataConcepts = [];
     visibleMonths.forEach(d => {
-        if (d.pnl && d.pnl.fullRows) {
-            d.pnl.fullRows.forEach(row => {
-                if (!allConcepts.includes(row.concept)) allConcepts.push(row.concept);
+        const sourceRows = (d.estados && d.estados.fullRows && d.estados.fullRows.length > 0) ? d.estados.fullRows : (d.pnl && d.pnl.fullRows ? d.pnl.fullRows : []);
+        if (sourceRows) {
+            sourceRows.forEach(row => {
+                const norm = normalizeText(row.concept);
+                if (norm !== "x" && norm !== "año" && norm !== "mes" && norm !== "columna" && norm !== "(dop)" && norm !== "diferencial cambiario por operaciones" && norm !== "diferencial cambiario por deuda") {
+                    if (!allDataConcepts.includes(row.concept)) allDataConcepts.push(row.concept);
+                }
             });
         }
     });
 
-    const isAccountingRule = (c) => {
-        const check = normalizeText(c);
-        return check === "activos" || check === "pasivos" || check === "patrimonio" || check === "ventas netas" || 
-               check === "utilidad bruta" || check === "ebitda" || check === "ebit" || check === "ingreso antes de impuestos" || 
-               check === "beneficio neto" || check === "total activos" || check === "total pasivos" || check === "total patrimonio";
-    };
-    
-    const isCategoryRule = (c) => {
-        const check = normalizeText(c);
-        return check === "estado de resultados" || check === "estado de situacion" || check === "kpis y drivers" || check === "modulo deuda" || check === "analisis horizontal" || check === "analisis vertical" || check === "analisis margen" || check === "rentabilidad" || check === "variables macro" || check === "balances deuda" || check === "schedule amortizacion" || check === "kpis deuda";
-    };
+    // 2. Define the explicit requested structure
+    const EXPLICIT_STRUCTURE = [
+        { label: "Estado de Resultados", type: "category_main" },
+        { label: "Ventas Netas", type: "bold", dataKey: ["Ventas Netas", "Ventas totales", "Ingresos"] },
+        { label: "Ventas BT5", type: "indent" },
+        { label: "Ventas EVP", type: "indent" },
+        { label: "Ventas P6", type: "indent" },
+        { label: "Otras Ventas", type: "indent" },
+        { label: "Otros Ingresos", type: "indent" },
+        { label: "Descuentos", type: "indent", dataKey: ["Descuentos", "Descuento", "Descuento sobre ventas", "Descuento en ventas", "Menos descuentos", "Menos descuentos y devoluciones"] },
+        { label: "Devoluciones", type: "indent", dataKey: ["Devoluciones", "Devolucion", "Devoluciones sobre ventas", "Devolución", "Devolución en ventas", "Menos devoluciones", "Descuentos y devoluciones"] },
+        { label: "Costo de Ventas", type: "bold" },
+        { label: "Costo de Ventas", type: "indent" },
+        { label: "Costo de Ventas Otros Ingresos", type: "indent" },
+        { label: "Utilidad Bruta", type: "bold", borderT: "1px dashed var(--text-secondary)" },
+        { label: "GGADM", type: "normal" },
+        { label: "Gastos de Personal", type: "indent" },
+        { label: "Seguros", type: "indent" },
+        { label: "Servicios Básicos", type: "indent", dataKey: ["Servicios Básicos", "Servicios Basicos"] },
+        { label: "Combustibles", type: "indent" },
+        { label: "Otros Gastos", type: "indent" },
+        { label: "ITBIS", type: "indent" },
+        { label: "Mercadeo y Ventas", type: "indent" },
+        { label: "Honorarios Profesionales", type: "indent" },
+        { label: "Alquiler", type: "indent" },
+        { label: "Mantenimiento y Reparación", type: "indent", dataKey: ["Mantenimiento y Reparación", "Mantenimiento y Reparacion"] },
+        { label: "Otros Gastos Operativos", type: "indent" },
+        { label: "EBITDA", type: "bold", borderT: "1px dashed var(--text-secondary)" },
+        { label: "Depreciación y Amortización", type: "normal", dataKey: ["Depreciación y Amortización", "Depreciacion y Amortizacion"] },
+        { label: "Depreciación y Amortización Gasto", type: "indent", dataKey: ["Depreciación y Amortización Gasto", "Depreciacion y Amortizacion Gasto"] },
+        { label: "Depreciación y Amortización Costo", type: "indent", dataKey: ["Depreciación y Amortización Costo", "Depreciacion y Amortizacion Costo"] },
+        { label: "EBIT", type: "bold", borderT: "1px dashed var(--text-secondary)" },
+        { label: "Ingreso(gasto) de Interés", type: "italic", dataKey: ["Ingreso(gasto) de Interés", "Ingreso(gasto) de interes", "Ingreso (gasto) de Interés", "Ingreso (gasto) de Interes"] },
+        { label: "Ingresos Financieros", type: "indent" },
+        { label: "Gastos Financieros", type: "indent" },
+        { label: "Ingreso (gasto) de Interés", type: "normal", borderT: "1px dashed var(--text-secondary)", dataKey: ["Ingreso (gasto) de Interés", "Ingreso (gasto) de Interes", "Ingreso(gasto) de Interés", "Ingreso(gasto) de Interes"] },
+        { label: "Diferencial Cambiario", type: "normal" },
+        { label: "Gastos Extraordinarios", type: "normal" },
+        { label: "Ingreso Antes de Impuestos", type: "normal", borderT: "1px dashed var(--text-secondary)" },
+        { label: "Impuesto Sobre la Renta", type: "normal" },
+        { label: "Beneficio Neto", type: "bold", borderT: "2px solid #000", dataKey: ["Beneficio Neto", "Beneficio Neto del Periodo"] },
+        
+        { label: "Empty_1", type: "empty" },
+        { label: "EBITDA USD", type: "bold" },
+        { label: "Empty_2", type: "empty" },
+        
+        { label: "KPIs y Drivers", type: "category", subtitle: "(DOP)" },
+        { label: "Análisis Horizontal", type: "bold", borderT: "1px dashed var(--text-secondary)" },
+        { label: "Crecimiento Ventas", type: "ratio" },
+        { label: "Crecimiento EBITDA DOP", type: "ratio" },
+        { label: "Crecimiento EBITDA USD", type: "ratio" },
+        { label: "Crecimiento Beneficio Neto", type: "ratio" },
 
-    const isRatio = (c) => {
-        const check = normalizeText(c);
-        return check.includes("crecimiento") || check.includes("/") || check.includes("margin") || check.includes("margen") || check === "roic" || check === "roe" || check === "roa" || check === "dscr" || check.includes("tasa");
-    };
+        { label: "Análisis Vertical", type: "bold", borderT: "1px dashed var(--text-secondary)" },
+        { label: "Costo de Ventas / Ventas", type: "ratio" },
+        { label: "GGADM / Ventas", type: "ratio" },
+        { label: "D&A / Ventas", type: "ratio" },
+        { label: "CAPEX / Ventas", type: "ratio" },
 
-    const isDecimal = (c) => {
-        const check = normalizeText(c);
-        return check.includes("fx ") || check.includes("tasa") || check === "leverage";
-    };
+        { label: "Análisis Margen", type: "bold", borderT: "1px dashed var(--text-secondary)" },
+        { label: "Gross margin", type: "ratio", dataKey: ["Gross margin", "Gross Margin"] },
+        { label: "EBITDA margin", type: "ratio", dataKey: ["EBITDA margin", "EBITDA Margin"] },
+        { label: "EBIT margin", type: "ratio", dataKey: ["EBIT margin", "EBIT Margin"] },
+        { label: "Margen Neto", type: "ratio", dataKey: ["Margen Neto", "Margen neto"] },
+
+        { label: "Rentabilidad", type: "bold", borderT: "1px dashed var(--text-secondary)" },
+        { label: "ROIC", type: "ratio" },
+        { label: "ROE", type: "ratio" },
+        { label: "ROA", type: "ratio" },
+        { label: "Ingreso Interes / (Efectivo + CDs)", type: "ratio", dataKey: ["Ingreso Interes / (Efectivo + CDs)", "Ingreso Interés / (Efectivo + CDs)"] },
+
+        { label: "Variables Macro", type: "bold", borderT: "1px dashed var(--text-secondary)" },
+        { label: "FX EOP", type: "decimal" }
+    ];
+
+    // Compute occurrences to handle duplicate labels correctly (e.g., "Costo de Ventas" twice)
+    const labelOccurrences = {};
+    const structuredItems = EXPLICIT_STRUCTURE.map(item => {
+        const keys = item.dataKey ? (Array.isArray(item.dataKey) ? item.dataKey.map(normalizeText) : [normalizeText(item.dataKey)]) : [normalizeText(item.label)];
+        const primaryKey = keys[0];
+        if (!labelOccurrences[primaryKey]) labelOccurrences[primaryKey] = 0;
+        const occIndex = labelOccurrences[primaryKey];
+        if (item.type !== "empty" && item.type !== "category_main" && item.type !== "category") {
+            labelOccurrences[primaryKey]++;
+        }
+        return { ...item, matchKeys: keys, occIndex };
+    });
+
+    const isRatio = (type) => type === "ratio";
+    const isDecimal = (type) => type === "decimal";
 
     let tbBody = '';
-    allConcepts.forEach(concept => {
-        const norm = normalizeText(concept);
-        if (norm === "x" || norm === "año" || norm === "mes" || norm === "columna" || norm === "(dop)") return; 
-        if (norm === "diferencial cambiario por operaciones" || norm === "diferencial cambiario por deuda") return;
+    const processedConcepts = new Set();
+
+    structuredItems.forEach(item => {
+        if (item.type === "empty") {
+            tbBody += `<tr><td colspan="${periods.length + 2}" style="height: 24px;"></td></tr>`;
+            return;
+        }
+
+        let rowBgColor = '';
+        let cellStyle = 'color: var(--text-primary);';
+        let commonTdStyle = '';
         
-        let headerColor = isCategoryRule(concept) ? 'background: #e0f2fe; color: #0369a1; font-weight: 800; font-size: 1.1em;' : (isAccountingRule(concept) ? 'background: #f8fafc; font-weight: 700;' : '');
-        let rowHtml = `<td style="font-weight: ${isAccountingRule(concept) || isCategoryRule(concept) ? '700' : '500'}; color: ${isAccountingRule(concept) || isCategoryRule(concept) ? 'var(--sidebar)' : 'var(--text-primary)'};">${concept}</td>`;
+        if (item.borderT) {
+            commonTdStyle += `border-top: ${item.borderT}; `;
+        }
+        
+        if (item.type === "category_main") {
+            rowBgColor = 'background: rgb(132,159,186);';
+            cellStyle = 'color: white; font-weight: 700; font-size: 1.1em;';
+        } else if (item.type === "category") {
+            rowBgColor = 'background: #e0f2fe;';
+            cellStyle = 'color: #0369a1; font-weight: 800; font-size: 1.1em;';
+        } else if (item.type === "bold") {
+            cellStyle += 'font-weight: 700;';
+        } else if (item.type === "italic") {
+            cellStyle += 'font-style: italic;';
+        } else if (item.type === "indent") {
+            cellStyle += 'padding-left: 24px; font-weight: 500;';
+        } else {
+            cellStyle += 'font-weight: 500;';
+        }
+
+        let labelHtml = item.label;
+        if (item.subtitle) {
+            labelHtml += `<div style="font-size: 0.75rem; font-weight: 600; color:var(--text-secondary); margin-top:2px;">${item.subtitle}</div>`;
+        }
+        
+        let rowHtml = `<td style="${cellStyle} ${commonTdStyle}">${labelHtml}</td>`;
+        
         let total = 0;
-        let isTotalizable = true;
+        let isTotalizable = !isRatio(item.type) && !isDecimal(item.type) && item.type !== "category_main" && item.type !== "category";
         let anyVal = false;
 
         periods.forEach(p => {
-            const periodData = visibleMonths.find(d => d.date === p);
             let val = 0;
-            if (periodData && periodData.pnl && periodData.pnl.fullRows) {
-                const foundRow = periodData.pnl.fullRows.find(r => r.concept === concept);
-                if (foundRow && foundRow.values[p] !== undefined) {
-                    val = foundRow.values[p];
-                    if (val !== 0) anyVal = true;
+            const periodData = visibleMonths.find(d => d.date === p);
+            const sourceRows = (periodData && periodData.estados && periodData.estados.fullRows && periodData.estados.fullRows.length > 0) 
+                 ? periodData.estados.fullRows 
+                 : (periodData && periodData.pnl && periodData.pnl.fullRows ? periodData.pnl.fullRows : []);
+            
+            if (sourceRows.length > 0 && item.type !== "category_main" && item.type !== "category") {
+                // Find all matches for this key
+                const matches = sourceRows.filter(r => item.matchKeys.includes(normalizeText(r.concept)));
+                if (matches[item.occIndex]) {
+                    const matchedRow = matches[item.occIndex];
+                    processedConcepts.add(matchedRow.concept);
+                    if (matchedRow.values[p] !== undefined) {
+                        val = matchedRow.values[p];
+                        if (!isRatio(item.type) && !isDecimal(item.type)) {
+                            val = val * applyMultiplier;
+                        }
+                        if (val !== 0) anyVal = true;
+                    }
                 }
             }
-            if (isCategoryRule(concept)) {
-                rowHtml += `<td></td>`;
-            } else if (isRatio(concept)) {
-                isTotalizable = false;
-                rowHtml += `<td style="text-align: right; font-family: 'JetBrains Mono', monospace;">${val === 0 ? '-' : formatPercent(val)}</td>`;
-            } else if (isDecimal(concept)) {
-                isTotalizable = false;
-                rowHtml += `<td style="text-align: right; font-family: 'JetBrains Mono', monospace;">${val === 0 ? '-' : val.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>`;
+
+            if (item.type === "category_main" || item.type === "category") {
+                rowHtml += `<td style="${commonTdStyle}"></td>`;
+            } else if (isRatio(item.type)) {
+                rowHtml += `<td style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size:0.9rem; ${commonTdStyle}">${val === 0 ? '-' : formatPercent(val)}</td>`;
+            } else if (isDecimal(item.type)) {
+                rowHtml += `<td style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size:0.9rem; ${commonTdStyle}">${val === 0 ? '-' : val.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>`;
             } else {
-                rowHtml += `<td style="text-align: right; font-family: 'JetBrains Mono', monospace;">${val === 0 ? '-' : (formatRawCurrency(val) + 'M')}</td>`;
+                rowHtml += `<td style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size:0.9rem; ${commonTdStyle}">${val === 0 ? '-' : formatLocalMillions(val)}</td>`;
                 total += val;
             }
         });
 
-        if (isCategoryRule(concept)) {
-            rowHtml += `<td style="background: #e0f2fe;"></td>`;
+        // Add accumulated column
+        if (item.type === "category_main" || item.type === "category") {
+            rowHtml += `<td style="${commonTdStyle}"></td>`;
         } else if (isTotalizable) {
-            rowHtml += `<td style="text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 700; background: #f0f9ff; color: #0369a1;">${total === 0 ? '-' : (formatRawCurrency(total) + 'M')}</td>`;
+            rowHtml += `<td style="text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 700; background: #f0f9ff; color: #0369a1; font-size:0.9rem; ${commonTdStyle}">${total === 0 ? '-' : formatLocalMillions(total)}</td>`;
         } else {
-            rowHtml += `<td style="text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 700; background: #f0f9ff; color: #0369a1;">-</td>`;
+            rowHtml += `<td style="text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 700; background: #f0f9ff; color: #0369a1; ${commonTdStyle}">-</td>`;
         }
 
-        // Only show if there was any value or if it's a category
-        if (anyVal || isCategoryRule(concept)) {
-            tbBody += `<tr style="${headerColor}">${rowHtml}</tr>`;
+        // ALWAYS render row since the user wants to see the explicit structure
+        tbBody += `<tr style="${rowBgColor}">${rowHtml}</tr>`;
+    });
+
+    // Unmapped items (Otras Cuentas)
+    const allConceptsInData = new Set();
+    visibleMonths.forEach(periodData => {
+        const sourceRows = (periodData.estados && periodData.estados.fullRows) 
+                 ? periodData.estados.fullRows 
+                 : (periodData.pnl && periodData.pnl.fullRows ? periodData.pnl.fullRows : []);
+        if (sourceRows) {
+            sourceRows.forEach(r => allConceptsInData.add(r.concept));
         }
     });
+
+    const unmappedConcepts = Array.from(allConceptsInData).filter(c => !processedConcepts.has(c));
+
+    if (unmappedConcepts.length > 0) {
+        tbBody += `<tr class="row-category"><td colspan="${periods.length + 2}" style="background:rgba(0,0,0,0.02); font-weight:700; font-size:0.75rem; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px;">Otras Cuentas (No Mapeadas)</td></tr>`;
+        unmappedConcepts.forEach(concept => {
+            let rowHtml = `<td style="font-size:0.9rem; padding-left: 24px; font-weight: 500; color:var(--text-primary); border-bottom: 1px solid var(--border-color);">${concept}</td>`;
+            let total = 0;
+            let anyVal = false;
+            periods.forEach(p => {
+                let val = 0;
+                const periodData = visibleMonths.find(d => d.date === p);
+                const sourceRows = (periodData && periodData.estados && periodData.estados.fullRows) 
+                     ? periodData.estados.fullRows 
+                     : (periodData && periodData.pnl && periodData.pnl.fullRows ? periodData.pnl.fullRows : []);
+                
+                if (sourceRows && sourceRows.length > 0) {
+                    const rowData = sourceRows.find(r => r.concept === concept);
+                    if (rowData && rowData.values[p] !== undefined) {
+                        val = rowData.values[p];
+                        if (val !== 0) anyVal = true;
+                    }
+                }
+                rowHtml += `<td style="text-align: right; font-family: 'JetBrains Mono', monospace; font-size:0.9rem; color:var(--text-primary); border-bottom: 1px solid var(--border-color);">${val === 0 ? '-' : formatLocalMillions(val)}</td>`;
+                total += val;
+            });
+            rowHtml += `<td style="text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 700; background: #f0f9ff; color: #0369a1; font-size:0.9rem; border-bottom: 1px solid var(--border-color);">${total === 0 ? '-' : formatLocalMillions(total)}</td>`;
+            if (anyVal) {
+                tbBody += `<tr>${rowHtml}</tr>`;
+            }
+        });
+    }
 
     bodyEl.innerHTML = tbBody;
 }
@@ -3579,9 +4715,10 @@ function renderWaterfallChart(data, index) {
     let totalOpex = 0;
 
     if (isYTDMode) {
+        const targetYear = curr.sortDate.getFullYear();
         for (let k = 0; k <= index; k++) {
             const periodData = data[k];
-            if (!isYear2026(periodData)) continue;
+            if (periodData.sortDate.getFullYear() !== targetYear) continue;
             const pCats = periodData.pnl?.categorias || {};
             const oDet = periodData.pnl?.opexDetalle || {};
             
@@ -4001,8 +5138,9 @@ function renderCashBridgeChart(data, index) {
     
     if (isYTDMode) {
         let firstIdx = 0;
+        const targetYear = curr.sortDate.getFullYear();
         for (let k = 0; k <= index; k++) {
-            if (isYear2026(data[k])) {
+            if (data[k].sortDate.getFullYear() === targetYear) {
                 firstIdx = k;
                 break;
             }
@@ -4011,7 +5149,7 @@ function renderCashBridgeChart(data, index) {
         ending = data[index]?.cashflowDetail?.ending || 0; 
         
         for (let k = firstIdx; k <= index; k++) {
-            if (!isYear2026(data[k])) continue;
+            if (data[k].sortDate.getFullYear() !== targetYear) continue;
             const det = data[k]?.cashflowDetail || {};
             operating += (det.operating || 0);
             capex += (det.capex || 0);
@@ -4650,4 +5788,1133 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             }
         });
     }
+    
+    async function loadVentasCeoData(token) {
+        if (!SHARPOINT_VENTAS_FILE_URL || !token) {
+            console.warn('Ventas CEO: SHARPOINT_VENTAS_FILE_URL o token no configurado. Intentando carga local...');
+            try {
+                const res = await fetch('/public/ventasCEO.csv');
+                if(!res.ok) {
+                    console.warn('Ventas CEO CSV not found');
+                    return;
+                }
+                const csvText = await res.text();
+                const lines = csvText.split(/\r?\n/).map(l => l.split(','));
+                processVentasCeoWorkbook(null, lines);
+            } catch(e) {
+                console.error("Error loading ventas CEO local", e);
+            }
+            return;
+        }
+
+        try {
+            const encodedUrl = btoa(SHARPOINT_VENTAS_FILE_URL).replace(/=/g, '').replace(/\//g, '_').replace(/\+/g, '-');
+            const graphUrl = `https://graph.microsoft.com/v1.0/shares/u!${encodedUrl}/driveItem/content`;
+            
+            const req = await fetch(graphUrl, { headers: { "Authorization": `Bearer ${token}` }});
+            if (req.ok) {
+                const arrayBuffer = await req.arrayBuffer();
+                const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+                let bestSheetName = workbook.SheetNames[0];
+                const consejoSheet = workbook.SheetNames.find(n => n.toLowerCase().includes('consejo'));
+                if (consejoSheet) {
+                    bestSheetName = consejoSheet;
+                } else {
+                    for (let name of workbook.SheetNames) {
+                        const sheetTmp = workbook.Sheets[name];
+                        const rowsTmp = XLSX.utils.sheet_to_json(sheetTmp, { header: 1 });
+                        const hasProducto = rowsTmp.some(r => r && r.some(c => String(c).toLowerCase().trim() === 'producto' || String(c).toLowerCase().trim() === 'descripción'));
+                        if (hasProducto) {
+                            bestSheetName = name;
+                            break;
+                        }
+                    }
+                }
+                processVentasCeoWorkbook(workbook);
+            } else {
+                 console.error("Error fetching Ventas CEO from OneDrive", req.statusText);
+            }
+        } catch(e) {
+            console.error("Error loading Ventas CEO from OneDrive", e);
+        }
+    }
+    
+    async function processVentasCeoWorkbook(workbook, fallbackLines) {
+        ceoData = []; // Vaciado de estado para evitar duplicados
+        if (fallbackLines) {
+            ceoData = parseConsejoSheet(fallbackLines);
+            // Save to IndexedDB
+            try {
+                const db = await new Promise((resolve, reject) => {
+                    const req = indexedDB.open('PlanetaAzulDB', 3);
+                    req.onupgradeneeded = (e) => {
+                        if (!e.target.result.objectStoreNames.contains('finance_cache')) {
+                            e.target.result.createObjectStore('finance_cache');
+                        }
+                    };
+                    req.onsuccess = () => resolve(req.result);
+                    req.onerror = () => reject(req.error);
+                });
+                await new Promise((resolve, reject) => {
+                    const tx = db.transaction('finance_cache', 'readwrite');
+                    tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'ventas_ceo_data');
+                    tx.oncomplete = resolve;
+                    tx.onerror = reject;
+                });
+            } catch (err) {
+                console.warn("⚠️ Error saving Ventas CEO to IndexedDB:", err);
+            }
+            let viewVentasCeo = document.getElementById("view-ventas-ceo");
+            if (viewVentasCeo && viewVentasCeo.classList.contains("active")) {
+                window.renderVentasCEO();
+            }
+            return;
+        }
+        
+        try {
+            // Find sheets
+            const consejoSheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('consejo'));
+            const dataSheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('data por mes'));
+            
+            if (!consejoSheetName) {
+                // Try finding the best sheet
+                let bestSheetName = workbook.SheetNames[0];
+                for (let name of workbook.SheetNames) {
+                    const sheetTmp = workbook.Sheets[name];
+                    const rowsTmp = XLSX.utils.sheet_to_json(sheetTmp, { header: 1 });
+                    const hasProducto = rowsTmp.some(r => r && r.some(c => String(c).toLowerCase().trim() === 'producto' || String(c).toLowerCase().trim() === 'descripción'));
+                    if (hasProducto) {
+                        bestSheetName = name;
+                        break;
+                    }
+                }
+                let bestRows = XLSX.utils.sheet_to_json(workbook.Sheets[bestSheetName], { header: 1 });
+                ceoData = parseConsejoSheet(bestRows);
+                // Save to IndexedDB
+                try {
+                    const db = await new Promise((resolve, reject) => {
+                        const req = indexedDB.open('PlanetaAzulDB', 3);
+                        req.onupgradeneeded = (e) => {
+                            if (!e.target.result.objectStoreNames.contains('finance_cache')) {
+                                e.target.result.createObjectStore('finance_cache');
+                            }
+                        };
+                        req.onsuccess = () => resolve(req.result);
+                        req.onerror = () => reject(req.error);
+                    });
+                    await new Promise((resolve, reject) => {
+                        const tx = db.transaction('finance_cache', 'readwrite');
+                        tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'ventas_ceo_data');
+                        tx.oncomplete = resolve;
+                        tx.onerror = reject;
+                    });
+                } catch (err) {
+                    console.warn("⚠️ Error saving Ventas CEO to IndexedDB:", err);
+                }
+                let viewVentasCeo = document.getElementById("view-ventas-ceo");
+                if (viewVentasCeo && viewVentasCeo.classList.contains("active")) {
+                    window.renderVentasCEO();
+                }
+                return;
+            }
+
+            // Both sheets are available or at least Consejo is
+            // Start by extracting "Tablas Consejo" for Volumen
+            const consejoSheet = workbook.Sheets[consejoSheetName];
+            
+            // Refactor del Parseo: Usar {range: 2} para saltar las 2 primeras filas basura
+            const rawConsejoObjects = XLSX.utils.sheet_to_json(consejoSheet, { range: 2, defval: 0 });
+            
+            const tempParsedRows = parseConsejoFromObjects(rawConsejoObjects);
+            let finalData = tempParsedRows.filter(d => d.Tipo === 'Volumen');
+
+            if (dataSheetName) {
+                // If "data por mes" exists, compute Monto and Precio Unitario
+                const dataSheet = workbook.Sheets[dataSheetName];
+                const dataRows = XLSX.utils.sheet_to_json(dataSheet, { header: 1 });
+                const detailedData = extractDetailedData(dataRows);
+                
+                // Construct "Monto (MM DOP)" and "Precio Unitario" based on Volumen categories
+                const categories = [...new Set(finalData.map(r => r.Producto))];
+                
+                categories.forEach(cat => {
+                    const volRow = finalData.find(d => d.Producto === cat && d.Tipo === 'Volumen');
+                    if(volRow) {
+                        const montoRow = computeMontoForCategory(cat, detailedData, volRow);
+                        if (montoRow) {
+                            finalData.push(montoRow);
+                            
+                            // Compute Precio Unitario
+                            let precioRow = { 
+                                Producto: cat, 
+                                Tipo: "Precio Unitario", 
+                                hasChildren: volRow.hasChildren,
+                                parentId: volRow.parentId,
+                                id: volRow.id,
+                                values: {} 
+                            };
+                            Object.keys(volRow.values).forEach(k => {
+                                let volVal = volRow.values[k] || 0;
+                                let montoVal = montoRow.values[k] || 0;
+                                let div = volVal ? ((montoVal * 1000000) / volVal) : 0;
+                                precioRow.values[k] = div;
+                            });
+                            
+                            // Support cross-years
+                            ['FY2024', 'PO25', 'PO26'].forEach(y => {
+                                let volVal = volRow[y] || 0;
+                                let montoVal = montoRow[y] || 0;
+                                precioRow[y] = volVal ? ((montoVal * 1000000) / volVal) : 0;
+                            });
+                            
+                            finalData.push(precioRow);
+                        }
+                    }
+                });
+            } else {
+                // fallback to process the whole sheet as we used to
+                finalData = tempParsedRows; 
+            }
+            
+            ceoData = finalData;
+            console.log("Ventas CEO data loaded.", ceoData.length);
+            
+            // Save to IndexedDB
+            try {
+                const db = await new Promise((resolve, reject) => {
+                    const req = indexedDB.open('PlanetaAzulDB', 3);
+                    req.onupgradeneeded = (e) => {
+                        if (!e.target.result.objectStoreNames.contains('finance_cache')) {
+                            e.target.result.createObjectStore('finance_cache');
+                        }
+                    };
+                    req.onsuccess = () => resolve(req.result);
+                    req.onerror = () => reject(req.error);
+                });
+                await new Promise((resolve, reject) => {
+                    const tx = db.transaction('finance_cache', 'readwrite');
+                    tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'ventas_ceo_data');
+                    tx.oncomplete = resolve;
+                    tx.onerror = reject;
+                });
+            } catch (err) {
+                console.warn("⚠️ Error saving Ventas CEO to IndexedDB:", err);
+            }
+            
+            let viewVentasCeo = document.getElementById("view-ventas-ceo");
+            if (viewVentasCeo && viewVentasCeo.classList.contains("active")) {
+                window.renderVentasCEO();
+            }
+        } catch(e) {
+            console.error("Error formatting Ventas CEO workbook", e);
+        }
+    }
+
+    function computeMontoForCategory(category, dataRows, volRow) {
+        // Find matching rows in detailed data
+        // For simplicity, sum all "Ventas Netas" (or Monto) rows that correspond to the category.
+        // We'll rely on matching the 'Concepto' or 'Descripción' from the dataRows.
+        
+        let montoRow = { 
+            Producto: category, 
+            Tipo: "Monto (MM DOP)", 
+            hasChildren: volRow.hasChildren, 
+            parentId: volRow.parentId, 
+            id: volRow.id, 
+            values: {} 
+        };
+        const catUpper = category.toUpperCase().trim();
+        
+        // We accumulate data into montoRow.values
+        let accumulated = {};
+        let fyAccum = { 'FY2024': 0, 'PO25': 0, 'PO26': 0 };
+
+        // We filter rows that have "Monto" or "Ventas netas" 
+        // and whose product description matches the category.
+        let foundAny = false;
+        
+        dataRows.forEach(row => {
+            if(!row.Concepto && !row.Producto && !row['Descripción']) return;
+            const desc = String(row.Concepto || row.Producto || row['Descripción']).toUpperCase().trim();
+            const isMatch = desc === catUpper || (catUpper.startsWith('APA ') && desc.includes(catUpper)) || desc.includes(catUpper);
+            const isMonto = String(row.Tipo || row.Métrica || '').toUpperCase().includes('MONTO') || String(row.Tipo || row.Métrica || '').toUpperCase().includes('VENTAS');
+            
+            // Or if the data sheet doesn't have "Tipo", assume it's monto/ventas depending on columns
+            
+            if (isMatch) {
+                foundAny = true;
+                Object.keys(row.values || {}).forEach(k => {
+                    accumulated[k] = (accumulated[k] || 0) + (row.values[k] || 0);
+                });
+                ['FY2024', 'PO25', 'PO26'].forEach(y => {
+                    fyAccum[y] += (row[y] || 0);
+                });
+            }
+        });
+        
+        // If we didn't find detailed mapping, we might fallback to existing parsing of Tablas Consejo for Monto.
+        // But requested: "Para Monto y Precio: Debe cruzar los datos con la hoja "data por mes" sumando los valores por categoría y mes."
+        
+        if (!foundAny) {
+            // we'll leave it 0 or keep searching differently.
+        } else {
+            // Apply divided by 1M
+            Object.keys(accumulated).forEach(k => {
+                montoRow.values[k] = accumulated[k] / 1000000;
+            });
+            ['FY2024', 'PO25', 'PO26'].forEach(y => {
+                montoRow[y] = fyAccum[y] / 1000000;
+            });
+        }
+        
+        // Initialize zeros for keys present in volRow but missing in montoRow
+        if(volRow && volRow.values) {
+           Object.keys(volRow.values).forEach(k => {
+               if(montoRow.values[k] === undefined) montoRow.values[k] = 0;
+           });
+           ['FY2024', 'PO25', 'PO26'].forEach(y => {
+                if(montoRow[y] === undefined) montoRow[y] = 0;
+           });
+        }
+        
+        return montoRow;
+    }
+    
+    function extractDetailedData(rows) {
+        if(rows.length < 2) return [];
+        let headerRowIdx = rows.findIndex(row => row && row.some(cell => {
+             const text = String(cell).toLowerCase().trim();
+             return text === 'concepto' || text === 'producto' || text === 'descripción';
+        }));
+        if(headerRowIdx === -1) headerRowIdx = 0;
+        const headers = rows[headerRowIdx] || [];
+        // Ensure standard names
+        headers.forEach((h, idx) => {
+             if(!h) return;
+             const text = String(h).toLowerCase().trim();
+             if(text === 'concepto' || text === 'producto' || text === 'descripción') headers[idx] = 'Concepto';
+             if(text === 'tipo' || text === 'métrica') headers[idx] = 'Tipo';
+        });
+        
+        let maxRowLength = Math.max(...rows.map(r => r ? r.length : 0));
+        for(let i=0; i<maxRowLength; i++) {
+             if(!headers[i]) headers[i] = `Col_${i}`;
+        }
+        
+        let data = [];
+        for(let i = headerRowIdx + 1; i < rows.length; i++) {
+             const row = rows[i];
+             if(!row) continue;
+             
+             let obj = { values: {} };
+             headers.forEach((h, idx) => {
+                 if(h !== undefined && h !== null && row[idx] !== undefined) {
+                     let headerStr = String(h).trim();
+                     if (headerStr === 'Concepto' || headerStr === 'Tipo') {
+                         obj[headerStr] = row[idx];
+                     } else {
+                         // Parse date/values
+                         let textK = String(h).trim().toLowerCase();
+                         // Date parsing ...
+                        let isDate = false;
+                        let dateStr = headerStr;
+                        if (headerStr.includes('-01 00:00:00') || (headerStr.startsWith('202') && headerStr.length >= 7)) {
+                            isDate = true;
+                            dateStr = headerStr.slice(0, 7);
+                        } else if (!isNaN(headerStr) && Number(headerStr) > 40000 && Number(headerStr) < 50000) {
+                            isDate = true;
+                            let dObj = new Date((Number(headerStr) - 25569) * 86400 * 1000);
+                            dateStr = dObj.toISOString().slice(0, 7);
+                        } else {
+                            const monthsMap = {
+                                'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04', 'may': '05', 'jun': '06',
+                                'jul': '07', 'ago': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12'
+                            };
+                            const match = textK.match(/([a-z]{3})[-/ ]?(\d{2,4})/);
+                            if(match && monthsMap[match[1]]) {
+                                let y = match[2];
+                                if(y.length === 2) y = "20" + y;
+                                dateStr = `${y}-${monthsMap[match[1]]}`;
+                                isDate = true;
+                            }
+                        }
+                        
+                        if(isDate) {
+                            let val = parseFloat(String(row[idx]).replace(/,/g, '')) || 0;
+                            obj.values[dateStr] = val;
+                        } else if(textK.includes('fy') || textK.includes('real 2024') || headerStr === 'FY2024' || headerStr === 'PO26' || headerStr === 'PO25') {
+                            let yKey = 'FY2024';
+                            if(textK.includes('po26')) yKey = 'PO26';
+                            else if(textK.includes('po25')) yKey = 'PO25';
+                            let val = parseFloat(String(row[idx]).replace(/,/g, '')) || 0;
+                            obj[yKey] = val;
+                        }
+                     }
+                 }
+             });
+             if(obj.Concepto) data.push(obj);
+        }
+        return data;
+    }
+
+    function parseConsejoFromObjects(objects) {
+        let parsedRows = [];
+        let currentType = "Volumen";
+        let currentParentId = null;
+        
+        objects.forEach(r => {
+            const keys = Object.keys(r);
+            if(keys.length === 0) return;
+            
+            // Si la llave dice "Producto" u otra, o simplemente agarramos la primera.
+            let prodKey = keys.find(k => k.toLowerCase().includes('producto') || k.toLowerCase().includes('descrip')) || keys.find(k => k.includes('__EMPTY')) || keys[0];
+            let tipoKey = keys.find(k => k.toLowerCase().includes('tipo'));
+
+            let prodVal = String(r[prodKey] || '').trim();
+            if(!prodVal || prodVal === '0') return; // Skip empty rows
+            
+            let firstCell = prodVal.toUpperCase();
+            if(firstCell.includes("PRECIO UNITARIO")) return;
+            
+            let isParent = false;
+            let parentId = null;
+            let objId = firstCell.replace(/[^a-zA-Z0-9]/g, '_');
+            
+            if (firstCell === 'BEBIDAS' || firstCell === 'AGUA PLANETA AZUL' || firstCell === 'MAQUILAS') {
+                isParent = true;
+                currentParentId = objId;
+                parentId = null;
+            } else if (firstCell === 'TOTAL' || firstCell.startsWith('TOTAL SIN BON') || firstCell === 'TOTAL AÑO') {
+                currentParentId = null;
+            } else {
+                parentId = currentParentId;
+            }
+
+            let obj = {
+                Producto: firstCell,
+                Tipo: currentType,
+                hasChildren: isParent,
+                parentId: parentId,
+                id: objId,
+                values: {}
+            };
+            
+            if(tipoKey && r[tipoKey] && String(r[tipoKey]).trim() !== '' && String(r[tipoKey]).trim() !== '0') {
+                obj.Tipo = String(r[tipoKey]);
+                currentType = obj.Tipo;
+            }
+            
+            // Asignamos el valor actual a las columnas
+            keys.forEach(k => {
+                if(k === prodKey || k === tipoKey) return;
+                
+                let textK = String(k).trim().toLowerCase();
+                let val = parseFloat(String(r[k]).replace(/,/g, '')) || 0;
+                
+                if (textK.includes('fy') || textK.includes('real 2024') || textK === 'fy2024') {
+                    obj['FY2024'] = val;
+                } else if (textK.includes('po26')) {
+                    obj['PO26'] = val;
+                } else if (textK.includes('po25')) {
+                    obj['PO25'] = val;
+                } else if (!isNaN(textK) && Number(textK) > 10000) { 
+                    // Excel date serial
+                    let dObj = new Date((Number(textK) - 25569) * 86400 * 1000);
+                    let dateStr = dObj.toISOString().slice(0, 7);
+                    obj.values[dateStr] = val;
+                } else if (textK.match(/^[a-z]{3}[-\/ ]?\d{2,4}$/)) {
+                    // ene-24
+                    const monthsMap = {
+                        'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04', 'may': '05', 'jun': '06',
+                        'jul': '07', 'ago': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12'
+                    };
+                    const match = textK.match(/^([a-z]{3})[-\/ ]?(\d{2,4})$/);
+                    if(match) {
+                        let y = match[2];
+                        if(y.length === 2) y = "20" + y;
+                        let dateStr = `${y}-${monthsMap[match[1]]}`;
+                        obj.values[dateStr] = val;
+                    }
+                } else if (textK.match(/^\d{4}-\d{2}$/) || textK.match(/^\d{4}-\d{2}-\d{2}/)) {
+                    let dateStr = textK.substring(0, 7);
+                    obj.values[dateStr] = val;
+                } else if (textK.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)) {
+                    // Handle MM/DD/YYYY
+                    const match = textK.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+                    let m = match[1].padStart(2, '0');
+                    let y = match[3];
+                    if (y.length === 2) y = "20" + y;
+                    let dateStr = `${y}-${m}`;
+                    obj.values[dateStr] = val;
+                }
+            });
+            parsedRows.push(obj);
+        });
+        
+        return parsedRows;
+    }
+
+    function parseConsejoSheet(rows) {
+        try {
+            if (rows.length === 0) return [];
+
+            // Buscar la fila donde comienza la tabla ("TOTAL" o "BEBIDAS" en la primera columna)
+            let startIndex = -1;
+            for (let i = 0; i < rows.length; i++) {
+                const row = rows[i];
+                if (row && row.length > 0) {
+                    const firstCell = String(row[0] || '').toUpperCase().trim();
+                    if (firstCell === 'TOTAL' || firstCell === 'BEBIDAS') {
+                        startIndex = i - 1; // Suponemos que los encabezados están la fila anterior
+                        break;
+                    }
+                }
+            }
+
+            if (startIndex === -1) {
+                // Fallback: tratar de buscar en cualquier celda
+                startIndex = rows.findIndex(row => row && row.some(cell => {
+                    const text = String(cell).toUpperCase().trim();
+                    return text === 'TOTAL' || text === 'BEBIDAS';
+                })) - 1;
+            }
+
+            if (startIndex < 0) startIndex = 0;
+
+            const headers = rows[startIndex] || [];
+            
+            // Try to find which column corresponds to 'Producto' and 'Tipo'
+            let prodColIdx = -1;
+            let tipoColIdx = -1;
+            headers.forEach((h, idx) => {
+                if(!h) return;
+                const text = String(h).toLowerCase().trim();
+                let isProdMatch = text === 'producto' || text === 'descripción' || text === 'descripcion' || text === 'artículo' || text === 'item' || text === 'concepto' || text === 'conceptos';
+                // If it's empty but next to 'No.' maybe it's producto? Let's just find the first string text
+                
+                // Set normalized names
+                if(isProdMatch) headers[idx] = 'Producto';
+                if(text === 'tipo') headers[idx] = 'Tipo';
+            });
+            
+            // If we couldn't find Producto by header text but we know TOTAL is in a certain column, use that!
+            const totalRow = rows.find(row => row && row.some(cell => String(cell).toUpperCase().trim().startsWith('TOTAL')));
+            if(totalRow && !headers.includes('Producto')) {
+                const tIdx = totalRow.findIndex(cell => String(cell).toUpperCase().trim().startsWith('TOTAL'));
+                if(tIdx !== -1) {
+                    headers[tIdx] = 'Producto';
+                }
+            }
+            // Same for 'Tipo' - if not found, it might be the column right after Producto
+            if(totalRow && !headers.includes('Tipo')) {
+                const pIdx = headers.indexOf('Producto');
+                if(pIdx !== -1 && pIdx + 1 < headers.length) {
+                    headers[pIdx + 1] = 'Tipo';
+                }
+            }
+            
+            // Ultimate fallback for Producto
+            if(!headers.includes('Producto')) {
+                if(String(headers[0]||'').toLowerCase().replace(/\./g, '').trim() === 'no') {
+                    headers[1] = 'Producto';
+                } else {
+                    headers[0] = 'Producto'; // Or index 1 if many empty cells, but let's assume 0 might be it. If 0 is empty, maybe 1.
+                    if(!headers[0]) {
+                        // find the first non-empty header
+                        const firstValIdx = headers.findIndex(h => h && String(h).trim() !== '');
+                        if(firstValIdx !== -1) headers[firstValIdx] = 'Producto';
+                        else headers[0] = 'Producto';
+                    }
+                }
+            }
+            
+            // Re-pad headers array to match max columns in any row
+            let maxRowLength = Math.max(...rows.map(r => r ? r.length : 0));
+            for(let i=0; i<maxRowLength; i++) {
+                if(!headers[i]) headers[i] = `Col_${i}`;
+            }
+
+            
+            const data = [];
+            for(let i = startIndex + 1; i < rows.length; i++) {
+                const row = rows[i];
+                if(!row) continue;
+                
+                let isRowEmpty = true;
+                for(let c=0; c<row.length; c++) { if(row[c] !== undefined && row[c] !== null && String(row[c]).trim() !== '') { isRowEmpty = false; break; } }
+                if(isRowEmpty) continue;
+                
+                // Skip rows containing specific words indicating footnotes
+                const firstFewStrs = row.slice(0, 5).map(c => String(c||'').toUpperCase());
+                if(firstFewStrs.some(s => s.includes("PRECIO UNITARIO"))) continue;
+                if(firstFewStrs.some(s => s.includes("TOTAL SIN BON"))) ; // Keep it but we handle it later
+                
+                let obj = {};
+                headers.forEach((h, idx) => {
+                    if(h !== undefined && h !== null && row[idx] !== undefined) {
+                        let headerStr = String(h).trim();
+                        // ensure mappings
+                        if(headerStr === 'Producto' || headerStr === 'Tipo') {} // ok
+                        obj[headerStr] = row[idx];
+                    }
+                });
+                data.push(obj);
+            }
+            
+            let parsedRows = [];
+            let currentType = "Volumen"; 
+            
+            data.forEach(d => {
+                let cellValues = Object.values(d).map(v => String(v).toUpperCase().trim());
+                if (cellValues.some(v => v.includes('VOLUMEN') && !v.includes('PRECIO'))) {
+                    currentType = 'Volumen';
+                } else if (cellValues.some(v => v.includes('VENTAS') || v === 'MONTO' || v.includes('NETAS DOP'))) {
+                    currentType = 'Ventas Netas DOP';
+                }
+
+                if(d.Tipo && String(d.Tipo).trim() !== '') {
+                    currentType = String(d.Tipo).trim();
+                }
+                
+                const dProdStr = String(d.Producto || '').toUpperCase().trim();
+                if (dProdStr.includes('VOLUMEN') && !dProdStr.includes('PRECIO')) currentType = 'Volumen';
+                if (dProdStr.includes('VENTAS') || dProdStr === 'MONTO' || dProdStr.includes('NETAS DOP')) currentType = 'Ventas Netas DOP';
+
+                // Skip category header rows
+                if (!d.Producto || 
+                    dProdStr === 'VOLUMEN' || 
+                    dProdStr === 'VENTAS NETAS DOP' || 
+                    dProdStr === 'VOLUMEN UNIDADES' ||
+                    dProdStr === 'MONTO' ||
+                    dProdStr.includes('PRECIO UNITARIO') ||
+                    dProdStr === 'TABLAS CONSEJO') {
+                    return;
+                }
+                
+                let finalType = "Monto (MM DOP)";
+                let cTypeUpper = currentType.toUpperCase();
+                if(cTypeUpper.includes("VOLUMEN")) {
+                    finalType = "Volumen";
+                }
+                
+                let p = {
+                    Producto: String(d.Producto).trim(),
+                    Tipo: finalType,
+                    values: {}
+                };
+                
+                Object.keys(d).forEach(k => {
+                    // Check if numeric serial (Excel date) or starts with 202
+                    let isDate = false;
+                    let dateStr = k;
+                    let textK = String(k).trim().toLowerCase();
+                    
+                    if (k.includes('-01 00:00:00') || (k.startsWith('202') && k.length >= 7)) {
+                        isDate = true;
+                        dateStr = k.slice(0, 7);
+                    } else if (!isNaN(k) && Number(k) > 40000 && Number(k) < 50000) {
+                        isDate = true;
+                        let dObj = new Date((Number(k) - 25569) * 86400 * 1000);
+                        dateStr = dObj.toISOString().slice(0, 7);
+                    } else {
+                        // Match Ene-25, Dic-24, Ene 25, Dic 24
+                        const monthsMap = {
+                            'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04', 'may': '05', 'jun': '06',
+                            'jul': '07', 'ago': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12'
+                        };
+                        const regex = /([a-z]{3})[-/ ]?(\d{2,4})/;
+                        const match = textK.match(regex);
+                        if(match && monthsMap[match[1]]) {
+                            let y = match[2];
+                            if(y.length === 2) y = "20" + y;
+                            dateStr = `${y}-${monthsMap[match[1]]}`;
+                            isDate = true;
+                        }
+                    }
+                    
+                    if(isDate) {
+                        // Sometimes the value is a string with commas
+                        let val = parseFloat(String(d[k]).replace(/,/g, '')) || 0;
+                        if(finalType === "Monto (MM DOP)") val = val / 1000000;
+                        p.values[dateStr] = val;
+                    } else if(textK.includes('fy') || textK.includes('real 2024') || k === 'FY2024' || k === 'PO26' || k === 'PO25') {
+                        let yKey = 'FY2024';
+                        if(textK.includes('po26')) yKey = 'PO26';
+                        else if(textK.includes('po25')) yKey = 'PO25';
+                        
+                        let val = parseFloat(String(d[k]).replace(/,/g, '')) || 0;
+                        if(finalType === "Monto (MM DOP)") val = val / 1000000;
+                        p[yKey] = val;
+                    }
+                });
+                parsedRows.push(p);
+            });
+            
+            // Generate Precio Unitario
+            const productos = [...new Set(parsedRows.map(r => r.Producto))];
+            productos.forEach(prod => {
+                const montoRow = parsedRows.find(r => r.Producto === prod && r.Tipo === "Monto (MM DOP)");
+                const volRow = parsedRows.find(r => r.Producto === prod && r.Tipo === "Volumen");
+                if(montoRow && volRow) {
+                    let p = { Producto: prod, Tipo: "Precio Unitario", values: {} };
+                    Object.keys(montoRow.values).forEach(k => {
+                        let volVal = volRow.values[k] || 0;
+                        let div = volVal ? ((montoRow.values[k]*1000000) / volVal) : 0;
+                        p.values[k] = div;
+                    });
+                    
+                    // Also support cross-years
+                    ['FY2024', 'PO25', 'PO26'].forEach(y => {
+                        if (volRow[y] && montoRow[y]) {
+                            p[y] = ((montoRow[y]*1000000) / volRow[y]);
+                        } else {
+                            p[y] = 0;
+                        }
+                    });
+                    
+                    parsedRows.push(p);
+                }
+            });
+            
+            return parsedRows;
+        } catch(e) {
+            console.error("Error parsing Ventas CEO", e);
+            return [];
+        }
+    }
+    
+    window.processVentasCeoFile = async function(file) {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                try {
+                    const data = new Uint8Array(ev.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    let bestSheetName = workbook.SheetNames[0];
+                    const consejoSheet = workbook.SheetNames.find(n => n.toLowerCase().includes('consejo'));
+                    if (consejoSheet) {
+                        bestSheetName = consejoSheet;
+                    } else {
+                        for (let name of workbook.SheetNames) {
+                            const sheetTmp = workbook.Sheets[name];
+                            const rowsTmp = XLSX.utils.sheet_to_json(sheetTmp, { header: 1 });
+                            const hasProducto = rowsTmp.some(r => r && r.some(c => String(c).toLowerCase().trim() === 'producto' || String(c).toLowerCase().trim() === 'descripción'));
+                            if (hasProducto) {
+                                bestSheetName = name;
+                                break;
+                            }
+                        }
+                    }
+                    processVentasCeoWorkbook(workbook);
+                    resolve();
+                } catch(e) {
+                    console.warn("No es un Excel válido, intentando como texto (CSV)...", e);
+                    const textReader = new FileReader();
+                    textReader.onload = (e2) => {
+                        const lines = e2.target.result.split(/\r?\n/).map(l => l.split(','));
+                        processVentasCeoWorkbook(null, lines);
+                        resolve();
+                    };
+                    textReader.readAsText(file);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        });
+    };
+    
+    // Setup file upload listener for Ventas CEO (from detailed view if any)
+    const handleVentasCeoUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        await window.processVentasCeoFile(file);
+        alert("Datos de Ventas CEO cargados exitosamente.");
+    };
+    
+    const uploadVentasCeoInput = document.getElementById('upload-ventas-ceo');
+    if (uploadVentasCeoInput) {
+        uploadVentasCeoInput.addEventListener('change', handleVentasCeoUpload);
+    }
+    
+    // El input del home (upload-ventas-ceo-home) ahora se maneja con el botón Procesar Archivos
+
+    window.renderVentasCEO = function() {
+        if(!ceoData) return;
+        
+        const thead = document.getElementById('ventas-ceo-thead');
+        const tbody = document.getElementById('ventas-ceo-tbody');
+        if(!thead || !tbody) return;
+        
+        tbody.innerHTML = '';
+        
+        if(!window.expandedVentasCeoGroups) window.expandedVentasCeoGroups = new Set();
+        
+        const displayData = ceoData.filter(d => {
+            if (d.Tipo !== ventasCeoCurrentMetric) return false;
+            const p = d.Producto ? d.Producto.trim().toUpperCase() : '';
+            return p !== 'TOTAL' && p !== 'TOTAL SIN BON' && p !== 'TOTAL SIN BON.' && p !== 'TOTAL AÑO';
+        });
+        const isPrecio = ventasCeoCurrentMetric === 'Precio Unitario';
+        const decimals = isPrecio ? 2 : 1;
+        
+        displayData.forEach(d => {
+            // id, parentId, and hasChildren are already correctly set in parseConsejoFromObjects.
+            // Just double check that we don't need CEO_HIERARCHY anymore.
+        });
+        
+        // Dynamically get active month
+        let selectedDate = new Date();
+        const monthSelector = document.getElementById('monthSelector');
+        if (monthSelector && globalFinancialData && globalFinancialData.length > 0) {
+           const idx = parseInt(monthSelector.value, 10);
+           if (!isNaN(idx) && globalFinancialData[idx]) {
+               selectedDate = globalFinancialData[idx].sortDate || new Date(globalFinancialData[idx].date);
+           }
+        }
+        
+        const currYear = selectedDate.getFullYear();
+        const currMonth = selectedDate.getMonth();
+        
+        const formatM = (y, m) => {
+           const d = new Date(y, m, 1);
+           const str = d.toLocaleDateString('es-ES', { month: 'short' }).replace('.','');
+           return `${str}-${String(y).slice(2)}`;
+        };
+        const formatKey = (y, m) => {
+           let sm = String(m+1).padStart(2,'0');
+           return `${y}-${sm}`;
+        };
+        
+        const getMonthsArr = (endY, endM, count) => {
+            let res = [];
+            for(let i=count-1; i>=0; i--) {
+                let m = endM - i;
+                let y = endY;
+                while(m < 0) { m += 12; y -= 1; }
+                while(m > 11) { m -= 12; y += 1; }
+                res.push({ key: formatKey(y, m), label: formatM(y, m) });
+            }
+            return res;
+        };
+        
+        const currMonths = getMonthsArr(currYear, currMonth, 5);
+        const prevMonths = getMonthsArr(currYear-1, currMonth, 5);
+        
+        const prevAvgLabel = `Promedio ${prevMonths[0].label} - ${prevMonths[4].label}`;
+        const currAvgLabel = `Promedio ${currMonths[0].label} - ${currMonths[4].label}`;
+        
+        let thHtml = `<th style="width: 30px; text-align: center; border:none; background: var(--sidebar); color: white; padding: 12px 4px;"></th>
+                      <th style="text-align:left; background: var(--sidebar); color: white; border:none; border-right:1px solid rgba(255,255,255,0.2); padding: 12px 16px;">Producto</th>`;
+        
+        const addTh = (label, bg, color) => {
+            thHtml += `<th style="background:${bg}; color:${color}; border:none; text-align:right; padding: 12px 8px; font-size: 0.7rem;">${label}</th>`;
+        };
+        
+        // Static columns
+        addTh('Real 2024', 'var(--sidebar)', 'white');
+        addTh('REAL AÑO ANT.', 'var(--sidebar)', 'white');
+        addTh('Var %', 'var(--sidebar)', 'white');
+        addTh('PO26', 'var(--sidebar)', 'white');
+        
+        // Prev Months
+        prevMonths.forEach(m => addTh(m.label, 'var(--sidebar)', 'white'));
+        addTh(prevAvgLabel, '#73A5C6', 'white'); // distinctive color
+        
+        // Curr Months
+        currMonths.forEach(m => addTh(m.label, 'var(--sidebar)', 'white'));
+        addTh(currAvgLabel, '#73A5C6', 'white');
+        addTh('Var %', 'var(--sidebar)', 'white');
+        
+        thead.innerHTML = `<tr>${thHtml}</tr>`;
+        
+        const formatVal = (val) => {
+            return parseFloat(val || 0).toLocaleString('es-DO', {minimumFractionDigits: isPrecio ? decimals : 0, maximumFractionDigits: decimals});
+        };
+        const formatPct = (val) => {
+            return (parseFloat(val || 0) * 100).toFixed(0) + '%';
+        };
+        
+        const renderRowContent = (row, isTotal) => {
+            let html = '';
+            
+            const real24 = row['FY2024'] || 0;
+            const realAnoAnt = row['FY2025'] || 0; // assuming 2025 is usually previous year for 2026
+            const po26 = row['PO26'] || 0;
+            const varPct = realAnoAnt ? ((realAnoAnt - real24)/real24) : 0;
+            
+            const cellStyle = isTotal ? "font-weight:800;" : "";
+            
+            html += `<td style="text-align:right; ${cellStyle}">${formatVal(real24)}</td>`;
+            html += `<td style="text-align:right; ${cellStyle}">${formatVal(realAnoAnt)}</td>`;
+            html += `<td style="text-align:right; ${cellStyle}">${formatPct(varPct)}</td>`;
+            html += `<td style="text-align:right; ${cellStyle}">${formatVal(po26)}</td>`;
+            
+            let prevSum = 0, prevCount = 0;
+            prevMonths.forEach(m => {
+                let v = row.values[m.key] || 0;
+                prevSum += v; prevCount++;
+                html += `<td style="text-align:right; ${cellStyle}">${formatVal(v)}</td>`;
+            });
+            const prevAvg = prevCount ? (prevSum/prevCount) : 0;
+            html += `<td style="text-align:right; font-weight:600; background:rgba(115,165,198,0.1);">${formatVal(prevAvg)}</td>`;
+            
+            let currSum = 0, currCount = 0;
+            currMonths.forEach(m => {
+                let v = row.values[m.key] || 0;
+                currSum += v; currCount++;
+                html += `<td style="text-align:right; ${cellStyle}">${formatVal(v)}</td>`;
+            });
+            const currAvg = currCount ? (currSum/currCount) : 0;
+            html += `<td style="text-align:right; font-weight:600; background:rgba(115,165,198,0.1);">${formatVal(currAvg)}</td>`;
+            
+            const varAvg = prevAvg ? ((currAvg - prevAvg)/prevAvg) : 0;
+            html += `<td style="text-align:right; font-weight:600;">${formatPct(varAvg)}</td>`;
+            
+            return html;
+        };
+        
+        let tbHtml = '';
+        displayData.forEach(row => {
+            let isVisible = true;
+            if (row.parentId) {
+                isVisible = window.expandedVentasCeoGroups.has(row.parentId);
+            }
+            if (!isVisible) return;
+            
+            let isExpanded = window.expandedVentasCeoGroups.has(row.id);
+            let collapseBtn = "";
+            let rowStyle = "";
+            
+            let rowOnclick = "";
+            let rowHover = "";
+            if (row.hasChildren) {
+                collapseBtn = `<button class="collapse-btn" style="width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1; pointer-events: none; border: 1px solid var(--border); border-radius: 4px; background: white; color: var(--text-primary);">${isExpanded ? '-' : '+'}</button>`;
+                rowStyle += "font-weight: 600; cursor: pointer; ";
+                rowOnclick = `onclick="toggleVentasCeoGroup('${row.id}')"`;
+                rowHover = `onmouseover="this.style.background='rgba(0,0,0,0.02)'" onmouseout="this.style.background=''"`;
+            } else if (row.parentId) {
+                rowStyle += "padding-left: 24px; color: var(--text-secondary); ";
+            } else {
+                rowStyle += "font-weight: 500; ";
+            }
+
+            tbHtml += `<tr data-group="${row.parentId || ''}" id="ventasceo-row-${row.id}" ${rowOnclick} ${rowHover}>
+                          <td style="text-align: center; vertical-align: middle; border-right: 1px solid rgba(0,0,0,0.05); padding: 4px; cursor: ${row.hasChildren ? 'pointer':'default'};">${collapseBtn}</td>
+                          <td style="text-align:left; border-right: 1px solid rgba(0,0,0,0.05); padding: 12px 16px; ${rowStyle}">${row.Producto}</td>`;
+            tbHtml += renderRowContent(row, false);
+            tbHtml += '</tr>';
+        });
+        
+        const totalRow = ceoData.find(d => {
+            const p = d.Producto ? d.Producto.trim().toUpperCase() : '';
+            return d.Tipo === ventasCeoCurrentMetric && p === 'TOTAL';
+        });
+        if(totalRow) {
+             tbHtml = `<tr style="background:#eef2f5;">
+                          <td style="text-align: center; border-right: 1px solid rgba(0,0,0,0.05);"></td>
+                          <td style="text-align:left; font-weight:800; border-right: 1px solid rgba(0,0,0,0.05); padding: 12px 16px;">TOTAL</td>` 
+                          + renderRowContent(totalRow, true) + 
+                       '</tr>' + tbHtml;
+        }
+        
+        const tsbRow = ceoData.find(d => {
+            const p = d.Producto ? d.Producto.trim().toUpperCase() : '';
+            return d.Tipo === ventasCeoCurrentMetric && (p === 'TOTAL SIN BON' || p === 'TOTAL SIN BON.');
+        });
+        if(tsbRow) {
+             tbHtml += `<tr style="background:#eef2f5;">
+                           <td style="text-align: center; border-right: 1px solid rgba(0,0,0,0.05);"></td>
+                           <td style="text-align:left; font-weight:800; color: #10b981; border-right: 1px solid rgba(0,0,0,0.05); padding: 12px 16px;">TOTAL SIN BON</td>` 
+                           + renderRowContent(tsbRow, true).replace(/<td/g, '<td style="color: #10b981;"') + 
+                       '</tr>';
+        }
+
+        tbody.innerHTML = tbHtml;
+        
+        const chartMonths = [...prevMonths, ...currMonths].map(m => m.key);
+        const chartLabels = [...prevMonths, ...currMonths].map(m => m.label);
+        renderVentasCeoChart(displayData.filter(d => !d.parentId && d.values), chartMonths, chartLabels);
+    }
+    
+    window.toggleVentasCeoGroup = function(groupId, btn) {
+        if(window.expandedVentasCeoGroups.has(groupId)) {
+            window.expandedVentasCeoGroups.delete(groupId);
+        } else {
+            window.expandedVentasCeoGroups.add(groupId);
+        }
+        window.renderVentasCEO();
+    };
+    
+    document.getElementById('btn-ventas-expandir')?.addEventListener('click', () => {
+        if(!window.expandedVentasCeoGroups) window.expandedVentasCeoGroups = new Set();
+        Object.values(CEO_HIERARCHY).forEach(h => {
+            if(!h.parentId) window.expandedVentasCeoGroups.add(h.id);
+        });
+        window.renderVentasCEO();
+    });
+    
+    document.getElementById('btn-ventas-colapsar')?.addEventListener('click', () => {
+        if(window.expandedVentasCeoGroups) window.expandedVentasCeoGroups.clear();
+        window.renderVentasCEO();
+    });
+    
+    function renderVentasCeoChart(displayData, dateCols, dateLabels) {
+        const container = document.getElementById('ventas-ceo-chart');
+        if (!container) return;
+        container.innerHTML = '';
+        
+        if (displayData.length === 0) return;
+        
+        const chartData = [];
+        dateCols.forEach((c, idx) => {
+            let label = dateLabels ? dateLabels[idx] : c;
+            let item = { label: label, date: c };
+            let total = 0;
+            displayData.forEach(row => {
+                let val = 0;
+                if(row.values && row.values[c] !== undefined) {
+                    val = parseFloat(row.values[c]);
+                } else {
+                    val = parseFloat(row[c]) || 0;
+                }
+                if (isNaN(val)) val = 0;
+                item[row.Producto] = val;
+                total += val;
+            });
+            item.total = total;
+            chartData.push(item);
+        });
+        
+        const margin = { top: 30, right: 150, bottom: 50, left: 60 };
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+        const boundedWidth = width - margin.left - margin.right;
+        const boundedHeight = height - margin.top - margin.bottom;
+
+        if (boundedWidth <= 0 || boundedHeight <= 0) return;
+
+        const svg = d3.select(container)
+            .append("svg")
+            .attr("width", width)
+            .attr("height", height);
+
+        const g = svg.append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+            
+        const seriesKeys = displayData.map(d => d.Producto);
+        const stack = d3.stack().keys(seriesKeys)(chartData);
+        
+        const x = d3.scaleBand()
+            .domain(chartData.map(d => d.label))
+            .range([0, boundedWidth])
+            .padding(0.2);
+
+        const yMax = d3.max(chartData, d => d.total) * 1.1;
+        const y = d3.scaleLinear()
+            .domain([0, yMax])
+            .range([boundedHeight, 0])
+            .nice();
+
+        const colorScale = d3.scaleOrdinal(d3.schemeTableau10).domain(seriesKeys);
+
+        g.selectAll("g.layer")
+            .data(stack)
+            .enter().append("g")
+            .attr("class", "layer")
+            .attr("fill", d => colorScale(d.key))
+            .selectAll("rect")
+            .data(d => d)
+            .enter().append("rect")
+            .attr("x", d => x(d.data.label))
+            .attr("y", d => y(d[1]))
+            .attr("height", d => Math.max(0, y(d[0]) - y(d[1])))
+            .attr("width", x.bandwidth())
+            .on("mouseover", function(event, d) {
+                const subName = d3.select(this.parentNode).datum().key;
+                d3.select(this).attr("opacity", 0.8);
+                const tip = d3.select("body").append("div")
+                    .attr("class", "d3-tooltip")
+                    .style("opacity", 1)
+                    .html(`<strong>${subName}</strong><br/>${d.data.label}<br/>Valor: ${(d[1]-d[0]).toLocaleString('es-DO', {maximumFractionDigits:1})}`);
+                const rect = this.getBoundingClientRect();
+                tip.style("left", (rect.left + window.pageXOffset) + "px")
+                   .style("top", (rect.top + window.pageYOffset - 40) + "px");
+            })
+            .on("mouseout", function() {
+                d3.select(this).attr("opacity", 1);
+                d3.selectAll(".d3-tooltip").remove();
+            });
+
+        g.append("g")
+            .attr("transform", `translate(0,${boundedHeight})`)
+            .call(d3.axisBottom(x))
+            .selectAll("text")
+            .attr("transform", "rotate(-45)")
+            .style("text-anchor", "end")
+            .attr("dx", "-.8em")
+            .attr("dy", ".15em");
+
+        g.append("g").call(d3.axisLeft(y).ticks(5));
+        
+        // Add legend
+        const legend = svg.append("g")
+            .attr("font-family", "sans-serif")
+            .attr("font-size", 10)
+            .attr("text-anchor", "start")
+            .selectAll("g")
+            .data(seriesKeys)
+            .enter().append("g")
+            .attr("transform", (d, i) => `translate(${width - margin.right + 20},${i * 20 + margin.top})`);
+
+        legend.append("rect")
+            .attr("x", 0)
+            .attr("width", 15)
+            .attr("height", 15)
+            .attr("fill", colorScale);
+
+        legend.append("text")
+            .attr("x", 20)
+            .attr("y", 7.5)
+            .attr("dy", "0.32em")
+            .text(d => d.length > 20 ? d.slice(0,20)+'...' : d);
+    }
+    
+    document.getElementById('btn-ventas-vol')?.addEventListener('click', () => {
+        ventasCeoCurrentMetric = 'Volumen';
+        updateVentasButtons();
+        window.renderVentasCEO();
+    });
+    document.getElementById('btn-ventas-monto')?.addEventListener('click', () => {
+        ventasCeoCurrentMetric = 'Monto (MM DOP)';
+        updateVentasButtons();
+        window.renderVentasCEO();
+    });
+    document.getElementById('btn-ventas-precio')?.addEventListener('click', () => {
+        ventasCeoCurrentMetric = 'Precio Unitario';
+        updateVentasButtons();
+        window.renderVentasCEO();
+    });
+    
+    function updateVentasButtons() {
+        const resetBtn = (id) => {
+            const btn = document.getElementById(id);
+            if(btn) {
+                btn.style.background = '#e2e8f0';
+                btn.style.color = 'var(--text-secondary)';
+            }
+        };
+        resetBtn('btn-ventas-vol');
+        resetBtn('btn-ventas-monto');
+        resetBtn('btn-ventas-precio');
+        
+        let activeId = 'btn-ventas-vol';
+        if(ventasCeoCurrentMetric === 'Monto (MM DOP)') activeId = 'btn-ventas-monto';
+        if(ventasCeoCurrentMetric === 'Precio Unitario') activeId = 'btn-ventas-precio';
+        
+        const activeBtn = document.getElementById(activeId);
+        if(activeBtn) {
+            activeBtn.style.background = 'var(--primary)';
+            activeBtn.style.color = 'white';
+        }
+    }
+
 });

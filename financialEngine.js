@@ -3,6 +3,29 @@
  */
 import * as XLSX from 'xlsx';
 
+export function extractConceptName(row) {
+    if (!row) return "";
+    let c0 = row[0] ? String(row[0]).trim() : "";
+    let c1 = row[1] ? String(row[1]).trim() : "";
+    let c2 = row[2] ? String(row[2]).trim() : "";
+
+    const isCodeOrEmpty = (str) => {
+        if (!str || str.toLowerCase() === 'x') return true;
+        if (/^[\d\.\-\_ ]+$/.test(str)) return true; // Just numbers/codes
+        const lower = str.toLowerCase();
+        if (lower.includes('gmt') || lower.includes('00:00:00') || lower.includes('hora estándar')) return true;
+        return false;
+    };
+
+    if (!isCodeOrEmpty(c0)) return c0;
+    if (!isCodeOrEmpty(c1)) return c1;
+    if (!isCodeOrEmpty(c2)) return c2;
+    
+    if (c1 && !isCodeOrEmpty(c1)) return c1;
+    if (c0 && !isCodeOrEmpty(c0)) return c0;
+    return "";
+}
+
 export function normalizeText(text) {
     if (!text) return "";
     // Normalizar: minúsculas, sin acentos y remover puntuación común de cabeceras/paréntesis
@@ -74,6 +97,15 @@ export const formatCurrency = (val) => {
     return `${val < 0 ? '-' : ''}$${formatted}M`;
 };
 
+export const formatCurrencyUnits = (val) => {
+    if (val === 0 || val === null || val === undefined) return "$0.00";
+    const formatted = Math.abs(val).toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    });
+    return `${val < 0 ? '-' : ''}$${formatted}`;
+};
+
 export const formatRawCurrency = (val) => {
     if (val === 0 || val === null || val === undefined) return "0.0";
     
@@ -100,17 +132,19 @@ export function financialEngine(workbook) {
     const sheetKeys = Object.keys(sheets);
     
     // Prioritize "PA" or "Seguimiento" as per user context
+    const estadosKey = sheetKeys.find(s => /estados financieros|estado de resultados/i.test(s) && !s.includes("ppto"));
     const pnlKey = sheetKeys.find(s => (/pa|seguimiento|gerencial|p&l|resultado|income|ganancia/i.test(s)) && !s.includes("ppto")) || sheetKeys[0];
     const balanceKey = sheetKeys.find(s => s.includes("balance sheet mdop") && !s.includes("ppto")) || 
                        sheetKeys.find(s => /balance|situacion|estado/i.test(s) && !/p&l|resultado/i.test(s) && !s.includes("ppto"));
     const cashflowKey = sheetKeys.find(s => /cash|flujo/i.test(s) && !s.includes("ppto"));
+    const wcKey = sheetKeys.find(s => /working|capital|wc/i.test(s) && !s.includes("ppto"));
 
     const pptoPnlKey = sheetKeys.find(s => s.includes("ppto") && s.includes("l"));
     const pptoBalanceKey = sheetKeys.find(s => s.includes("ppto") && s.includes("balance"));
     const pptoCashflowKey = sheetKeys.find(s => s.includes("ppto") && s.includes("cash"));
 
     if (pnlKey && sheets[pnlKey]) {
-        const result = processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, pptoPnlKey, pptoBalanceKey, pptoCashflowKey);
+        const result = processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, pptoPnlKey, pptoBalanceKey, pptoCashflowKey, wcKey, estadosKey);
         if (!result.error && result.data && result.data.length > 0) {
             result.modelType = "Reporte PA / Estados Financieros";
             return result;
@@ -273,11 +307,11 @@ export const FINANCIAL_KEYWORDS = {
     ebitda: ["ebitda", "utilidad operativa", "operating income", "uafida", "utilidad antes de", "resultado operativo", "margen operativo", "utilidad de operacion"],
     utilidad: ["utilidad neta", "net income", "resultado del ejercicio", "utilidad perdida", "beneficio neto", "resultado neto", "utilidad del periodo", "ganancia neta", "ganancia del ejercicio", "utilidad neta ejercicio", "utilidad neta periodo", "ganancia perdida ejercicio", "resultado del periodo", "resultado"],
     cashflow: ["cash flow", "flujo de caja", "flujo neto", "disponibilidad", "caja final", "efectivo", "flujo de efectivo"],
-    tasa_cambio: ["tasa de cambio", "fx rate", "tipo de cambio", "tasa bpd", "tasa promedio", "t.c", "tc", "tasa", "cambio", "exchange"],
+    tasa_cambio: ["tasa de cambio", "fx rate", "tipo de cambio", "tasa bpd", "tasa promedio", "t.c", "tc", "tasa", "cambio", "exchange", "tasa proyectada"],
     // Nuevas Keywords para Hoja de Cash Flow
     cf_beginning: ["beginning cash balance", "efectivo inicial", "saldo inicial de efectivo", "caja inicial"],
     cf_operating: ["operating activities", "flujo de actividades de operacion", "actividades de operacion", "flujo de caja operativo"],
-    cf_wc: ["change in working capital", "cambios en capital de trabajo", "variacion capital de trabajo", "working capital requirements"],
+    cf_wc: ["change in working capital", "cambios en capital de trabajo", "variacion capital de trabajo", "working capital requirements", "working capital"],
     cf_cxc: ["aumento)/disminucion en cuentas por cobrar", "cuentas por cobrar", "cxc", "accounts receivable"],
     cf_inv: ["aumento)/disminucion en inventario", "inventario", "inventarios", "inventory"],
     cf_cxp: ["aumento/(disminucion) en cuentas por pagar", "cuentas por pagar", "cxp", "accounts payable"],
@@ -296,10 +330,12 @@ export const FINANCIAL_KEYWORDS = {
     cf_dio: ["dio"]
 };
 
-function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, pptoPnlKey = null, pptoBalanceKey = null, pptoCashflowKey = null) {
+function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, pptoPnlKey = null, pptoBalanceKey = null, pptoCashflowKey = null, wcKey = null, estadosKey = null) {
     const pnlSheet = sheets[pnlKey];
     const balanceSheet = balanceKey ? sheets[balanceKey] : null;
     const cashflowSheet = cashflowKey ? sheets[cashflowKey] : null;
+    const wcSheet = wcKey ? sheets[wcKey] : null;
+    const estadosSheet = estadosKey ? sheets[estadosKey] : null;
 
     const pptoPnlSheet = pptoPnlKey ? sheets[pptoPnlKey] : null;
     const pptoBalanceSheet = pptoBalanceKey ? sheets[pptoBalanceKey] : null;
@@ -346,14 +382,14 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
         
         let preventOffset = false;
         if (isPnlSource) {
-            const concept = row[0] ? String(row[0]).toLowerCase() : "";
-            const isFX = concept.includes("tasa") || concept.includes("fx");
-            const isRatio = concept.includes("%") || concept.includes("margen") || concept.includes("margin") || concept.includes("ratio");
+            const concept = extractConceptName(row).toLowerCase();
+            const isFX = (concept.includes("tasa") && !concept.includes("impacto")) || concept.includes("fx") || concept === "tc" || concept.includes("tipo de cambio") || concept.includes("dop") || concept.includes("exchange");
+            const isRatio = concept.includes("%") || concept.includes("ratio");
+            const isAlreadyMillions = concept.includes("musd") || concept.includes("mdop") || concept.includes("millones");
             
-            // Do not use offset search for P&L to prevent bugs like ITBIS Jan stealing Feb data
             preventOffset = true;
 
-            if (!isFX && !isRatio) {
+            if (!isFX && !isRatio && !isAlreadyMillions) {
                 val = val / 1000000;
             }
         }
@@ -387,7 +423,7 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
             }
         }
 
-        const concept = row[0] ? normalizeText(String(row[0])) : "";
+        const concept = normalizeText(extractConceptName(row));
         // Detectar si es un ratio (unitless) o moneda
         const isRatio = (concept.includes("ratio") || concept.includes("indice") || concept.includes("razon") ||
                          concept.includes("apalancamiento") || concept.includes("capacidad") || 
@@ -423,7 +459,7 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
         tasa_cambio: findRowByKeywords(pnlSheet, FINANCIAL_KEYWORDS.tasa_cambio)
     };
 
-    const segmentKeywords = ["BT5", "EVP", "BON", "P6"];
+    const segmentKeywords = ["BT5", "EVP", "BON", "P6", "Otras Ventas", "Otros Ingresos"];
     const segmentRows = detectSegments(pnlSheet, segmentKeywords);
 
     if (!pnlRows.ingresos) return { error: "No se encontró la fila de 'Ingresos' en el P&L. Verifique que los nombres de las filas sean claros (ej: 'Ventas' o 'Ingresos')." };
@@ -463,6 +499,16 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
         dso: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_dso) : null,
         dpo: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_dpo) : null,
         dio: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_dio) : null
+    };
+
+    const wcRows = {
+        wc: wcSheet ? findRowByKeywords(wcSheet, FINANCIAL_KEYWORDS.cf_wc) : null,
+        cxc: wcSheet ? findRowByKeywords(wcSheet, FINANCIAL_KEYWORDS.cf_cxc) : null,
+        inv: wcSheet ? findRowByKeywords(wcSheet, FINANCIAL_KEYWORDS.cf_inv) : null,
+        cxp: wcSheet ? findRowByKeywords(wcSheet, FINANCIAL_KEYWORDS.cf_cxp) : null,
+        dso: wcSheet ? findRowByKeywords(wcSheet, FINANCIAL_KEYWORDS.cf_dso) : null,
+        dpo: wcSheet ? findRowByKeywords(wcSheet, FINANCIAL_KEYWORDS.cf_dpo) : null,
+        dio: wcSheet ? findRowByKeywords(wcSheet, FINANCIAL_KEYWORDS.cf_dio) : null
     };
 
     const pnlRowsPpto = pptoPnlSheet ? {
@@ -555,13 +601,15 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
     const pnlIndices = findSheetIndices(pnlSheet);
     const balanceIndices = balanceSheet ? findSheetIndices(balanceSheet) : {};
     const cfIndices = cashflowSheet ? findSheetIndices(cashflowSheet) : {};
+    const wcIndices = wcSheet ? findSheetIndices(wcSheet) : {};
+    const estadosIndices = estadosSheet ? findSheetIndices(estadosSheet) : {};
 
     const pptoPnlIndices = pptoPnlSheet ? findSheetIndices(pptoPnlSheet) : {};
     const pptoBalanceIndices = pptoBalanceSheet ? findSheetIndices(pptoBalanceSheet) : {};
     const pptoCfIndices = pptoCashflowSheet ? findSheetIndices(pptoCashflowSheet) : {};
     
     // Unificar todas las fechas detectadas en ambos reportes
-    const allDateKeys = new Set([...Object.keys(pnlIndices), ...Object.keys(balanceIndices), ...Object.keys(cfIndices), ...Object.keys(pptoPnlIndices), ...Object.keys(pptoBalanceIndices), ...Object.keys(pptoCfIndices)]);
+    const allDateKeys = new Set([...Object.keys(pnlIndices), ...Object.keys(balanceIndices), ...Object.keys(cfIndices), ...Object.keys(wcIndices), ...Object.keys(estadosIndices), ...Object.keys(pptoPnlIndices), ...Object.keys(pptoBalanceIndices), ...Object.keys(pptoCfIndices)]);
     
     let dataPeriods = [];
     allDateKeys.forEach(key => {
@@ -572,13 +620,15 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
         // Y evitar fechas absurdamente lejanas en el pasado o futuro
         if (y >= 2020 && y <= 2026) {
             const pnlIdx = pnlIndices[key] !== undefined ? pnlIndices[key] : -1;
-            const balanceIdx = balanceIndices[key] !== undefined ? balanceIndices[key] : -1;
-            const cfIdx = cfIndices[key] !== undefined ? cfIndices[key] : -1;
-            const pptoPnlIdx = pptoPnlIndices[key] !== undefined ? pptoPnlIndices[key] : -1;
-            const pptoBalanceIdx = pptoBalanceIndices[key] !== undefined ? pptoBalanceIndices[key] : -1;
-            const pptoCfIdx = pptoCfIndices[key] !== undefined ? pptoCfIndices[key] : -1;
+            const balanceIdx = balanceIndices[key] !== undefined ? balanceIndices[key] : pnlIdx;
+            const cfIdx = cfIndices[key] !== undefined ? cfIndices[key] : pnlIdx;
+            const wcIdx = wcIndices[key] !== undefined ? wcIndices[key] : pnlIdx;
+            const estadosIdx = estadosIndices[key] !== undefined ? estadosIndices[key] : -1;
+            const pptoPnlIdx = pptoPnlIndices[key] !== undefined ? pptoPnlIndices[key] : pptoPnlIndices[key] !== undefined ? pptoPnlIndices[key] : -1;
+            const pptoBalanceIdx = pptoBalanceIndices[key] !== undefined ? pptoBalanceIndices[key] : pptoPnlIdx !== -1 ? pptoPnlIdx : balanceIdx;
+            const pptoCfIdx = pptoCfIndices[key] !== undefined ? pptoCfIndices[key] : pptoPnlIdx !== -1 ? pptoPnlIdx : cfIdx;
 
-            dataPeriods.push({ date: d, pnlIdx, balanceIdx, cfIdx, pptoPnlIdx, pptoBalanceIdx, pptoCfIdx });
+            dataPeriods.push({ date: d, pnlIdx, balanceIdx, cfIdx, wcIdx, estadosIdx, pptoPnlIdx, pptoBalanceIdx, pptoCfIdx });
         }
     });
     
@@ -605,8 +655,9 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
     const bSheetToUse = balanceSheet || pnlSheet;
 
     const fullRows = pnlSheet.filter(row => {
-        if (!row || !row[0]) return false;
-        const concept = normalizeText(row[0]);
+        const rawC = extractConceptName(row);
+        if (!rawC) return false;
+        const concept = normalizeText(rawC);
         if (concept.includes("formatcode") || concept.includes("unnamed") || concept.length < 2) return false;
         return dataPeriods.some(p => p.pnlIdx !== -1 && (typeof row[p.pnlIdx] === 'number' || !isNaN(cleanNumber(row[p.pnlIdx]))));
     }).map(row => {
@@ -614,15 +665,48 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
         dataPeriods.forEach(p => {
             rowValues[p.date.toLocaleDateString('es-ES', { month: 'short', year: 'numeric' })] = p.pnlIdx !== -1 ? getVal(row, p.pnlIdx) : 0;
         });
-        const rawConcept = String(row[0]);
-        let renamedConcept = (normalizeText(rawConcept) === "ventas p6") ? "Ventas BON" : rawConcept;
+        const rawConcept = extractConceptName(row);
+        let renamedConcept = rawConcept;
         if (normalizeText(renamedConcept) === "ganancia del periodo") renamedConcept = "Beneficio Neto del Periodo";
         return { concept: renamedConcept, values: rowValues };
     });
 
+    const estadosFullRows = estadosSheet ? estadosSheet.filter(row => {
+        const rawC = extractConceptName(row);
+        if (!rawC) return false;
+        const concept = normalizeText(rawC);
+        if (concept.includes("formatcode") || concept.includes("unnamed") || concept.length < 2) return false;
+        return dataPeriods.some(p => p.estadosIdx !== -1 && (typeof row[p.estadosIdx] === 'number' || !isNaN(cleanNumber(row[p.estadosIdx]))));
+    }).map(row => {
+        const rowValues = {};
+        dataPeriods.forEach(p => {
+            rowValues[p.date.toLocaleDateString('es-ES', { month: 'short', year: 'numeric' })] = p.estadosIdx !== -1 ? getVal(row, p.estadosIdx) : 0;
+        });
+        const rawConcept = extractConceptName(row);
+        return { concept: rawConcept, values: rowValues };
+    }) : [];
+
+    const pptoFullRows = pptoPnlSheet ? pptoPnlSheet.filter(row => {
+        const rawC = extractConceptName(row);
+        if (!rawC) return false;
+        const concept = normalizeText(rawC);
+        if (concept.includes("formatcode") || concept.includes("unnamed") || concept.length < 2) return false;
+        return dataPeriods.some(p => p.pptoPnlIdx !== -1 && (typeof row[p.pptoPnlIdx] === 'number' || !isNaN(cleanNumber(row[p.pptoPnlIdx]))));
+    }).map(row => {
+        const rowValues = {};
+        dataPeriods.forEach(p => {
+            rowValues[p.date.toLocaleDateString('es-ES', { month: 'short', year: 'numeric' })] = p.pptoPnlIdx !== -1 ? getVal(row, p.pptoPnlIdx) : 0;
+        });
+        const rawConcept = extractConceptName(row);
+        let renamedConcept = rawConcept;
+        if (normalizeText(renamedConcept) === "ganancia del periodo") renamedConcept = "Beneficio Neto del Periodo";
+        return { concept: renamedConcept, values: rowValues };
+    }) : [];
+
     const balanceFullRows = bSheetToUse.filter(row => {
-        if (!row || !row[0]) return false;
-        const conceptStr = String(row[0]);
+        const rawC = extractConceptName(row);
+        if (!rawC) return false;
+        const conceptStr = rawC;
         const concept = normalizeText(conceptStr);
         if (concept.includes("formatcode") || concept.includes("unnamed") || concept.length < 2) return false;
         
@@ -674,7 +758,7 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
             return val !== 0 && !isNaN(val);
         });
     }).map(row => {
-        const rawConcept = String(row[0]);
+        const rawConcept = extractConceptName(row);
         let renamedConcept = rawConcept;
         const normConcept = normalizeText(rawConcept);
         
@@ -701,6 +785,66 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
         return { concept: renamedConcept, values: rowValues };
     });
 
+    const wcFullRows = wcSheet ? wcSheet.filter(row => {
+        const rawC = extractConceptName(row);
+        if (!rawC) return true;
+        const conceptStr = rawC;
+        if (!conceptStr) return true;
+        
+        const concept = normalizeText(conceptStr);
+        if (concept.includes("formatcode") || concept.includes("unnamed")) return false;
+        
+        let hasNumbers = dataPeriods.some(p => {
+            if (p.wcIdx === -1) return false;
+            let val = getVal(row, p.wcIdx, false);
+            return val !== 0 && !isNaN(val);
+        });
+
+        if (!hasNumbers) {
+            const isMetricName = concept.includes('dso') || concept.includes('dpo') || concept.includes('dio') || concept.includes('dias') || concept.includes('tasa') || concept.includes('cxc') || concept.includes('cxp');
+            if (isMetricName) return false;
+            return conceptStr.length > 2; // Keep category headers length > 2
+        }
+        
+        return true;
+    }).map((row, idx) => {
+        const rowValues = {};
+        const conceptStr = extractConceptName(row);
+        
+        if (!conceptStr) {
+            return { concept: `_spacer_${idx}`, isSpacer: true, values: {} };
+        }
+        
+        const lowerConcept = conceptStr.toLowerCase();
+        
+        // Determinar si debemos escalar el valor a millones
+        // Evitamos escalar días, tasas, porcentajes y variables moneda
+        const isRatioOrRate = lowerConcept.includes('dso') || 
+                              lowerConcept.includes('dpo') || 
+                              lowerConcept.includes('dio') ||
+                              lowerConcept.includes('days') || 
+                              lowerConcept.includes('dias') || 
+                              lowerConcept.includes('días') || 
+                              lowerConcept.includes('%') || 
+                              (lowerConcept.includes('tasa') && !lowerConcept.includes('impacto')) || 
+                              lowerConcept === 'dop' || 
+                              lowerConcept === 'eur' || 
+                              lowerConcept === 'usd' || 
+                              lowerConcept.includes('var ');
+
+        let hasData = false;
+        dataPeriods.forEach(p => {
+            let val = p.wcIdx !== -1 ? getVal(row, p.wcIdx, false) : 0;
+            if (!isRatioOrRate) {
+                val = val / 1000000;
+            }
+            if (val !== 0) hasData = true;
+            rowValues[p.date.toLocaleDateString('es-ES', { month: 'short', year: 'numeric' })] = val;
+        });
+
+        return { concept: conceptStr, isHeader: !hasData, values: rowValues };
+    }) : [];
+
     const getBalanceIdx = (date, pnlIdx) => {
         const key = `${date.getMonth()}-${date.getFullYear()}`;
         return balanceIndices[key] !== undefined ? balanceIndices[key] : pnlIdx;
@@ -710,6 +854,7 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
         const pIdx = point.pnlIdx;
         const bIdx = point.balanceIdx;
         const cfIdx = point.cfIdx;
+        const wcIdx = point.wcIdx !== undefined ? point.wcIdx : -1;
         
         const pptoPnlIdx = point.pptoPnlIdx;
         const pptoBIdx = point.pptoBalanceIdx;
@@ -749,6 +894,14 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
             Object.keys(cfRows).forEach(key => {
                 const row = cfRows[key];
                 if (row) cashflowDetail[key] = getVal(row, cfIdx, false);
+            });
+        }
+
+        const wcDetail = {};
+        if (wcSheet && wcIdx !== -1) {
+            Object.keys(wcRows).forEach(key => {
+                const row = wcRows[key];
+                if (row) wcDetail[key] = getVal(row, wcIdx, false);
             });
         }
 
@@ -854,6 +1007,7 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
                 cashEnding: cashflowDetail.ending || 0 // Este es el saldo final (Health)
             },
             ppto: {
+                tasaCambio: pptoTasaCambio,
                 kpis: {
                     ingresos: pptoIngresos,
                     utilidad: pptoUtilidad,
@@ -879,7 +1033,8 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
                         "Gastos de Mercadeo": pptoPnlIdx !== -1 ? getVal(pnlRowsPpto.mercadeo, pptoPnlIdx, true) : 0,
                         "Gastos de Ventas (Comercial)": pptoPnlIdx !== -1 ? getVal(pnlRowsPpto.comercial, pptoPnlIdx, true) : 0,
                         "Gastos de Logística": pptoPnlIdx !== -1 ? getVal(pnlRowsPpto.logistica, pptoPnlIdx, true) : 0
-                    } : {}
+                    } : {},
+                    fullRows: pptoFullRows
                 }
             },
             balance: { 
@@ -888,6 +1043,8 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
                 fullRows: balanceFullRows 
             },
             cashflowDetail,
+            wcFullRows,
+            wcDetail,
             integrity: { gap: integrityGap, isBroken: integrityError },
             tasaCambio: tasaCambio || 1,
             series: { ventas: [], ebitda: [] },
@@ -910,6 +1067,9 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
                     pasivo_patrimonio: (balanceRows.pasivos || balanceRows.patrimonio) ? `${balanceRows.pasivos?.[0] || ''} / ${balanceRows.patrimonio?.[0] || ''}` : "No detectado"
                 }
             },
+            estados: {
+                fullRows: estadosFullRows
+            },
             alerts: ["FINANCIAL_STATEMENTS: Datos extraídos con desglose de segmentos."]
         };
     }).sort((a, b) => a.sortDate - b.sortDate);
@@ -925,10 +1085,11 @@ function processWide(sheets) {
     const getVal = (row, idx) => {
         if (!row || idx === undefined || idx === null) return 0;
         let val = cleanNumber(row[idx]);
-        const concept = row[0] ? String(row[0]).toLowerCase() : "";
-        const isFX = concept.includes("tasa") || concept.includes("fx");
-        const isRatio = concept.includes("%") || concept.includes("margen") || concept.includes("margin") || concept.includes("ratio");
-        if (!isFX && !isRatio) {
+        const concept = extractConceptName(row).toLowerCase();
+        const isFX = concept.includes("tasa") || concept.includes("fx") || concept === "tc" || concept.includes("tipo de cambio") || concept.includes("dop") || concept.includes("exchange");
+        const isRatio = concept.includes("%") || concept.includes("ratio");
+        const isAlreadyMillions = concept.includes("musd") || concept.includes("mdop") || concept.includes("millones");
+        if (!isFX && !isRatio && !isAlreadyMillions) {
             val = val / 1000000;
         }
         return val;
@@ -944,7 +1105,7 @@ function processWide(sheets) {
         tasa_cambio: findRowByKeywords(allRows, FINANCIAL_KEYWORDS.tasa_cambio)
     };
 
-    const segmentKeywords = ["BT5", "EVP", "BON"];
+    const segmentKeywords = ["BT5", "EVP", "BON", "P6", "Otras Ventas", "Otros Ingresos"];
     const segmentRows = detectSegments(allRows, segmentKeywords);
 
     if (!rowData.ingresos) return { error: "No se encontró una fila de 'Ingresos' o 'Ventas' en el reporte. Verifique que los nombres de las filas sean claros." };
@@ -1025,25 +1186,23 @@ function processWide(sheets) {
     // Capturar todas las filas del P&L para la vista detallada (hacer esto fuera del map para evitar O(N^2) y archivos enormes)
     const fullRows = allRows.filter(row => {
         if (!row) return false;
-        let conceptRaw = row[0];
-        if (!conceptRaw || String(conceptRaw).trim().toUpperCase() === 'X') conceptRaw = row[1];
+        let conceptRaw = extractConceptName(row);
         if (!conceptRaw) return false;
         const concept = normalizeText(String(conceptRaw));
         if (concept.includes("formatcode") || concept.includes("unnamed") || concept.length < 2) return false;
 
         // Filtramos filas que tengan al menos 1 número en los dataPoints, o si son Categorias (sin numeros)
         // Agregamos también las filas que sean categorias (por ejemplo "Estado de Resultados") aunque no tengan numeros
-        const isCategory = (concept === "estado de resultados" || concept === "estado de situacion" || concept === "kpis y drivers" || concept === "modulo deuda" || concept === "analisis horizontal" || concept === "analisis vertical" || concept === "analisis margen" || concept === "rentabilidad" || concept === "variables macro" || concept === "balances deuda" || concept === "schedule amortizacion" || concept === "kpis deuda");
+        const whitelist = ["estado de resultados", "estado de situacion", "otras ventas", "otros ingresos", "evp", "bt5", "bon", "descuentos", "devoluciones", "descuentos y devoluciones", "itbis", "gastos administrativos", "gastos de mercadeo", "gastos de ventas", "gastos de logistica", "d & a", "intereses netos", "ingresos financieros", "gastos financieros", "diferencial cambiario", "ingresos (gastos) extraordinarios", "tasa cambio cierre", "cuentas por cobrar", "inventario", "cuentas por pagar", "gastos de ventas (comercial)"];
+        const isCategory = whitelist.some(w => concept.includes(w)) || (concept === "estado de resultados" || concept === "estado de situacion" || concept === "kpis y drivers" || concept === "modulo deuda" || concept === "analisis horizontal" || concept === "analisis vertical" || concept === "analisis margen" || concept === "rentabilidad" || concept === "variables macro" || concept === "balances deuda" || concept === "schedule amortizacion" || concept === "kpis deuda");
         return isCategory || dataPoints.some(p => typeof row[p.idx] === 'number' || (!isNaN(cleanNumber(row[p.idx])) && cleanNumber(row[p.idx]) !== 0));
     }).map(row => {
         const rowValues = {};
         dataPoints.forEach(p => {
             rowValues[p.date.toLocaleDateString('es-ES', { month: 'short', year: 'numeric' })] = getVal(row, p.idx);
         });
-        let conceptRaw = row[0];
-        if (!conceptRaw || String(conceptRaw).trim().toUpperCase() === 'X') conceptRaw = row[1];
-        const rawConcept = String(conceptRaw).trim();
-        const renamedConcept = (normalizeText(rawConcept) === "ventas p6") ? "Ventas BON" : rawConcept;
+        const rawConcept = extractConceptName(row);
+        const renamedConcept = rawConcept;
 
         return {
             concept: renamedConcept,
@@ -1083,6 +1242,7 @@ function processWide(sheets) {
             },
             balance: { activos: 0, pasivos: 0, patrimonio: 0, cuadra: true },
             tasaCambio: tasaCambio,
+            wcFullRows: fullRows,
             series: { ventas: [], ebitda: [] },
             pnl: { 
                 categorias: { "Ingresos": ingresos, "Costo de Ventas": costos, "OPEX": opex, "EBITDA": ebitda, "Utilidad Neta": utilidad },

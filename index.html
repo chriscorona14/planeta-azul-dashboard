@@ -454,6 +454,35 @@
         margin-top: 8px;
       }
 
+      .collapse-btn {
+        border: 1px solid var(--border);
+        background: white;
+        color: var(--text-secondary);
+        width: 16px;
+        height: 16px;
+        line-height: 14px;
+        font-size: 14px;
+        padding: 0;
+        cursor: pointer;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: monospace;
+        font-weight: bold;
+        transition: all 0.2s;
+      }
+
+      .collapse-btn:hover {
+        background: #f1f5f9;
+        color: var(--sidebar-accent);
+        border-color: #cbd5e1;
+      }
+      
+      .subitem-row {
+          transition: all 0.3s ease;
+      }
+
       @media screen and (max-width: 1024px) {
         .dashboard-charts-grid {
           grid-template-columns: 1fr;
@@ -1151,43 +1180,6 @@
         }
       }
       
-      /* Hide selected rows per user request */
-      #body-estados tr:nth-of-type(29),
-      #body-estados tr:nth-of-type(30),
-      #body-estados tr:nth-of-type(31),
-      #body-estados tr:nth-of-type(32),
-      #body-estados tr:nth-of-type(33),
-      #body-estados tr:nth-of-type(34),
-      #body-estados tr:nth-of-type(35),
-      #body-estados tr:nth-of-type(36),
-      #body-estados tr:nth-of-type(37),
-      #body-estados tr:nth-of-type(38),
-      #body-estados tr:nth-of-type(39),
-      #body-estados tr:nth-of-type(40),
-      #body-estados tr:nth-of-type(41),
-      #body-estados tr:nth-of-type(42),
-      /* And the tds if needed, though hiding tr is enough */
-      #table-estados tbody#body-estados > tr:nth-of-type(29),
-      #table-estados tbody#body-estados > tr:nth-of-type(30),
-      #table-estados tbody#body-estados > tr:nth-of-type(31),
-      #table-estados tbody#body-estados > tr:nth-of-type(32),
-      #table-estados tbody#body-estados > tr:nth-of-type(33),
-      #table-estados tbody#body-estados > tr:nth-of-type(34),
-      #table-estados tbody#body-estados > tr:nth-of-type(35),
-      #table-estados tbody#body-estados > tr:nth-of-type(36),
-      #table-estados tbody#body-estados > tr:nth-of-type(37),
-      #table-estados tbody#body-estados > tr:nth-of-type(38),
-      #table-estados tbody#body-estados > tr:nth-of-type(39),
-      #table-estados tbody#body-estados > tr:nth-of-type(40),
-      #table-estados tbody#body-estados > tr:nth-of-type(41),
-      #table-estados tbody#body-estados > tr:nth-of-type(42),
-      /* Hide the menu item for Estados Financieros */
-      #menu-estados,
-      nav.menu > div.menu-item:has(#menu-estados),
-      nav.menu div.menu-item:nth-child(6),
-      #view-estados {
-        display: none !important;
-      }
     </style>
   </head>
   <body>
@@ -1333,6 +1325,9 @@
             <a href="#" id="menu-resumen">Resumen Ejecutivo</a>
           </div>
           <div class="menu-item">
+            <a href="#" id="menu-preliminar">Estado de Resultado</a>
+          </div>
+          <div class="menu-item">
             <a href="#" id="menu-pnl">P&L Detallado</a>
           </div>
           <div class="menu-item">
@@ -1342,10 +1337,16 @@
             <a href="#" id="menu-cashflow">Cash Flow</a>
           </div>
           <div class="menu-item">
-            <a href="#" id="menu-estados">Estados Financieros</a>
+            <a href="#" id="menu-wc">Working Capital</a>
           </div>
           <div class="menu-item">
+            <a href="#" id="menu-estados">Estados Financieros</a>
+          </div>
+          <div class="menu-item" style="display: none;">
             <a href="#" id="menu-simulador">Simulador What-If</a>
+          </div>
+          <div class="menu-item" style="display: none;">
+            <a href="#" id="menu-ventas-ceo">Ventas Ceo</a>
           </div>
           <div class="menu-item">
             <a href="#" id="menu-config">Configuración</a>
@@ -1357,9 +1358,16 @@
       </div>
 
       <div class="sidebar-footer" style="display: flex; flex-direction: column; gap: 8px;">
+        <button id="logoutBtn" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 8px 12px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;">
+          <i data-lucide="log-out" style="width: 14px; height: 14px;"></i>
+          Cerrar Sesión / Reiniciar
+        </button>
         <div id="sidebarSyncStatus" style="display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 0.8rem; color: rgba(255, 255, 255, 0.7);">
           <div style="width: 8px; height: 8px; border-radius: 50%; background-color: var(--warning);" id="sidebarSyncDot"></div>
           <span id="sidebarSyncText">Desconectado</span>
+        </div>
+        <div id="lastUpdatedStatus" style="text-align: center; font-size: 0.7rem; color: rgba(255, 255, 255, 0.5); display: none;">
+          Act: <span id="lastUpdatedTime">--</span>
         </div>
       </div>
     </aside>
@@ -2109,6 +2117,31 @@
         </section>
       </div>
 
+      <!-- View Preview: Resumen Ejecutivo / Preliminar -->
+      <div id="view-preliminar" class="view-container">
+        <div class="table-header">
+          <h3>Estado de Resultado <span id="preliminarDateLabel">-</span></h3>
+        </div>
+
+        <div class="card" style="padding: 0; overflow-x: auto;">
+          <table class="desktop-only-table" id="preliminarTable" style="margin: 0; white-space: nowrap; width: 100%; table-layout: fixed;">
+            <thead>
+              <tr style="table-layout: fixed;">
+                <th style="width: 40px; background:var(--sidebar); color:white; border:none; padding: 16px;"></th>
+                <th style="width: 20%; background:var(--sidebar); color:white; border:none; border-right:1px solid rgba(255,255,255,0.2); padding: 16px;">Concepto</th>
+                <th style="width: 13%; background:var(--sidebar); color:white; border:none; text-align:right; padding: 16px;">Año Anterior</th>
+                <th style="width: 13%; background:var(--sidebar); color:white; border:none; text-align:right; padding: 16px;">% Ventas</th>
+                <th style="width: 13%; background:var(--sidebar-accent); color:var(--sidebar); border:none; text-align:right; border-left:1px solid rgba(0,0,0,0.1); padding: 16px;">Mes Actual</th>
+                <th style="width: 13%; background:var(--sidebar-accent); color:var(--sidebar); border:none; text-align:right; padding: 16px;">% Ventas</th>
+                <th style="width: 13%; background:var(--sidebar); color:white; border:none; text-align:right; border-left:1px solid rgba(255,255,255,0.2); padding: 16px;">PPTO</th>
+                <th style="width: 13%; background:var(--sidebar); color:white; border:none; text-align:right; padding: 16px;">% Ventas</th>
+              </tr>
+            </thead>
+            <tbody id="preliminarBody"></tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- View 2: P&L Detallado -->
       <div id="view-pnl" class="view-container">
         <div class="table-header">
@@ -2220,6 +2253,39 @@
             </table>
             <div id="covenantMobileContainer" style="display: none;"></div>
           </div>
+        </div>
+      </div>
+
+      <!-- View: Cash Flow -->
+      <div id="view-wc" class="view-container">
+        <div class="table-header">
+          <h3>Working Capital</h3>
+          <span
+            id="wcPeriodLabel"
+            style="
+              font-size: 0.85rem;
+              font-weight: 600;
+              color: var(--text-secondary);
+            "
+            >Análisis de Capital de Trabajo</span
+          >
+        </div>
+
+        <div class="pnl-detail-table" style="position: relative;">
+          <table id="wcTable" class="desktop-only-table">
+            <thead id="wcHeader"></thead>
+            <tbody id="wcBody">
+              <tr>
+                <td
+                  colspan="14"
+                  style="text-align: center; color: var(--text-secondary)"
+                >
+                  <i data-lucide="loader" class="spin"></i> Cargando...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div id="wcMobileContainer" style="display: none;"></div>
         </div>
       </div>
 
@@ -2349,8 +2415,23 @@
 
               <span style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">o</span>
 
-              <label for="fileInput" class="upload-btn" style="margin-top: 0; width: fit-content; padding: 10px 24px; cursor: pointer;">Seleccionar Archivo Manual</label>
-              <input type="file" id="fileInput" accept=".xlsx, .xls, .csv" style="display: none;" />
+              <div style="display: flex; gap: 12px; justify-content: center; width: 100%; flex-wrap: wrap;">
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+                  <label for="fileInput" class="upload-btn" style="margin-top: 0; width: fit-content; padding: 10px 24px; cursor: pointer;">1. Archivo Principal</label>
+                  <input type="file" id="fileInput" accept=".xlsx, .xls, .csv" style="display: none;" />
+                  <span id="fileInputName" style="font-size: 0.75rem; color: var(--text-secondary);">Ningún archivo seleccionado</span>
+                </div>
+                
+                <div style="display: none; flex-direction: column; align-items: center; gap: 4px;">
+                  <label for="upload-ventas-ceo-home" class="btn-primary" style="margin-top: 0; width: fit-content; padding: 10px 24px; cursor: pointer; background: #eef2f5; color: var(--primary); border: 1px solid var(--border); border-radius: 8px; font-weight: 500;">2. Archivo Ventas CEO</label>
+                  <input type="file" id="upload-ventas-ceo-home" accept=".xlsx, .xls, .csv" style="display: none;" />
+                  <span id="ventasCeoFileName" style="font-size: 0.75rem; color: var(--text-secondary);">Ningún archivo seleccionado</span>
+                </div>
+              </div>
+              
+              <button id="processManualFilesBtn" class="upload-btn" style="background: var(--primary); margin-top: 16px; width: fit-content; padding: 10px 32px; font-weight: bold; opacity: 0.5; cursor: not-allowed;" disabled>
+                Procesar Archivos
+              </button>
             </div>
           </div>
 
@@ -3201,6 +3282,47 @@
               <em><i data-lucide="sparkles" style="display: inline; width: 16px; height: 16px; vertical-align: text-bottom; margin-right: 4px;"></i> Ejecuta la simulación para recibir un análisis sobre el impacto estratégico.</em>
             </div>
           </div>
+        </div>
+      </div>
+      
+      <!-- VIEW: Ventas Ceo -->
+      <div id="view-ventas-ceo" class="view-container">
+        <div class="header-info" style="margin-bottom: 24px;">
+          <h2>Ventas CEO</h2>
+          <p style="color: var(--text-secondary); font-size: 0.9rem;">
+            Datos de ventas estructurados: Volumen, Monto y Precio Unitario.
+          </p>
+        </div>
+        
+        <div class="kpi-scorecard-grid">
+          <div class="score-card" style="box-shadow: none;">
+            <div class="score-label" style="margin-bottom: 16px;">Seleccionar Métrica</div>
+            <div style="display: flex; gap: 8px;">
+              <button id="btn-ventas-vol" style="flex: 1; padding: 12px; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s;">Volumen</button>
+              <button id="btn-ventas-monto" style="flex: 1; padding: 12px; background: #e2e8f0; color: var(--text-secondary); border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s;">Monto (MM DOP)</button>
+              <button id="btn-ventas-precio" style="flex: 1; padding: 12px; background: #e2e8f0; color: var(--text-secondary); border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s;">Precio Unit.</button>
+            </div>
+          </div>
+        </div>
+        
+        <div class="pnl-controls" style="display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 12px;">
+           <button id="btn-ventas-colapsar" style="padding: 6px 12px; background: white; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font-size: 0.8rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05); font-weight: 500;">Colapsar Todo</button>
+           <button id="btn-ventas-expandir" style="padding: 6px 12px; background: white; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font-size: 0.8rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05); font-weight: 500;">Expandir Todo</button>
+        </div>
+        
+        <div class="pnl-detail-table" id="ventas-ceo-table-container" style="margin-bottom: 24px; max-height: none; overflow-y: visible; overflow-x: auto;">
+           <table id="ventas-ceo-table" style="font-size: 0.75rem; white-space: nowrap; border-collapse: collapse; width: 100%;">
+             <thead id="ventas-ceo-thead">
+             </thead>
+             <tbody id="ventas-ceo-tbody"></tbody>
+           </table>
+        </div>
+        
+        <div class="chart-box" style="height: 500px; position: relative;">
+          <div class="chart-header">
+            <h4>Evolución de Ventas</h4>
+          </div>
+          <div id="ventas-ceo-chart" style="width: 100%; height: calc(100% - 60px);"></div>
         </div>
       </div>
     </main>
