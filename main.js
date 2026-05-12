@@ -3335,7 +3335,7 @@ function renderDetailedPnL(data, selectedIndex = -1) {
     allConcepts = allConcepts.filter(c => {
         const nc = normalizeText(c);
         if (nc === "concepto" || nc === "cuentas" || nc === "descripcion" || nc === "p&l" || nc === "resultado" || nc === "detalle") return false;
-        if (nc.includes("en mdop") || nc.includes("reporte pa") || nc.includes("seguimiento gerencial") || nc.includes("margen operacional") || nc === "margen neto" || nc === "margen bruto ordinario") return false;
+        if (nc.includes("en mdop") || nc.includes("reporte pa") || nc.includes("seguimiento gerencial") || nc.includes("margen operacional") || nc === "margen neto") return false;
         return true;
     });
 
@@ -3385,24 +3385,21 @@ function renderDetailedPnL(data, selectedIndex = -1) {
             let val = row ? row.values[period.date] || 0 : 0;
             
             if (isPercentage) {
-                const denRow = period.pnl?.fullRows?.find(r => {
-                    const nc = normalizeText(r.concept);
-                    return nc === "ventas netas" || nc === "total ingresos" || nc === "ingresos" || nc.includes("ventas netas");
-                });
+                const denRow = period.pnl?.fullRows?.find(r => r.concept.toLowerCase() === "ventas netas" || r.concept.toLowerCase() === "total ingresos" || r.concept.toLowerCase() === "ingresos" || r.concept.toLowerCase().includes("ventas netas"));
                 let denVal = denRow ? denRow.values[period.date] || 0 : (period.kpis?.ingresos || 0);
                 
                 let numVal = 0;
                 if (isEbitdaMargin) {
-                    const numRow = period.pnl?.fullRows?.find(r => normalizeText(r.concept) === "ebitda" || normalizeText(r.concept).includes("ebitda ") || normalizeText(r.concept).includes(" ebitda"));
+                    const numRow = period.pnl?.fullRows?.find(r => r.concept.toLowerCase() === "ebitda");
                     numVal = numRow ? numRow.values[period.date] || 0 : (period.kpis?.ebitda || 0);
                 } else if (isGrossMargin) {
-                    const numRow = period.pnl?.fullRows?.find(r => normalizeText(r.concept) === "margen bruto" || normalizeText(r.concept) === "utilidad bruta");
+                    const numRow = period.pnl?.fullRows?.find(r => r.concept.toLowerCase() === "margen bruto" || r.concept.toLowerCase() === "utilidad bruta");
                     numVal = numRow ? numRow.values[period.date] || 0 : (period.kpis?.margen_bruto * period.kpis?.ingresos || 0);
                 } else if (isNetMargin) {
-                    const numRow = period.pnl?.fullRows?.find(r => normalizeText(r.concept) === "utilidad neta" || normalizeText(r.concept) === "ganancia del periodo" || normalizeText(r.concept) === "resultado neto");
+                    const numRow = period.pnl?.fullRows?.find(r => r.concept.toLowerCase() === "utilidad neta" || r.concept.toLowerCase() === "ganancia del periodo" || r.concept.toLowerCase() === "resultado neto");
                     numVal = numRow ? numRow.values[period.date] || 0 : (period.kpis?.utilidad || 0);
                 } else if (isGgadm) {
-                    const numRow = period.pnl?.fullRows?.find(r => normalizeText(r.concept) === "total ggadm" || normalizeText(r.concept).includes("gastos administrativos"));
+                    const numRow = period.pnl?.fullRows?.find(r => r.concept.toLowerCase() === "total ggadm" || r.concept.toLowerCase().includes("gastos administrativos"));
                     numVal = numRow ? numRow.values[period.date] || 0 : 0;
                 }
 
@@ -3472,24 +3469,21 @@ function renderDetailedPnL(data, selectedIndex = -1) {
                         return Number(cleaned) || 0;
                     };
 
-                    const denRow = item.pnl.fullRows.find(r => {
-                        const nc = normalizeText(r.concept);
-                        return nc === "ventas netas" || nc === "total ingresos" || nc === "ingresos" || nc.includes("ventas netas");
-                    });
+                    const denRow = item.pnl.fullRows.find(r => r.concept.toLowerCase() === "ventas netas" || r.concept.toLowerCase() === "total ingresos" || r.concept.toLowerCase() === "ingresos" || r.concept.toLowerCase().includes("ventas netas"));
                     let denVal = denRow ? denRow.values[item.date] || 0 : (item.kpis?.ingresos || 0);
                     
                     let numVal = 0;
                     if (isEbitdaMargin) {
-                        const numRow = item.pnl.fullRows.find(r => normalizeText(r.concept) === "ebitda" || normalizeText(r.concept).includes("ebitda ") || normalizeText(r.concept).includes(" ebitda"));
+                        const numRow = item.pnl.fullRows.find(r => r.concept.toLowerCase() === "ebitda");
                         numVal = numRow ? numRow.values[item.date] || 0 : (item.kpis?.ebitda || 0);
                     } else if (isGrossMargin) {
-                        const numRow = item.pnl.fullRows.find(r => normalizeText(r.concept) === "margen bruto" || normalizeText(r.concept) === "utilidad bruta");
+                        const numRow = item.pnl.fullRows.find(r => r.concept.toLowerCase() === "margen bruto" || r.concept.toLowerCase() === "utilidad bruta");
                         numVal = numRow ? numRow.values[item.date] || 0 : (item.kpis?.margen_bruto * item.kpis?.ingresos || 0);
                     } else if (isNetMargin) {
-                        const numRow = item.pnl.fullRows.find(r => normalizeText(r.concept) === "utilidad neta" || normalizeText(r.concept) === "ganancia del periodo" || normalizeText(r.concept) === "resultado neto");
+                        const numRow = item.pnl.fullRows.find(r => r.concept.toLowerCase() === "utilidad neta" || r.concept.toLowerCase() === "ganancia del periodo" || r.concept.toLowerCase() === "resultado neto");
                         numVal = numRow ? numRow.values[item.date] || 0 : (item.kpis?.utilidad || 0);
                     } else if (isGgadm) {
-                        const numRow = item.pnl.fullRows.find(r => normalizeText(r.concept) === "total ggadm" || normalizeText(r.concept).includes("gastos administrativos"));
+                        const numRow = item.pnl.fullRows.find(r => r.concept.toLowerCase() === "total ggadm" || r.concept.toLowerCase().includes("gastos administrativos"));
                         numVal = numRow ? numRow.values[item.date] || 0 : 0;
                     }
 
