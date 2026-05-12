@@ -473,9 +473,6 @@ async function fetchMasterData(token = null) {
             throw new Error("No se pudo obtener el archivo fuente y no hay caché.");
         }
 
-        // Carga paralela de Ventas CEO
-        loadVentasCeoData(token);
-
         // ==========================================
         // 3. PROCESAR CON WORKER
         // ==========================================
@@ -805,7 +802,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                     // Do not redirect to interactive login automatically to prevent interrupting the cached UI
                     // Only prompt if we have no cached data at all.
                     if (!loadedFromCache) {
-                        window.handleMSALLoginFailure();
+                        console.log("Usuario conocido pero token expirado y sin caché: Redirigiendo a inicio de sesión corporativo...");
+                        msalInstance.loginRedirect({
+                            scopes: ["User.Read", "Files.Read", "Files.Read.All"]
+                        });
                     } else {
                         const sidebarSyncText = document.getElementById('sidebarSyncText');
                         if (sidebarSyncText) {
@@ -815,11 +815,16 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
             } else if (!loadedFromCache) {
-                window.handleMSALLoginFailure();
+                console.log("Usuario nuevo sin caché: Redirigiendo a inicio de sesión corporativo...");
+                msalInstance.loginRedirect({
+                    scopes: ["User.Read", "Files.Read", "Files.Read.All"]
+                });
             }
         }).catch(err => {
              console.error("MSAL Initialization failed:", err);
-             if (!loadedFromCache) window.handleMSALLoginFailure();
+             if (!loadedFromCache) {
+                 window.handleMSALLoginFailure();
+             }
         });
     } else if (!loadedFromCache) {
         window.handleMSALLoginFailure();
