@@ -510,7 +510,7 @@ async function fetchMasterData(token = null) {
         // 4. GUARDAR EN DISCO (INDEXEDDB) Y ACTUALIZAR UI SUAVEMENTE
         // ==========================================
         try {
-            const CACHE_KEY = 'planeta_azul_engine_result';
+            const CACHE_KEY = 'MASTER_FINANCE_KEY';
             const db = await new Promise((resolve, reject) => {
                 const req = indexedDB.open('PlanetaAzulDB', 3);
                 req.onupgradeneeded = (e) => {
@@ -646,7 +646,7 @@ window.updateLastUpdatedTime = function(timestamp) {
 
 async function loadCacheInstant() {
     try {
-        const CACHE_KEY = 'planeta_azul_engine_result';
+        const CACHE_KEY = 'MASTER_FINANCE_KEY';
         const db = await new Promise((resolve, reject) => {
             const req = indexedDB.open('PlanetaAzulDB', 3);
             req.onupgradeneeded = (e) => {
@@ -682,7 +682,7 @@ async function loadCacheInstant() {
         // Also load Ventas CEO data
         const ceoCachedRecord = await new Promise((resolve) => {
             try {
-                const req = db.transaction('finance_cache', 'readonly').objectStore('finance_cache').get('ventas_ceo_data');
+                const req = db.transaction('finance_cache', 'readonly').objectStore('finance_cache').get('CEO_VENTAS_KEY');
                 req.onsuccess = () => resolve(req.result);
                 req.onerror = () => resolve(null);
             } catch (e) {
@@ -745,8 +745,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 });
                 await new Promise((resolve, reject) => {
                     const tx = db.transaction('finance_cache', 'readwrite');
-                    tx.objectStore('finance_cache').delete('planeta_azul_engine_result');
-                    tx.objectStore('finance_cache').delete('ventas_ceo_data');
+                    tx.objectStore('finance_cache').delete('MASTER_FINANCE_KEY');
+                    tx.objectStore('finance_cache').delete('CEO_VENTAS_KEY');
                     tx.oncomplete = resolve;
                     tx.onerror = reject;
                 });
@@ -1581,7 +1581,7 @@ async function handleFileUpload(e) {
             
             // --- GUARDAR JSON PROCESADO EN INDEXEDDB ---
             try {
-                const CACHE_KEY = 'planeta_azul_engine_result';
+                const CACHE_KEY = 'MASTER_FINANCE_KEY';
                 const db = await new Promise((resolve, reject) => {
                     const req = indexedDB.open('PlanetaAzulDB', 3);
                     req.onupgradeneeded = (e) => {
@@ -4409,7 +4409,13 @@ function renderEstadosFinancieros(data, selectedIndex = -1) {
     console.log("-> renderEstadosFinancieros executing");
     const headerEl = document.getElementById('header-estados');
     const bodyEl = document.getElementById('body-estados');
-    if (!headerEl || !bodyEl || !data || data.length === 0) return;
+    if (!headerEl || !bodyEl) return;
+    
+    // Nueva validación de fuente: 
+    if (!data || data.length === 0 || !data[0].kpis) {
+        bodyEl.innerHTML = '<tr><td colspan="100%" style="text-align:center; padding: 20px; color: var(--text-secondary);">Por favor, sincronice el Master Financiero para ver esta sección</td></tr>';
+        return;
+    }
 
     const endIdx = selectedIndex >= 0 ? selectedIndex : data.length - 1;
     // Show up to 12 months including the selected one
@@ -5894,7 +5900,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 });
                 await new Promise((resolve, reject) => {
                     const tx = db.transaction('finance_cache', 'readwrite');
-                    tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'ventas_ceo_data');
+                    tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'CEO_VENTAS_KEY');
                     tx.oncomplete = resolve;
                     tx.onerror = reject;
                 });
@@ -5941,7 +5947,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                     });
                     await new Promise((resolve, reject) => {
                         const tx = db.transaction('finance_cache', 'readwrite');
-                        tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'ventas_ceo_data');
+                        tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'CEO_VENTAS_KEY');
                         tx.oncomplete = resolve;
                         tx.onerror = reject;
                     });
@@ -6030,7 +6036,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 });
                 await new Promise((resolve, reject) => {
                     const tx = db.transaction('finance_cache', 'readwrite');
-                    tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'ventas_ceo_data');
+                    tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'CEO_VENTAS_KEY');
                     tx.oncomplete = resolve;
                     tx.onerror = reject;
                 });

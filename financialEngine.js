@@ -223,6 +223,9 @@ export function calculateYTD(dataArray, selectedIndex) {
 function findRowByKeywords(rows, keywords, targetRowIdxHint = null) {
     let bestRow = null;
     let maxScore = -1;
+    
+    // Normalización Total requerida por el usuario
+    const normalizedKeywords = keywords.map(k => k.trim().toLowerCase());
 
     rows.forEach((row, idx) => {
         if (!row || row.length < 2) return;
@@ -230,9 +233,12 @@ function findRowByKeywords(rows, keywords, targetRowIdxHint = null) {
         for (let i = 0; i < Math.min(row.length, 10); i++) {
             const cell = row[i];
             if (!cell) continue;
-            const label = normalizeText(cell);
+            // Normalización Total requerida por el usuario:
+            // normalizeText ya quita espacios y baja a minúsculas, 
+            // pero añadimos explícitamente trim() y toLowerCase() para máxima seguridad
+            const label = normalizeText(cell).trim().toLowerCase();
             
-            if (keywords.some(k => label === k || (k.length > 3 && label.includes(k)))) {
+            if (normalizedKeywords.some(k => label === k || (k.length > 3 && label.includes(k)))) {
                 let numCount = 0;
                 let potentialTotal = 0;
                 for (let j = 1; j < row.length; j++) {
@@ -245,7 +251,7 @@ function findRowByKeywords(rows, keywords, targetRowIdxHint = null) {
 
                 let score = numCount;
                 // Prioridad alta a coincidencias exactas con keywords importantes
-                if (keywords.some(k => label === k)) score += 30;
+                if (normalizedKeywords.some(k => label === k)) score += 30;
                 
                 if (label.includes("total") || label.includes("sum") || label.includes("consolidado")) score += 15;
                 if (label.includes("neto") || label.includes("final") || label.includes("ejercicio")) score += 20;
