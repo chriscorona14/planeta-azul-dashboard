@@ -4532,7 +4532,7 @@ function renderEstadosFinancieros(data, selectedIndex = -1) {
     // Compute occurrences to handle duplicate labels correctly (e.g., "Costo de Ventas" twice)
     const labelOccurrences = {};
     const structuredItems = EXPLICIT_STRUCTURE.map(item => {
-        const keys = item.dataKey ? (Array.isArray(item.dataKey) ? item.dataKey.map(normalizeText) : [normalizeText(item.dataKey)]) : [normalizeText(item.label)];
+        const keys = item.dataKey ? (Array.isArray(item.dataKey) ? item.dataKey.map(k => normalizeText(k)) : [normalizeText(item.dataKey)]) : [normalizeText(item.label)];
         const primaryKey = keys[0];
         if (!labelOccurrences[primaryKey]) labelOccurrences[primaryKey] = 0;
         const occIndex = labelOccurrences[primaryKey];
@@ -4609,6 +4609,43 @@ function renderEstadosFinancieros(data, selectedIndex = -1) {
                         }
                         if (val !== 0) anyVal = true;
                     }
+                }
+            }
+
+            // Fallback robusto para campos calculados si no se extrajeron bien
+            if (!anyVal && val === 0 && item.type !== "category_main" && item.type !== "category" && item.type !== "empty") {
+                const normLabel = normalizeText(item.label);
+                if (normLabel === "utilidad bruta" || normLabel === "margen bruto") {
+                    const vNet = periodData?.kpis?.ingresos || 0;
+                    const cVentas = periodData?.pnl?.categorias?.["Costo de Ventas"] || 0;
+                    val = vNet + cVentas;
+                    if (val !== 0) anyVal = true;
+                } else if (normLabel === "ebitda" || normLabel === "ebitda ajustado") {
+                    val = periodData?.kpis?.ebitda || 0;
+                    if (val !== 0) anyVal = true;
+                } else if (normLabel === "utilidad antes de impuesto" || normLabel === "utilidad neta" || normLabel === "beneficio neto del periodo") {
+                    val = periodData?.kpis?.utilidad || 0;
+                    if (val !== 0) anyVal = true;
+                } else if (normLabel === "ventas netas" || normLabel === "ingresos") {
+                    val = periodData?.kpis?.ingresos || periodData?.pnl?.categorias?.["Ingresos"] || 0;
+                    if (val !== 0) anyVal = true;
+                } else if (normLabel === "costo de ventas") {
+                    val = periodData?.pnl?.categorias?.["Costo de Ventas"] || 0;
+                    if (item.occIndex === 0) {
+                        if (val !== 0) anyVal = true;
+                    } else {
+                        val = 0; // Evitar duplicado en el indent
+                    }
+                } else if (normLabel === "ggadm" || normLabel === "total ggadm") {
+                    // Tomar OPEX general aproximado si falla la extracción exacta
+                    const opDet = periodData?.pnl?.opexDetalle || {};
+                    val = -Math.abs((opDet["Gastos Administrativos"] || 0) + (opDet["Gastos de Mercadeo"] || 0) + (opDet["Gastos de Ventas (Comercial)"] || 0) + (opDet["Gastos de Logística"] || 0));
+                    if (val === 0 && periodData?.kpis?.ingresos) {
+                        // Opex fallback
+                        const opex = periodData.kpis.ingresos + (periodData.pnl?.categorias?.["Costo de Ventas"] || 0) - periodData.kpis.ebitda;
+                        val = -Math.abs(opex);
+                    }
+                    if (val !== 0) anyVal = true;
                 }
             }
 
