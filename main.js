@@ -774,12 +774,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    // MSAL Background Synchronization (No Bloqueante)
     if (msalInstance) {
         msalInstance.initialize?.().then(async () => {
             try {
                 const redirectResponse = await msalInstance.handleRedirectPromise();
                 if (redirectResponse) {
-                    // Limpia el token gigante de la URL (hash) inmediatamente para evitar colapso en móviles
                     window.history.replaceState({}, document.title, window.location.pathname);
                     fetchMasterData(redirectResponse.accessToken);
                     return;
@@ -788,33 +788,40 @@ document.addEventListener('DOMContentLoaded', async () => {
                 console.error("MSAL Redirect Error:", err);
             }
 
+            // Mandatory Silent Flow
             const accounts = msalInstance.getAllAccounts();
             if (accounts.length > 0) {
-                msalInstance.acquireTokenSilent({
-                    scopes: ["User.Read", "Files.Read", "Files.Read.All"],
-                    account: accounts[0]
-                }).then(response => {
+                try {
+                    const response = await msalInstance.acquireTokenSilent({
+                        scopes: ["User.Read", "Files.Read", "Files.Read.All"],
+                        account: accounts[0]
+                    });
+                    
+                    // Background Update
+                    // We assume fetchMasterData internally manages UI non-intrusiveness.
                     fetchMasterData(response.accessToken);
-                }).catch(error => {
-                    console.warn("Silent login failed:", error);
-                    alert("⚠️ No pudimos renovar la sesión de Microsoft automáticamente. Haz clic en 'Conectar Office 365' de nuevo.");
-                    window.handleMSALLoginFailure();
-                });
-            } else {
-                msalInstance.ssoSilent({
-                    scopes: ["User.Read", "Files.Read", "Files.Read.All"]
-                }).then(response => {
-                    fetchMasterData(response.accessToken);
-                }).catch(error => {
-                    console.warn("ssoSilent failed:", error);
-                    window.handleMSALLoginFailure();
-                });
+                } catch (error) {
+                    console.warn("Silent login failed (Token expire/cache missing):", error);
+                    // Do not redirect to interactive login automatically to prevent interrupting the cached UI
+                    // Only prompt if we have no cached data at all.
+                    if (!loadedFromCache) {
+                        window.handleMSALLoginFailure();
+                    } else {
+                        const sidebarSyncText = document.getElementById('sidebarSyncText');
+                        if (sidebarSyncText) {
+                            sidebarSyncText.innerText = 'Sesión expirada';
+                            sidebarSyncText.style.color = 'var(--warning)';
+                        }
+                    }
+                }
+            } else if (!loadedFromCache) {
+                window.handleMSALLoginFailure();
             }
         }).catch(err => {
              console.error("MSAL Initialization failed:", err);
-             window.handleMSALLoginFailure();
+             if (!loadedFromCache) window.handleMSALLoginFailure();
         });
-    } else {
+    } else if (!loadedFromCache) {
         window.handleMSALLoginFailure();
     }
     
