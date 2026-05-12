@@ -1,1 +1,5 @@
 @import "tailwindcss";
+
+#pnlDetailedBody > tr:nth-of-type(30) {
+  display: none !important;
+}
