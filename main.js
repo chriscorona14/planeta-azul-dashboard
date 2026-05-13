@@ -582,8 +582,8 @@ async function fetchMasterData(token = null) {
                     });
                     
                     // Usar la función existente para mapear el JSON extraído (actualiza ceoData internamente)
-                    if (typeof processVentasCeoWorkbook === 'function') {
-                        processVentasCeoWorkbook(null, null, resultCeo);
+                    if (typeof window.processVentasCeoWorkbook === 'function') {
+                        window.processVentasCeoWorkbook(null, null, resultCeo);
                         console.log("✅ Archivo Ventas CEO procesado y renderizado exitosamente.");
                     }
                     
@@ -638,6 +638,7 @@ window.handleZeroState = function() {
     const dropZone = document.getElementById('dropZone');
     const viewContainers = document.querySelectorAll('.view-container');
     const mainContainer = document.querySelector('.main-container');
+    const loginBtn = document.getElementById('loginM365Btn');
 
     if (!hasData) {
         if(sidebar) sidebar.style.display = 'none';
@@ -650,6 +651,7 @@ window.handleZeroState = function() {
             dropZone.style.display = 'block';
             dropZone.style.margin = '40px auto';
             if (mainContainer) mainContainer.appendChild(dropZone);
+            if (loginBtn) loginBtn.style.display = 'flex';
         }
     } else {
         if(sidebar) sidebar.style.display = '';
@@ -5903,7 +5905,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 }
                 const csvText = await res.text();
                 const lines = csvText.split(/\r?\n/).map(l => l.split(','));
-                processVentasCeoWorkbook(null, lines);
+                window.processVentasCeoWorkbook(null, lines);
             } catch(e) {
                 console.error("Error loading ventas CEO local", e);
             }
@@ -5933,7 +5935,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                         }
                     }
                 }
-                processVentasCeoWorkbook(workbook);
+                window.processVentasCeoWorkbook(workbook);
             } else {
                  console.error("Error fetching Ventas CEO from OneDrive", req.statusText);
             }
@@ -5942,7 +5944,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         }
     }
     
-    async function processVentasCeoWorkbook(workbook, fallbackLines, workerResult) {
+    window.processVentasCeoWorkbook = async function(workbook, fallbackLines, workerResult) {
         ceoData = []; // Vaciado de estado para evitar duplicados
         if (fallbackLines) {
             ceoData = parseConsejoSheet(fallbackLines);
@@ -6859,14 +6861,14 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                             }
                         }
                     }
-                    processVentasCeoWorkbook(workbook);
+                    window.processVentasCeoWorkbook(workbook);
                     resolve();
                 } catch(e) {
                     console.warn("No es un Excel válido, intentando como texto (CSV)...", e);
                     const textReader = new FileReader();
                     textReader.onload = (e2) => {
                         const lines = e2.target.result.split(/\r?\n/).map(l => l.split(','));
-                        processVentasCeoWorkbook(null, lines);
+                        window.processVentasCeoWorkbook(null, lines);
                         resolve();
                     };
                     textReader.readAsText(file);
