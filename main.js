@@ -2081,9 +2081,13 @@ function renderActiveViewLazy(data, index) {
             // Render Segmentos Ventas
             const segmentsSection = document.getElementById('segments-section');
             const segmentsBody = document.getElementById('segmentsBody');
-            if (Object.keys(segments).length > 0) {
+            const segmentsList = Object.entries(segments).filter(([name]) => {
+                const norm = name.toLowerCase();
+                return !norm.includes('otras ventas') && !norm.includes('otros ingresos');
+            });
+            if (segmentsList.length > 0) {
                 segmentsSection.style.display = 'block';
-                segmentsBody.innerHTML = Object.entries(segments).map(([name, dataSeg]) => {
+                segmentsBody.innerHTML = segmentsList.map(([name, dataSeg]) => {
                     const ventas = dataSeg.ventas || 0;
                     const prevVentas = prevSegments[name] ? prevSegments[name].ventas : 0;
                     const pptoVentas = pptoSegments[name] ? pptoSegments[name].ventas : 0;
@@ -2121,9 +2125,9 @@ function renderActiveViewLazy(data, index) {
             // Render Segmentos Costos
             const costSegmentsSection = document.getElementById('cost-segments-section');
             const costSegmentsBody = document.getElementById('costSegmentsBody');
-            if (Object.keys(segments).length > 0) {
+            if (segmentsList.length > 0) {
                 costSegmentsSection.style.display = 'block';
-                costSegmentsBody.innerHTML = Object.entries(segments).map(([name, dataSeg]) => {
+                costSegmentsBody.innerHTML = segmentsList.map(([name, dataSeg]) => {
                     const costos = dataSeg.costos || 0;
                     const prevCostos = prevSegments[name] ? prevSegments[name].costos : 0;
                     const pptoCostos = pptoSegments[name] ? pptoSegments[name].costos : 0;
@@ -2155,9 +2159,9 @@ function renderActiveViewLazy(data, index) {
             // Render Margen por segmento
             const margenSegmentsSection = document.getElementById('margen-segments-section');
             const margenSegmentsBody = document.getElementById('margenSegmentsBody');
-            if (Object.keys(segments).length > 0) {
+            if (segmentsList.length > 0) {
                 if(margenSegmentsSection) margenSegmentsSection.style.display = 'block';
-                if(margenSegmentsBody) margenSegmentsBody.innerHTML = Object.entries(segments).map(([name, dataSeg]) => {
+                if(margenSegmentsBody) margenSegmentsBody.innerHTML = segmentsList.map(([name, dataSeg]) => {
                     const ventas = dataSeg.ventas || 0;
                     const costos = dataSeg.costos || 0;
                     const prevVentas = prevSegments[name] ? prevSegments[name].ventas : 0;
@@ -4515,7 +4519,8 @@ function renderEstadosFinancieros(data, selectedIndex = -1) {
         if (sourceRows) {
             sourceRows.forEach(row => {
                 const norm = normalizeText(row.concept);
-                if (norm !== "x" && norm !== "año" && norm !== "mes" && norm !== "columna" && norm !== "(dop)" && norm !== "diferencial cambiario por operaciones" && norm !== "diferencial cambiario por deuda") {
+                const stringsToHide = ['otras ventas', 'otros ingresos'];
+                if (norm !== "x" && norm !== "año" && norm !== "mes" && norm !== "columna" && norm !== "(dop)" && norm !== "diferencial cambiario por operaciones" && norm !== "diferencial cambiario por deuda" && !stringsToHide.includes(norm)) {
                     if (!allDataConcepts.includes(row.concept)) allDataConcepts.push(row.concept);
                 }
             });
@@ -4529,8 +4534,6 @@ function renderEstadosFinancieros(data, selectedIndex = -1) {
         { label: "Ventas BT5", type: "indent" },
         { label: "Ventas EVP", type: "indent" },
         { label: "Ventas P6", type: "indent" },
-        { label: "Otras Ventas", type: "indent" },
-        { label: "Otros Ingresos", type: "indent" },
         { label: "Descuentos", type: "indent", dataKey: ["Descuentos", "Descuento", "Descuento sobre ventas", "Descuento en ventas", "Menos descuentos", "Menos descuentos y devoluciones"] },
         { label: "Devoluciones", type: "indent", dataKey: ["Devoluciones", "Devolucion", "Devoluciones sobre ventas", "Devolución", "Devolución en ventas", "Menos devoluciones", "Descuentos y devoluciones"] },
         { label: "Costo de Ventas", type: "bold" },
@@ -4753,7 +4756,11 @@ function renderEstadosFinancieros(data, selectedIndex = -1) {
         }
     });
 
-    const unmappedConcepts = Array.from(allConceptsInData).filter(c => !processedConcepts.has(c));
+    const stringsToHide = ['otras ventas', 'otros ingresos'];
+    const unmappedConcepts = Array.from(allConceptsInData).filter(c => {
+        const norm = normalizeText(c);
+        return !processedConcepts.has(c) && !stringsToHide.includes(norm);
+    });
 
     if (unmappedConcepts.length > 0) {
         tbBody += `<tr class="row-category"><td colspan="${periods.length + 2}" style="background:rgba(0,0,0,0.02); font-weight:700; font-size:0.75rem; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px;">Otras Cuentas (No Mapeadas)</td></tr>`;
@@ -6080,13 +6087,20 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                             hasChildren: hierarchyRow.hasChildren,
                             parentId: hierarchyRow.parentId,
                             id: hierarchyRow.id,
-                            values: {} 
+                            values: {},
+                            pptoValues: {}
                         };
                         
-                        Object.keys(newVolRow.values).forEach(k => {
+                        Object.keys(newVolRow.values || {}).forEach(k => {
                             let volVal = newVolRow.values[k] || 0;
                             let montoVal = montoRow.values[k] || 0;
                             precioRow.values[k] = volVal ? ((montoVal * 1000000) / volVal) : 0;
+                        });
+                        
+                        Object.keys(newVolRow.pptoValues || {}).forEach(k => {
+                            let volVal = newVolRow.pptoValues[k] || 0;
+                            let montoVal = montoRow.pptoValues[k] || 0;
+                            precioRow.pptoValues[k] = volVal ? ((montoVal * 1000000) / volVal) : 0;
                         });
                         
                         ['FY2024', 'PO25', 'PO26'].forEach(y => {
@@ -6812,11 +6826,17 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 const montoRow = parsedRows.find(r => r.Producto === prod && r.Tipo === "Monto (MM DOP)");
                 const volRow = parsedRows.find(r => r.Producto === prod && r.Tipo === "Volumen");
                 if(montoRow && volRow) {
-                    let p = { Producto: prod, Tipo: "Precio Unitario", values: {} };
-                    Object.keys(montoRow.values).forEach(k => {
+                    let p = { Producto: prod, Tipo: "Precio Unitario", values: {}, pptoValues: {} };
+                    Object.keys(montoRow.values || {}).forEach(k => {
                         let volVal = volRow.values[k] || 0;
                         let div = volVal ? ((montoRow.values[k] * 1000000) / volVal) : 0;
                         p.values[k] = div;
+                    });
+                    
+                    Object.keys(montoRow.pptoValues || {}).forEach(k => {
+                        let volVal = volRow.pptoValues[k] || 0;
+                        let div = volVal ? ((montoRow.pptoValues[k] * 1000000) / volVal) : 0;
+                        p.pptoValues[k] = div;
                     });
                     
                     // Also support cross-years
@@ -7178,7 +7198,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             chartData.push(item);
         });
         
-        const margin = { top: 30, right: 150, bottom: 100, left: 60 };
+        const margin = { top: 40, right: 150, bottom: 140, left: 70 };
         const width = container.clientWidth;
         const height = container.clientHeight;
         const boundedWidth = width - margin.left - margin.right;
@@ -7260,7 +7280,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             .attr("y", d => y(d[1]) + (y(d[0]) - y(d[1])) / 2 + 3)
             .attr("text-anchor", "middle")
             .attr("fill", "white")
-            .style("font-size", "10px")
+            .style("font-size", "12px")
             .style("font-weight", "600")
             .style("pointer-events", "none")
             .text(function(d) {
@@ -7280,7 +7300,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             .attr("x", d => x(d.label) + x.bandwidth() / 2)
             .attr("y", d => y(d.total) - 8)
             .attr("text-anchor", "middle")
-            .style("font-size", "11px")
+            .style("font-size", "13px")
             .style("font-weight", "bold")
             .style("fill", "var(--text-primary)")
             .text(d => formatter.format(d.total));
@@ -7291,15 +7311,19 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             .selectAll("text")
             .attr("transform", "rotate(-45)")
             .style("text-anchor", "end")
+            .style("font-size", "12px")
             .attr("dx", "-.8em")
             .attr("dy", ".15em");
 
-        g.append("g").call(d3.axisLeft(y).ticks(5));
+        g.append("g")
+            .call(d3.axisLeft(y).ticks(5))
+            .selectAll("text")
+            .style("font-size", "12px");
         
         // Add legend
         const legend = svg.append("g")
             .attr("font-family", "sans-serif")
-            .attr("font-size", 10)
+            .attr("font-size", 12)
             .attr("text-anchor", "start")
             .selectAll("g")
             .data(seriesKeys)
@@ -7316,7 +7340,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             .attr("x", 20)
             .attr("y", 7.5)
             .attr("dy", "0.32em")
-            .style("font-size", "10px")
+            .style("font-size", "12px")
             .text(d => d.length > 35 ? d.slice(0, 32) + '...' : d);
     }
     
