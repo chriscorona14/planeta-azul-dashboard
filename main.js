@@ -7198,7 +7198,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             chartData.push(item);
         });
         
-        const margin = { top: 40, right: 150, bottom: 140, left: 70 };
+        const margin = { top: 40, right: 300, bottom: 140, left: 70 };
         const width = container.clientWidth;
         const height = container.clientHeight;
         const boundedWidth = width - margin.left - margin.right;
@@ -7320,28 +7320,128 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             .selectAll("text")
             .style("font-size", "12px");
         
-        // Add legend
-        const legend = svg.append("g")
-            .attr("font-family", "sans-serif")
-            .attr("font-size", 12)
-            .attr("text-anchor", "start")
-            .selectAll("g")
-            .data(seriesKeys)
-            .enter().append("g")
-            .attr("transform", (d, i) => `translate(${width - margin.right + 20},${i * 20 + margin.top})`);
+        // Add additional annotations for __currAvg vs __prevAvg
+        const currIdx = chartData.findIndex(d => d.date === '__currAvg');
+        const prevIdx = chartData.findIndex(d => d.date === '__prevAvg');
+        
+        // Helper to format short names in the legend if needed so it doesn't overflow
+        const getShortName = (name) => {
+            if (!name) return "";
+            if (name.length <= 25) return name;
+            let s = name.toUpperCase();
+            if (s.includes("BOTELLON") && s.includes("18.9")) return s.includes("MAQUILA") ? "MAQ. BOTELLON 18.9L" : "APA BOTELLON 18.9L";
+            if (s.includes("1.5 LTS")) return s.includes("MAQUILA") ? "MAQ. 1.5L" : "APA 1.5L";
+            if (s.includes("0.5 LTS")) return s.includes("MAQUILA") ? "MAQ. 0.5L" : (s.includes("SABOR") ? "SABOR 0.5L" : "APA 0.5L");
+            if (s.includes("0.71 LTS")) return s.includes("H+") ? "PA H+ 0.71L" : "PA 0.71L";
+            if (s.includes("OTRAS") || s.includes("OTROS")) return s.includes("MAQUILA") ? "MAQ. OTROS" : "APA OTRAS";
+            return name.slice(0, 22) + '...';
+        };
 
-        legend.append("rect")
-            .attr("x", 0)
-            .attr("width", 15)
-            .attr("height", 15)
-            .attr("fill", colorScale);
+        if (currIdx !== -1 && prevIdx !== -1) {
+            const currItem = chartData[currIdx];
+            const prevItem = chartData[prevIdx];
+            
+            const formatterPct = new Intl.NumberFormat('es-DO', { style: 'percent', minimumFractionDigits: 0, maximumFractionDigits: 1, signDisplay: 'always' });
+            
+            const lastBarX = x(currItem.label) + x.bandwidth();
+            const lineX = lastBarX + 15;
+            
+            g.append("line")
+                .attr("x1", lineX)
+                .attr("y1", 0)
+                .attr("x2", lineX)
+                .attr("y2", boundedHeight)
+                .attr("stroke", "var(--sidebar)")
+                .attr("stroke-width", 2)
+                .attr("stroke-dasharray", "4,4")
+                .attr("opacity", 0.5);
+                
+            const annotG = g.append("g")
+                .attr("transform", `translate(${lineX + 10}, 0)`);
+                
+            annotG.append("text")
+                .attr("x", 0)
+                .attr("y", 10)
+                .attr("fill", "var(--sidebar)")
+                .style("font-size", "13px")
+                .style("font-weight", "bold")
+                .html(`<tspan x="0" dy="0">Ult. 5 meses</tspan><tspan x="0" dy="16">% vs. AA</tspan>`);
+                
+            let totalPct = prevItem.total !== 0 ? (currItem.total - prevItem.total) / prevItem.total : (currItem.total > 0 ? 1 : 0);
+            
+            annotG.append("text")
+                .attr("x", 0)
+                .attr("y", 55)
+                .attr("fill", "var(--primary)")
+                .style("font-size", "14px")
+                .style("font-weight", "bold")
+                .text(`Total: ${formatterPct.format(totalPct)}`);
+            
+            // Build pct map
+            const pctMap = {};
+            seriesKeys.forEach(k => {
+                let prev = prevItem[k] || 0;
+                let curr = currItem[k] || 0;
+                pctMap[k] = prev !== 0 ? (curr - prev) / prev : (curr > 0 ? 1 : 0);
+            });
 
-        legend.append("text")
-            .attr("x", 20)
-            .attr("y", 7.5)
-            .attr("dy", "0.32em")
-            .style("font-size", "12px")
-            .text(d => d.length > 35 ? d.slice(0, 32) + '...' : d);
+            // Put legend exactly here
+            const legend = annotG.append("g")
+                .attr("font-family", "sans-serif")
+                .attr("font-size", 12)
+                .attr("text-anchor", "start")
+                .selectAll("g")
+                .data(seriesKeys)
+                .enter().append("g")
+                .attr("transform", (d, i) => `translate(0,${i * 20 + 80})`);
+
+            legend.append("rect")
+                .attr("x", 0)
+                .attr("width", 15)
+                .attr("height", 15)
+                .attr("fill", colorScale);
+
+            legend.append("text")
+                .attr("x", 20)
+                .attr("y", 7.5)
+                .attr("dy", "0.32em")
+                .style("font-size", "12px")
+                .attr("fill", "var(--text-primary)")
+                .html(d => {
+                    let shortName = getShortName(d);
+                    let pctValue = pctMap[d];
+                    // Make the percentage bold and colored
+                    let color = pctValue >= 0 ? "var(--success)" : "var(--destructive)";
+                    let pctStr = formatterPct.format(pctValue);
+                    let displayStr = `${shortName}: `;
+                    return `<tspan>${displayStr}</tspan><tspan fill="${color}" font-weight="bold">${pctStr}</tspan>`;
+                });
+
+        } else {
+            // standard legend
+            const legend = svg.append("g")
+                .attr("font-family", "sans-serif")
+                .attr("font-size", 12)
+                .attr("text-anchor", "start")
+                .selectAll("g")
+                .data(seriesKeys)
+                .enter().append("g")
+                .attr("transform", (d, i) => `translate(${width - 200},${i * 20 + margin.top})`); // pushed legend a bit left
+
+            legend.append("rect")
+                .attr("x", 0)
+                .attr("width", 15)
+                .attr("height", 15)
+                .attr("fill", colorScale);
+
+            legend.append("text")
+                .attr("x", 20)
+                .attr("y", 7.5)
+                .attr("dy", "0.32em")
+                .style("font-size", "12px")
+                .attr("fill", "var(--text-primary)")
+                .text(d => getShortName(d));
+        }
     }
     
     document.getElementById('btn-ventas-vol')?.addEventListener('click', () => {
