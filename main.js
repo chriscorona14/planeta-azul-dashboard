@@ -545,6 +545,54 @@ async function fetchMasterData(token = null) {
             window.updateLastUpdatedTime();
         }
 
+        // ==========================================
+        // 5. DOBLE DESCARGA: VENTAS CEO (Persistencia Silenciosa)
+        // ==========================================
+        const CEO_FILE_URL = import.meta.env.VITE_CEO_FILE_URL || import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID;
+        if (CEO_FILE_URL && token) {
+            setTimeout(async () => {
+                try {
+                    console.log("Iniciando descarga asincrónica de Ventas CEO...");
+                    const encodedCeoUrl = btoa(CEO_FILE_URL).replace(/=/g, '').replace(/\//g, '_').replace(/\+/g, '-');
+                    const graphUrlCeo = `https://graph.microsoft.com/v1.0/shares/u!${encodedCeoUrl}/driveItem/content`;
+                    
+                    const reqCeo = await fetch(graphUrlCeo, { headers: { "Authorization": `Bearer ${token}` }});
+                    if (!reqCeo.ok) throw new Error("Fallo al obtener archivo de Ventas CEO desde OneDrive");
+                    
+                    const arrayBufferCeo = await reqCeo.arrayBuffer();
+                    
+                    // Procesamiento Independiente en el Worker
+                    const resultCeo = await new Promise((resolve, reject) => {
+                        const ceoWorker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+                        ceoWorker.onmessage = (e) => {
+                            const data = e.data;
+                            if (data.type === 'done_ventas') {
+                                resolve(data.result);
+                                ceoWorker.terminate();
+                            } else if (data.type === 'error') {
+                                reject(new Error(data.error));
+                                ceoWorker.terminate();
+                            }
+                        };
+                        ceoWorker.onerror = (err) => {
+                            reject(new Error(err.message));
+                            ceoWorker.terminate();
+                        };
+                        ceoWorker.postMessage({ buffer: arrayBufferCeo, fileType: 'ventas_ceo' }, [arrayBufferCeo]);
+                    });
+                    
+                    // Usar la función existente para mapear el JSON extraído (actualiza ceoData internamente)
+                    if (typeof processVentasCeoWorkbook === 'function') {
+                        processVentasCeoWorkbook(null, null, resultCeo);
+                        console.log("✅ Archivo Ventas CEO procesado y renderizado exitosamente.");
+                    }
+                    
+                } catch (err) {
+                    console.warn("Persistencia Silenciosa: Fallo en la carga de Ventas CEO, omitiendo error...", err);
+                }
+            }, 500); // Dar un respiro a la UI antes de arrancar con el CEO
+        }
+
     } catch (error) {
         console.error("Error en sincronización:", error);
         if (window._m365Interval) clearInterval(window._m365Interval);
@@ -5894,7 +5942,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         }
     }
     
-    async function processVentasCeoWorkbook(workbook, fallbackLines) {
+    async function processVentasCeoWorkbook(workbook, fallbackLines, workerResult) {
         ceoData = []; // Vaciado de estado para evitar duplicados
         if (fallbackLines) {
             ceoData = parseConsejoSheet(fallbackLines);
@@ -5928,22 +5976,34 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         
         try {
             // Find sheets
-            const consejoSheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('consejo'));
-            const dataSheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('data por mes'));
+            let consejoSheetName, dataSheetName, bestSheetName;
+            
+            if (workerResult) {
+                consejoSheetName = workerResult.consejoSheetName;
+                dataSheetName = workerResult.dataSheetName;
+                bestSheetName = workerResult.bestSheetName;
+            } else {
+                consejoSheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('consejo'));
+                dataSheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('data por mes'));
+            }
             
             if (!consejoSheetName) {
-                // Try finding the best sheet
-                let bestSheetName = workbook.SheetNames[0];
-                for (let name of workbook.SheetNames) {
-                    const sheetTmp = workbook.Sheets[name];
-                    const rowsTmp = XLSX.utils.sheet_to_json(sheetTmp, { header: 1 });
-                    const hasProducto = rowsTmp.some(r => r && r.some(c => String(c).toLowerCase().trim() === 'producto' || String(c).toLowerCase().trim() === 'descripción'));
-                    if (hasProducto) {
-                        bestSheetName = name;
-                        break;
+                let bestRows;
+                if (workerResult) {
+                     bestRows = workerResult.bestRows;
+                } else {
+                    bestSheetName = workbook.SheetNames[0];
+                    for (let name of workbook.SheetNames) {
+                        const sheetTmp = workbook.Sheets[name];
+                        const rowsTmp = XLSX.utils.sheet_to_json(sheetTmp, { header: 1 });
+                        const hasProducto = rowsTmp.some(r => r && r.some(c => String(c).toLowerCase().trim() === 'producto' || String(c).toLowerCase().trim() === 'descripción'));
+                        if (hasProducto) {
+                            bestSheetName = name;
+                            break;
+                        }
                     }
+                    bestRows = XLSX.utils.sheet_to_json(workbook.Sheets[bestSheetName], { header: 1 });
                 }
-                let bestRows = XLSX.utils.sheet_to_json(workbook.Sheets[bestSheetName], { header: 1 });
                 ceoData = parseConsejoSheet(bestRows);
                 // Save to IndexedDB
                 try {
@@ -5975,10 +6035,13 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
 
             // Both sheets are available or at least Consejo is
             // Start by extracting "Tablas Consejo" for Volumen
-            const consejoSheet = workbook.Sheets[consejoSheetName];
-            
-            // Refactor del Parseo: Usar {range: 2} para saltar las 2 primeras filas basura
-            const rawConsejoObjects = XLSX.utils.sheet_to_json(consejoSheet, { range: 2, defval: 0 });
+            let rawConsejoObjects;
+            if (workerResult) {
+                rawConsejoObjects = workerResult.consejoRows;
+            } else {
+                const consejoSheet = workbook.Sheets[consejoSheetName];
+                rawConsejoObjects = XLSX.utils.sheet_to_json(consejoSheet, { range: 2, defval: 0 });
+            }
             
             const tempParsedRows = parseConsejoFromObjects(rawConsejoObjects);
             let baseHierarchy = tempParsedRows.filter(d => d.Tipo === 'Volumen');
@@ -5986,8 +6049,13 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
 
             if (dataSheetName) {
                 // If "data por mes" exists, compute Volumen, Monto and Precio Unitario
-                const dataSheet = workbook.Sheets[dataSheetName];
-                const dataRows = XLSX.utils.sheet_to_json(dataSheet, { header: 1 });
+                let dataRows;
+                if (workerResult) {
+                    dataRows = workerResult.dataRows;
+                } else {
+                    const dataSheet = workbook.Sheets[dataSheetName];
+                    dataRows = XLSX.utils.sheet_to_json(dataSheet, { header: 1 });
+                }
                 const detailedData = extractDetailedData(dataRows);
                 
                 const categories = [...new Set(baseHierarchy.map(r => r.Producto))];
