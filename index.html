@@ -129,7 +129,20 @@
         list-style: none;
         margin-top: 32px;
         flex-grow: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
       }
+      .menu::-webkit-scrollbar {
+        width: 4px;
+      }
+      .menu::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .menu::-webkit-scrollbar-thumb {
+        background: rgba(255,255,255,0.2);
+        border-radius: 4px;
+      }
+
 
       .menu-item {
         margin-bottom: 12px;
@@ -1318,36 +1331,52 @@
         </div>
 
         <nav class="menu">
-          <div class="menu-item">
-            <a href="#" id="menu-kpi" class="active">KPI Dashboard</a>
+          <div class="menu-section-title group-header" onclick="toggleMenuGroup('grupo-seguimiento', 'icon-seguimiento')" style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: rgba(255,255,255,0.85); margin: 0 16px 8px 16px; letter-spacing: 0.05em; transition: color 0.2s;">
+            <span>Modelo de Seguimiento</span>
+            <i data-lucide="chevron-up" id="icon-seguimiento" style="width: 14px; height: 14px; transition: transform 0.2s;"></i>
           </div>
-          <div class="menu-item">
-            <a href="#" id="menu-resumen">Resumen Ejecutivo</a>
+          <div id="grupo-seguimiento" style="overflow: hidden; transition: max-height 0.3s ease; max-height: 500px;">
+            <div class="menu-item">
+              <a href="#" id="menu-kpi" class="active" style="padding-left: 24px;">KPI Dashboard</a>
+            </div>
+            <div class="menu-item">
+              <a href="#" id="menu-resumen" style="padding-left: 24px;">Resumen Ejecutivo</a>
+            </div>
+            <div class="menu-item">
+              <a href="#" id="menu-preliminar" style="padding-left: 24px;">Estado de Resultado</a>
+            </div>
+            <div class="menu-item">
+              <a href="#" id="menu-pnl" style="padding-left: 24px;">P&L Detallado</a>
+            </div>
+            <div class="menu-item">
+              <a href="#" id="menu-balance" style="padding-left: 24px;">Balance Sheet</a>
+            </div>
+            <div class="menu-item">
+              <a href="#" id="menu-cashflow" style="padding-left: 24px;">Cash Flow</a>
+            </div>
+            <div class="menu-item">
+              <a href="#" id="menu-wc" style="padding-left: 24px;">Working Capital</a>
+            </div>
+            <div class="menu-item">
+              <a href="#" id="menu-estados" style="padding-left: 24px;">Estados Financieros</a>
+            </div>
+            <div class="menu-item" style="display: none;">
+              <a href="#" id="menu-simulador" style="padding-left: 24px;">Simulador What-If</a>
+            </div>
           </div>
-          <div class="menu-item">
-            <a href="#" id="menu-preliminar">Estado de Resultado</a>
+
+          <div class="menu-section-title group-header" onclick="toggleMenuGroup('grupo-ventas', 'icon-ventas')" style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: rgba(255,255,255,0.85); margin: 24px 16px 8px 16px; letter-spacing: 0.05em; transition: color 0.2s;">
+            <span>Ventas</span>
+            <i data-lucide="chevron-up" id="icon-ventas" style="width: 14px; height: 14px; transition: transform 0.2s;"></i>
           </div>
-          <div class="menu-item">
-            <a href="#" id="menu-pnl">P&L Detallado</a>
+          <div id="grupo-ventas" style="overflow: hidden; transition: max-height 0.3s ease; max-height: 200px;">
+            <div class="menu-item">
+              <a href="#" id="menu-ventas-ceo" style="padding-left: 24px;">Ventas CEO</a>
+            </div>
           </div>
-          <div class="menu-item">
-            <a href="#" id="menu-balance">Balance Sheet</a>
-          </div>
-          <div class="menu-item">
-            <a href="#" id="menu-cashflow">Cash Flow</a>
-          </div>
-          <div class="menu-item">
-            <a href="#" id="menu-wc">Working Capital</a>
-          </div>
-          <div class="menu-item">
-            <a href="#" id="menu-estados">Estados Financieros</a>
-          </div>
-          <div class="menu-item" style="display: none;">
-            <a href="#" id="menu-simulador">Simulador What-If</a>
-          </div>
-          <div class="menu-item" style="display: none;">
-            <a href="#" id="menu-ventas-ceo">Ventas Ceo</a>
-          </div>
+
+          <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 24px 16px 16px 16px;">
+
           <div class="menu-item">
             <a href="#" id="menu-config">Configuración</a>
           </div>
@@ -1355,6 +1384,22 @@
             <a href="#" id="menu-glosario">Glosario Financiero</a>
           </div>
         </nav>
+        
+        <script>
+          function toggleMenuGroup(groupId, iconId) {
+            const group = document.getElementById(groupId);
+            const icon = document.getElementById(iconId);
+            if (!group || !icon) return;
+            
+            if (group.style.maxHeight !== '0px') {
+              group.style.maxHeight = '0px';
+              icon.style.transform = 'rotate(180deg)';
+            } else {
+              group.style.maxHeight = groupId === 'grupo-seguimiento' ? '500px' : '200px';
+              icon.style.transform = 'rotate(0deg)';
+            }
+          }
+        </script>
       </div>
 
       <div class="sidebar-footer" style="display: flex; flex-direction: column; gap: 8px;">
@@ -2422,7 +2467,7 @@
                   <span id="fileInputName" style="font-size: 0.75rem; color: var(--text-secondary);">Ningún archivo seleccionado</span>
                 </div>
                 
-                <div style="display: none; flex-direction: column; align-items: center; gap: 4px;">
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
                   <label for="upload-ventas-ceo-home" class="btn-primary" style="margin-top: 0; width: fit-content; padding: 10px 24px; cursor: pointer; background: #eef2f5; color: var(--primary); border: 1px solid var(--border); border-radius: 8px; font-weight: 500;">2. Archivo Ventas CEO</label>
                   <input type="file" id="upload-ventas-ceo-home" accept=".xlsx, .xls, .csv" style="display: none;" />
                   <span id="ventasCeoFileName" style="font-size: 0.75rem; color: var(--text-secondary);">Ningún archivo seleccionado</span>
@@ -3287,27 +3332,19 @@
       
       <!-- VIEW: Ventas Ceo -->
       <div id="view-ventas-ceo" class="view-container">
-        <div class="header-info" style="margin-bottom: 24px;">
-          <h2>Ventas CEO</h2>
-          <p style="color: var(--text-secondary); font-size: 0.9rem;">
-            Datos de ventas estructurados: Volumen, Monto y Precio Unitario.
-          </p>
-        </div>
-        
-        <div class="kpi-scorecard-grid">
-          <div class="score-card" style="box-shadow: none;">
-            <div class="score-label" style="margin-bottom: 16px;">Seleccionar Métrica</div>
-            <div style="display: flex; gap: 8px;">
-              <button id="btn-ventas-vol" style="flex: 1; padding: 12px; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s;">Volumen</button>
-              <button id="btn-ventas-monto" style="flex: 1; padding: 12px; background: #e2e8f0; color: var(--text-secondary); border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s;">Monto (MM DOP)</button>
-              <button id="btn-ventas-precio" style="flex: 1; padding: 12px; background: #e2e8f0; color: var(--text-secondary); border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s;">Precio Unit.</button>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <span style="font-size: 0.85rem; font-weight: 600; color: var(--sidebar);">Métrica:</span>
+            <div style="display: flex; gap: 4px; background: #f1f5f9; padding: 4px; border-radius: 8px;">
+               <button id="btn-ventas-vol" style="padding: 6px 12px; background: white; color: var(--primary); border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.05); transition: 0.2s;">Volumen (k)</button>
+               <button id="btn-ventas-monto" style="padding: 6px 12px; background: transparent; color: var(--text-secondary); border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 600; box-shadow: none; transition: 0.2s;">Monto (mDOP)</button>
+               <button id="btn-ventas-precio" style="padding: 6px 12px; background: transparent; color: var(--text-secondary); border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 600; box-shadow: none; transition: 0.2s;">Precio Unit.</button>
             </div>
           </div>
-        </div>
-        
-        <div class="pnl-controls" style="display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 12px;">
-           <button id="btn-ventas-colapsar" style="padding: 6px 12px; background: white; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font-size: 0.8rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05); font-weight: 500;">Colapsar Todo</button>
-           <button id="btn-ventas-expandir" style="padding: 6px 12px; background: white; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font-size: 0.8rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05); font-weight: 500;">Expandir Todo</button>
+          <div class="pnl-controls" style="display: flex; gap: 8px;">
+             <button id="btn-ventas-colapsar" style="padding: 6px 12px; background: white; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font-size: 0.8rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05); font-weight: 500;">Colapsar Todo</button>
+             <button id="btn-ventas-expandir" style="padding: 6px 12px; background: white; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font-size: 0.8rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05); font-weight: 500;">Expandir Todo</button>
+          </div>
         </div>
         
         <div class="pnl-detail-table" id="ventas-ceo-table-container" style="margin-bottom: 24px; max-height: none; overflow-y: visible; overflow-x: auto;">
@@ -3318,7 +3355,7 @@
            </table>
         </div>
         
-        <div class="chart-box" style="height: 500px; position: relative;">
+        <div class="chart-box" style="height: 700px; position: relative;">
           <div class="chart-header">
             <h4>Evolución de Ventas</h4>
           </div>

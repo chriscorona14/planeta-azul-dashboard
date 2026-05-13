@@ -5981,56 +5981,233 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             const rawConsejoObjects = XLSX.utils.sheet_to_json(consejoSheet, { range: 2, defval: 0 });
             
             const tempParsedRows = parseConsejoFromObjects(rawConsejoObjects);
-            let finalData = tempParsedRows.filter(d => d.Tipo === 'Volumen');
+            let baseHierarchy = tempParsedRows.filter(d => d.Tipo === 'Volumen');
+            let finalData = [];
 
             if (dataSheetName) {
-                // If "data por mes" exists, compute Monto and Precio Unitario
+                // If "data por mes" exists, compute Volumen, Monto and Precio Unitario
                 const dataSheet = workbook.Sheets[dataSheetName];
                 const dataRows = XLSX.utils.sheet_to_json(dataSheet, { header: 1 });
                 const detailedData = extractDetailedData(dataRows);
                 
-                // Construct "Monto (MM DOP)" and "Precio Unitario" based on Volumen categories
-                const categories = [...new Set(finalData.map(r => r.Producto))];
+                const categories = [...new Set(baseHierarchy.map(r => r.Producto))];
                 
                 categories.forEach(cat => {
-                    const volRow = finalData.find(d => d.Producto === cat && d.Tipo === 'Volumen');
-                    if(volRow) {
-                        const montoRow = computeMontoForCategory(cat, detailedData, volRow);
-                        if (montoRow) {
-                            finalData.push(montoRow);
-                            
-                            // Compute Precio Unitario
-                            let precioRow = { 
-                                Producto: cat, 
-                                Tipo: "Precio Unitario", 
-                                hasChildren: volRow.hasChildren,
-                                parentId: volRow.parentId,
-                                id: volRow.id,
-                                values: {} 
-                            };
-                            Object.keys(volRow.values).forEach(k => {
-                                let volVal = volRow.values[k] || 0;
-                                let montoVal = montoRow.values[k] || 0;
-                                let div = volVal ? ((montoVal * 1000000) / volVal) : 0;
-                                precioRow.values[k] = div;
-                            });
-                            
-                            // Support cross-years
-                            ['FY2024', 'PO25', 'PO26'].forEach(y => {
-                                let volVal = volRow[y] || 0;
-                                let montoVal = montoRow[y] || 0;
-                                precioRow[y] = volVal ? ((montoVal * 1000000) / volVal) : 0;
-                            });
-                            
-                            finalData.push(precioRow);
-                        }
+                    const hierarchyRow = baseHierarchy.find(d => d.Producto === cat);
+                    if(hierarchyRow) {
+                        // Compute Volumen 
+                        const newVolRow = computeCategoryFromDetailed(cat, detailedData, hierarchyRow, 'Volumen');
+                        finalData.push(newVolRow);
+                        
+                        // Compute Monto 
+                        const montoRow = computeCategoryFromDetailed(cat, detailedData, hierarchyRow, 'Monto (MM DOP)');
+                        finalData.push(montoRow);
+                        
+                        // Compute Precio Unitario
+                        let precioRow = { 
+                            Producto: cat, 
+                            Tipo: "Precio Unitario", 
+                            hasChildren: hierarchyRow.hasChildren,
+                            parentId: hierarchyRow.parentId,
+                            id: hierarchyRow.id,
+                            values: {} 
+                        };
+                        
+                        Object.keys(newVolRow.values).forEach(k => {
+                            let volVal = newVolRow.values[k] || 0;
+                            let montoVal = montoRow.values[k] || 0;
+                            precioRow.values[k] = volVal ? ((montoVal * 1000000) / volVal) : 0;
+                        });
+                        
+                        ['FY2024', 'PO25', 'PO26'].forEach(y => {
+                            let volVal = newVolRow[y] || 0;
+                            let montoVal = montoRow[y] || 0;
+                            precioRow[y] = volVal ? ((montoVal * 1000000) / volVal) : 0;
+                        });
+                        
+                        finalData.push(precioRow);
                     }
                 });
+
             } else {
-                // fallback to process the whole sheet as we used to
+                // fallback 
                 finalData = tempParsedRows; 
             }
             
+            // 1. Recalcular Padres (las filas que funcionan como 'padres' de los grupos deben contemplarse como la suma del valor de los 'hijos')
+            const parentIds = [...new Set(finalData.filter(d => d.hasChildren).map(d => d.id))];
+            parentIds.forEach(pId => {
+                ['Volumen', 'Monto (MM DOP)'].forEach(tipo => {
+                    let parentRow = finalData.find(d => d.id === pId && d.Tipo === tipo);
+                    if (parentRow) {
+                        let children = finalData.filter(d => d.parentId === pId && d.Tipo === tipo);
+                        // Limpiar valores del padre para sumar
+                        Object.keys(parentRow.values).forEach(k => parentRow.values[k] = 0);
+                        if(parentRow.pptoValues) Object.keys(parentRow.pptoValues).forEach(k => parentRow.pptoValues[k] = 0);
+                        else parentRow.pptoValues = {};
+                        
+                        ['FY2024', 'PO25', 'PO26'].forEach(y => { if(parentRow[y] !== undefined) parentRow[y] = 0; });
+                        
+                        children.forEach(c => {
+                            Object.keys(c.values).forEach(k => {
+                                parentRow.values[k] = (parentRow.values[k] || 0) + (c.values[k] || 0);
+                            });
+                            if(c.pptoValues) {
+                                Object.keys(c.pptoValues).forEach(k => {
+                                    parentRow.pptoValues[k] = (parentRow.pptoValues[k] || 0) + (c.pptoValues[k] || 0);
+                                });
+                            }
+                            ['FY2024', 'PO25', 'PO26'].forEach(y => {
+                                parentRow[y] = (parentRow[y] || 0) + (c[y] || 0);
+                            });
+                        });
+                    }
+                });
+                
+                // Recalcular Precio Unitario para el padre = Monto / Volumen
+                let parentPrecio = finalData.find(d => d.id === pId && d.Tipo === 'Precio Unitario');
+                let parentVol = finalData.find(d => d.id === pId && d.Tipo === 'Volumen');
+                let parentMonto = finalData.find(d => d.id === pId && d.Tipo === 'Monto (MM DOP)');
+                
+                if (!parentPrecio && parentVol && parentMonto) {
+                    parentPrecio = { Producto: parentVol.Producto, Tipo: 'Precio Unitario', values: {}, pptoValues: {} };
+                    parentPrecio.id = parentVol.id;
+                    parentPrecio.hasChildren = parentVol.hasChildren;
+                    parentPrecio.parentId = parentVol.parentId;
+                    finalData.push(parentPrecio);
+                }
+                
+                if (parentPrecio && parentVol && parentMonto) {
+                    parentPrecio.pptoValues = {};
+                    let allKeys = new Set([...Object.keys(parentVol.values || {}), ...Object.keys(parentVol.pptoValues || {})]);
+                    allKeys.forEach(k => {
+                        let volVal = parentVol.values[k] || 0;
+                        let montoVal = parentMonto.values[k] || 0;
+                        parentPrecio.values[k] = volVal ? ((montoVal * 1000000) / volVal) : 0;
+                        
+                        let volPpto = parentVol.pptoValues?.[k] || 0;
+                        let montoPpto = parentMonto.pptoValues?.[k] || 0;
+                        parentPrecio.pptoValues[k] = volPpto ? ((montoPpto * 1000000) / volPpto) : 0;
+                    });
+                    ['FY2024', 'PO25', 'PO26'].forEach(y => {
+                        let volVal = parentVol[y] || 0;
+                        let montoVal = parentMonto[y] || 0;
+                        parentPrecio[y] = volVal ? ((montoVal * 1000000) / volVal) : 0;
+                    });
+                }
+            });
+
+            // 2. Recalcular TOTAL y TOTAL SIN BON si están en el hierarchy
+            ['TOTAL', 'TOTAL SIN BON'].forEach(tot => {
+               ['Volumen', 'Monto (MM DOP)'].forEach(tipo => {
+                   let totRow = finalData.find(d => d.Producto === tot && d.Tipo === tipo);
+                   if(totRow) {
+                       totRow.pptoValues = totRow.pptoValues || {};
+                       // Las filas raíz
+                       const mainItems = finalData.filter(d => !d.parentId && d.Tipo === tipo && !d.Producto.startsWith('TOTAL') && !d.Producto.startsWith('TOTAL SIN BON'));
+                       // Las filas BONIF o BON (son hijos)
+                       const bonifItems = finalData.filter(d => d.parentId && d.Tipo === tipo && d.Producto.includes('BON'));
+                       
+                       // Collect all possible keys
+                       let allKeys = new Set();
+                       mainItems.forEach(d => {
+                           if(d.values) Object.keys(d.values).forEach(k => allKeys.add(k));
+                           if(d.pptoValues) Object.keys(d.pptoValues).forEach(k => allKeys.add(k));
+                       });
+                       bonifItems.forEach(d => {
+                           if(d.values) Object.keys(d.values).forEach(k => allKeys.add(k));
+                           if(d.pptoValues) Object.keys(d.pptoValues).forEach(k => allKeys.add(k));
+                       });
+
+                       allKeys.forEach(k => {
+                           let sum = 0;
+                           let sumPpto = 0;
+                           mainItems.forEach(d => {
+                               sum += (d.values[k] || 0);
+                               sumPpto += (d.pptoValues?.[k] || 0);
+                           });
+                           
+                           if (tot === 'TOTAL SIN BON') {
+                               // Restar bonificaciones
+                               bonifItems.forEach(d => {
+                                   sum -= (d.values[k] || 0);
+                                   sumPpto -= (d.pptoValues?.[k] || 0);
+                               });
+                           }
+                           
+                           totRow.values[k] = sum;
+                           totRow.pptoValues[k] = sumPpto;
+                       });
+                       
+                       ['FY2024', 'PO25', 'PO26'].forEach(y => {
+                           let sum = 0;
+                           let sumPpto = 0;
+                           mainItems.forEach(d => {
+                               sum += (d[y] || 0);
+                               sumPpto += (d.pptoValues?.[y] || 0); // Note: FY2024 etc. are direct properties, not in pptoValues, wait!
+                           });
+                           
+                           if (tot === 'TOTAL SIN BON') {
+                               bonifItems.forEach(d => {
+                                   sum -= (d[y] || 0);
+                                   sumPpto -= (d.pptoValues?.[y] || 0);
+                               });
+                           }
+                           
+                           totRow[y] = sum;
+                           // we don't have totRow.pptoValues[y]
+                       });
+                   }
+               });
+               
+               // Precio Unitario para totales
+               let totPrecio = finalData.find(d => d.Producto === tot && d.Tipo === 'Precio Unitario');
+               let totVol = finalData.find(d => d.Producto === tot && d.Tipo === 'Volumen');
+               let totMonto = finalData.find(d => d.Producto === tot && d.Tipo === 'Monto (MM DOP)');
+               
+               if (!totPrecio && totVol && totMonto) {
+                   totPrecio = { Producto: tot, Tipo: 'Precio Unitario', values: {}, pptoValues: {} };
+                   if (totVol.id) totPrecio.id = totVol.id;
+                   if (totVol.hasChildren !== undefined) totPrecio.hasChildren = totVol.hasChildren;
+                   if (totVol.parentId) totPrecio.parentId = totVol.parentId;
+                   finalData.push(totPrecio);
+               }
+               
+               if (totPrecio && totVol && totMonto) {
+                    totPrecio.pptoValues = totPrecio.pptoValues || {};
+                    let allKeys = new Set([...Object.keys(totVol.values || {}), ...Object.keys(totVol.pptoValues || {})]);
+                    allKeys.forEach(k => {
+                        let volVal = totVol.values[k] || 0;
+                        let montoVal = totMonto.values[k] || 0;
+                        totPrecio.values[k] = volVal ? ((montoVal * 1000000) / volVal) : 0;
+                        
+                        let volPpto = totVol.pptoValues?.[k] || 0;
+                        let montoPpto = totMonto.pptoValues?.[k] || 0;
+                        totPrecio.pptoValues[k] = volPpto ? ((montoPpto * 1000000) / volPpto) : 0;
+                    });
+                    ['FY2024', 'PO25', 'PO26'].forEach(y => {
+                        let volVal = totVol[y] || 0;
+                        let montoVal = totMonto[y] || 0;
+                        totPrecio[y] = volVal ? ((montoVal * 1000000) / volVal) : 0;
+                    });
+               }
+            });
+            
+            // Dividir el Volumen entre 1000 para llevar a miles (k)
+            finalData.forEach(row => {
+                if (row.Tipo === 'Volumen') {
+                    if (row.values) {
+                        Object.keys(row.values).forEach(k => row.values[k] /= 1000);
+                    }
+                    if (row.pptoValues) {
+                        Object.keys(row.pptoValues).forEach(k => row.pptoValues[k] /= 1000);
+                    }
+                    ['FY2024', 'PO25', 'PO26'].forEach(y => {
+                        if(row[y] !== undefined) row[y] /= 1000;
+                    });
+                }
+            });
+
             ceoData = finalData;
             console.log("Ventas CEO data loaded.", ceoData.length);
             
@@ -6065,74 +6242,90 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         }
     }
 
-    function computeMontoForCategory(category, dataRows, volRow) {
-        // Find matching rows in detailed data
-        // For simplicity, sum all "Ventas Netas" (or Monto) rows that correspond to the category.
-        // We'll rely on matching the 'Concepto' or 'Descripción' from the dataRows.
-        
-        let montoRow = { 
+    function computeCategoryFromDetailed(category, dataRows, hierarchyRow, targetMetric) {
+        let resultRow = { 
             Producto: category, 
-            Tipo: "Monto (MM DOP)", 
-            hasChildren: volRow.hasChildren, 
-            parentId: volRow.parentId, 
-            id: volRow.id, 
+            Tipo: targetMetric, 
+            hasChildren: hierarchyRow.hasChildren, 
+            parentId: hierarchyRow.parentId, 
+            id: hierarchyRow.id, 
             values: {} 
         };
         const catUpper = category.toUpperCase().trim();
         
-        // We accumulate data into montoRow.values
+        // Accumulate data
         let accumulated = {};
+        let accumulated_ppto = {};
         let fyAccum = { 'FY2024': 0, 'PO25': 0, 'PO26': 0 };
 
-        // We filter rows that have "Monto" or "Ventas netas" 
-        // and whose product description matches the category.
         let foundAny = false;
         
         dataRows.forEach(row => {
             if(!row.Concepto && !row.Producto && !row['Descripción']) return;
             const desc = String(row.Concepto || row.Producto || row['Descripción']).toUpperCase().trim();
             const isMatch = desc === catUpper || (catUpper.startsWith('APA ') && desc.includes(catUpper)) || desc.includes(catUpper);
-            const isMonto = String(row.Tipo || row.Métrica || '').toUpperCase().includes('MONTO') || String(row.Tipo || row.Métrica || '').toUpperCase().includes('VENTAS');
             
-            // Or if the data sheet doesn't have "Tipo", assume it's monto/ventas depending on columns
+            let isMetricMatch = false;
+            const metricStr = String(row.Tipo || row.Métrica || '').toUpperCase();
             
-            if (isMatch) {
+            if (targetMetric === 'Volumen') {
+                isMetricMatch = metricStr.includes('VOLUMEN') || metricStr.includes('CAJA') || metricStr.includes('UNIDAD');
+            } else {
+                isMetricMatch = metricStr.includes('MONTO') || metricStr.includes('VENTAS') || metricStr.includes('VALOR');
+            }
+            
+            if (isMatch && isMetricMatch) {
                 foundAny = true;
+                
                 Object.keys(row.values || {}).forEach(k => {
                     accumulated[k] = (accumulated[k] || 0) + (row.values[k] || 0);
                 });
+                Object.keys(row.pptoValues || {}).forEach(k => {
+                    accumulated_ppto[k] = (accumulated_ppto[k] || 0) + (row.pptoValues[k] || 0);
+                });
+                
                 ['FY2024', 'PO25', 'PO26'].forEach(y => {
                     fyAccum[y] += (row[y] || 0);
                 });
             }
         });
         
-        // If we didn't find detailed mapping, we might fallback to existing parsing of Tablas Consejo for Monto.
-        // But requested: "Para Monto y Precio: Debe cruzar los datos con la hoja "data por mes" sumando los valores por categoría y mes."
-        
-        if (!foundAny) {
-            // we'll leave it 0 or keep searching differently.
-        } else {
-            // Apply divided by 1M
+        resultRow.pptoValues = {};
+        if (foundAny) {
+            // Apply divided by 1M ONLY for Monto
+            const divisor = targetMetric === 'Monto (MM DOP)' ? 1000000 : 1;
             Object.keys(accumulated).forEach(k => {
-                montoRow.values[k] = accumulated[k] / 1000000;
+                resultRow.values[k] = (accumulated[k] || 0) / divisor;
+            });
+            Object.keys(accumulated_ppto).forEach(k => {
+                resultRow.pptoValues[k] = (accumulated_ppto[k] || 0) / divisor;
             });
             ['FY2024', 'PO25', 'PO26'].forEach(y => {
-                montoRow[y] = fyAccum[y] / 1000000;
+                resultRow[y] = fyAccum[y] / divisor;
             });
+        } else if (targetMetric === 'Volumen') {
+            // Fallback for Volumen: just use the data from hierarchyRow (Tablas Consejo)
+            if (hierarchyRow && hierarchyRow.values) {
+                Object.keys(hierarchyRow.values).forEach(k => {
+                    resultRow.values[k] = hierarchyRow.values[k];
+                });
+                ['FY2024', 'PO25', 'PO26'].forEach(y => {
+                    resultRow[y] = hierarchyRow[y] || 0;
+                });
+            }
         }
         
-        // Initialize zeros for keys present in volRow but missing in montoRow
-        if(volRow && volRow.values) {
-           Object.keys(volRow.values).forEach(k => {
-               if(montoRow.values[k] === undefined) montoRow.values[k] = 0;
+        // Initialize zeros for keys present in hierarchyRow but missing
+        if(hierarchyRow && hierarchyRow.values) {
+           Object.keys(hierarchyRow.values).forEach(k => {
+               if(resultRow.values[k] === undefined) resultRow.values[k] = 0;
            });
            ['FY2024', 'PO25', 'PO26'].forEach(y => {
-                if(montoRow[y] === undefined) montoRow[y] = 0;
+                if(resultRow[y] === undefined) resultRow[y] = 0;
            });
         }
         
-        return montoRow;
+        return resultRow;
     }
     
     function extractDetailedData(rows) {
@@ -6161,52 +6354,90 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
              const row = rows[i];
              if(!row) continue;
              
-             let obj = { values: {} };
+             let obj = { values: {}, pptoValues: {} };
              headers.forEach((h, idx) => {
-                 if(h !== undefined && h !== null && row[idx] !== undefined) {
+                 if(row[idx] === undefined) return;
+                 let val = parseFloat(String(row[idx]).replace(/,/g, '')) || 0;
+                 
+                 // Real 2026: columns AB to AM (indices 27 to 38 in 0-based)
+                 if (idx >= 27 && idx <= 38) {
+                     let m = String(idx - 27 + 1).padStart(2, '0');
+                     let dateStr = `2026-${m}`;
+                     if (!obj.values[dateStr]) obj.values[dateStr] = val;
+                     return;
+                 }
+                 
+                 // PPTO 2026: columns AN to AY (indices 39 to 50 in 0-based)
+                 if (idx >= 39 && idx <= 50) {
+                     let m = String(idx - 39 + 1).padStart(2, '0');
+                     let dateStr = `2026-${m}`;
+                     if (!obj.pptoValues[dateStr]) obj.pptoValues[dateStr] = val;
+                     return;
+                 }
+                 
+                 if(h !== undefined && h !== null) {
                      let headerStr = String(h).trim();
                      if (headerStr === 'Concepto' || headerStr === 'Tipo') {
                          obj[headerStr] = row[idx];
                      } else {
                          // Parse date/values
                          let textK = String(h).trim().toLowerCase();
-                         // Date parsing ...
-                        let isDate = false;
-                        let dateStr = headerStr;
-                        if (headerStr.includes('-01 00:00:00') || (headerStr.startsWith('202') && headerStr.length >= 7)) {
-                            isDate = true;
-                            dateStr = headerStr.slice(0, 7);
-                        } else if (!isNaN(headerStr) && Number(headerStr) > 40000 && Number(headerStr) < 50000) {
-                            isDate = true;
-                            let dObj = new Date((Number(headerStr) - 25569) * 86400 * 1000);
-                            dateStr = dObj.toISOString().slice(0, 7);
-                        } else {
-                            const monthsMap = {
-                                'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04', 'may': '05', 'jun': '06',
-                                'jul': '07', 'ago': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12'
-                            };
-                            const match = textK.match(/([a-z]{3})[-/ ]?(\d{2,4})/);
-                            if(match && monthsMap[match[1]]) {
-                                let y = match[2];
-                                if(y.length === 2) y = "20" + y;
-                                dateStr = `${y}-${monthsMap[match[1]]}`;
-                                isDate = true;
-                            }
-                        }
-                        
-                        if(isDate) {
-                            let val = parseFloat(String(row[idx]).replace(/,/g, '')) || 0;
-                            obj.values[dateStr] = val;
-                        } else if(textK.includes('fy') || textK.includes('real 2024') || headerStr === 'FY2024' || headerStr === 'PO26' || headerStr === 'PO25') {
-                            let yKey = 'FY2024';
-                            if(textK.includes('po26')) yKey = 'PO26';
-                            else if(textK.includes('po25')) yKey = 'PO25';
-                            let val = parseFloat(String(row[idx]).replace(/,/g, '')) || 0;
-                            obj[yKey] = val;
-                        }
+                         let isDate = false;
+                         let dateStr = headerStr;
+                         if (headerStr.includes('-01 00:00:00') || (headerStr.startsWith('202') && headerStr.length >= 7)) {
+                             isDate = true;
+                             dateStr = headerStr.slice(0, 7);
+                         } else if (!isNaN(headerStr) && Number(headerStr) > 40000 && Number(headerStr) < 50000) {
+                             isDate = true;
+                             let dObj = new Date((Number(headerStr) - 25569) * 86400 * 1000);
+                             dateStr = dObj.toISOString().slice(0, 7);
+                         } else {
+                             const monthsMap = {
+                                 'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04', 'may': '05', 'jun': '06',
+                                 'jul': '07', 'ago': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12'
+                             };
+                             const match = textK.match(/([a-z]{3})[-/ ]?(\d{2,4})/);
+                             if(match && monthsMap[match[1]]) {
+                                 let y = match[2];
+                                 if(y.length === 2) y = "20" + y;
+                                 dateStr = `${y}-${monthsMap[match[1]]}`;
+                                 isDate = true;
+                             }
+                         }
+                         
+                         if(isDate) {
+                             // Only set if not already set by explicit indexing logic above
+                             if (!obj.values[dateStr]) {
+                                 obj.values[dateStr] = val;
+                             }
+                         } else if(textK.includes('fy') || textK.includes('real 2024') || headerStr === 'FY2024' || headerStr === 'PO26' || headerStr === 'PO25') {
+                             let yKey = 'FY2024';
+                             if(textK.includes('po26')) yKey = 'PO26';
+                             else if(textK.includes('po25')) yKey = 'PO25';
+                             obj[yKey] = val;
+                         }
                      }
                  }
              });
+             
+             // Fallback Real 2026 to PPTO if Real is 0
+             for (let m = 1; m <= 12; m++) {
+                 let dateStr = `2026-${String(m).padStart(2, '0')}`;
+                 let realVal = obj.values[dateStr] || 0;
+                 let pptoVal = obj.pptoValues[dateStr] || 0;
+                 if (realVal === 0 && pptoVal !== 0) {
+                     obj.values[dateStr] = pptoVal;
+                 }
+             }
+             
+             // Reconstruct PO26 column summing up all PPTO
+             let po26Sum = 0;
+             for (let m = 1; m <= 12; m++) {
+                 let dateStr = `2026-${String(m).padStart(2, '0')}`;
+                 po26Sum += obj.pptoValues[dateStr] || 0;
+             }
+             obj['PO26'] = po26Sum;
+             
              if(obj.Concepto) data.push(obj);
         }
         return data;
@@ -6514,14 +6745,14 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                     let p = { Producto: prod, Tipo: "Precio Unitario", values: {} };
                     Object.keys(montoRow.values).forEach(k => {
                         let volVal = volRow.values[k] || 0;
-                        let div = volVal ? ((montoRow.values[k]*1000000) / volVal) : 0;
+                        let div = volVal ? ((montoRow.values[k] * 1000000) / volVal) : 0;
                         p.values[k] = div;
                     });
                     
                     // Also support cross-years
                     ['FY2024', 'PO25', 'PO26'].forEach(y => {
                         if (volRow[y] && montoRow[y]) {
-                            p[y] = ((montoRow[y]*1000000) / volRow[y]);
+                            p[y] = ((montoRow[y] * 1000000) / volRow[y]);
                         } else {
                             p[y] = 0;
                         }
@@ -6606,10 +6837,10 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         const displayData = ceoData.filter(d => {
             if (d.Tipo !== ventasCeoCurrentMetric) return false;
             const p = d.Producto ? d.Producto.trim().toUpperCase() : '';
-            return p !== 'TOTAL' && p !== 'TOTAL SIN BON' && p !== 'TOTAL SIN BON.' && p !== 'TOTAL AÑO';
+            return p !== 'TOTAL' && p !== 'TOTAL SIN BON' && p !== 'TOTAL SIN BON.' && p !== 'TOTAL AÑO' && p !== 'PA H+ 0.68 LTS (X12)';
         });
         const isPrecio = ventasCeoCurrentMetric === 'Precio Unitario';
-        const decimals = isPrecio ? 2 : 1;
+        const decimals = isPrecio ? 1 : 0;
         
         displayData.forEach(d => {
             // id, parentId, and hasChildren are already correctly set in parseConsejoFromObjects.
@@ -6657,7 +6888,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         const prevAvgLabel = `Promedio ${prevMonths[0].label} - ${prevMonths[4].label}`;
         const currAvgLabel = `Promedio ${currMonths[0].label} - ${currMonths[4].label}`;
         
-        let thHtml = `<th style="width: 30px; text-align: center; border:none; background: var(--sidebar); color: white; padding: 12px 4px;"></th>
+        let thHtml = `<th style="width: 24px; min-width: 24px; max-width: 24px; text-align: center; border:none; background: var(--sidebar); color: white; padding: 0;"></th>
                       <th style="text-align:left; background: var(--sidebar); color: white; border:none; border-right:1px solid rgba(255,255,255,0.2); padding: 12px 16px;">Producto</th>`;
         
         const addTh = (label, bg, color) => {
@@ -6668,7 +6899,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         addTh('Real 2024', 'var(--sidebar)', 'white');
         addTh('REAL AÑO ANT.', 'var(--sidebar)', 'white');
         addTh('Var %', 'var(--sidebar)', 'white');
-        addTh('PO26', 'var(--sidebar)', 'white');
+        addTh('PPTO', 'var(--sidebar)', 'white');
         
         // Prev Months
         prevMonths.forEach(m => addTh(m.label, 'var(--sidebar)', 'white'));
@@ -6682,18 +6913,37 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         thead.innerHTML = `<tr>${thHtml}</tr>`;
         
         const formatVal = (val) => {
-            return parseFloat(val || 0).toLocaleString('es-DO', {minimumFractionDigits: isPrecio ? decimals : 0, maximumFractionDigits: decimals});
+            return parseFloat(val || 0).toLocaleString('es-DO', {minimumFractionDigits: decimals, maximumFractionDigits: decimals});
         };
         const formatPct = (val) => {
-            return (parseFloat(val || 0) * 100).toFixed(0) + '%';
+            return (parseFloat(val || 0) * 100).toFixed(1) + '%';
         };
         
         const renderRowContent = (row, isTotal) => {
             let html = '';
             
-            const real24 = row['FY2024'] || 0;
-            const realAnoAnt = row['FY2025'] || 0; // assuming 2025 is usually previous year for 2026
-            const po26 = row['PO26'] || 0;
+            const reqY = currYear;
+            const reqM = String(currMonth + 1).padStart(2, '0');
+            const prevY = currYear - 1;
+            
+            const currKey = `2024-${reqM}`;
+            const prevKey = `${prevY}-${reqM}`;
+            
+            const po26Key = `2026-${reqM}`;
+            
+            let real24 = row.values[currKey] || 0;
+            let realAnoAnt = row.values[prevKey] || 0;
+            let po26 = (row.pptoValues && row.pptoValues[po26Key]) ? row.pptoValues[po26Key] : 0;
+            
+            if (po26 === 0 && row.pptoValues) {
+                let altKey = `${currYear}-${reqM}`;
+                if (row.pptoValues[altKey]) po26 = row.pptoValues[altKey];
+            }
+            
+            row.__real24 = real24;
+            row.__realAnoAnt = realAnoAnt;
+            row.__po26 = po26;
+            
             const varPct = realAnoAnt ? ((realAnoAnt - real24)/real24) : 0;
             
             const cellStyle = isTotal ? "font-weight:800;" : "";
@@ -6710,6 +6960,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 html += `<td style="text-align:right; ${cellStyle}">${formatVal(v)}</td>`;
             });
             const prevAvg = prevCount ? (prevSum/prevCount) : 0;
+            row.__prevAvg = prevAvg;
             html += `<td style="text-align:right; font-weight:600; background:rgba(115,165,198,0.1);">${formatVal(prevAvg)}</td>`;
             
             let currSum = 0, currCount = 0;
@@ -6719,6 +6970,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 html += `<td style="text-align:right; ${cellStyle}">${formatVal(v)}</td>`;
             });
             const currAvg = currCount ? (currSum/currCount) : 0;
+            row.__currAvg = currAvg;
             html += `<td style="text-align:right; font-weight:600; background:rgba(115,165,198,0.1);">${formatVal(currAvg)}</td>`;
             
             const varAvg = prevAvg ? ((currAvg - prevAvg)/prevAvg) : 0;
@@ -6753,7 +7005,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             }
 
             tbHtml += `<tr data-group="${row.parentId || ''}" id="ventasceo-row-${row.id}" ${rowOnclick} ${rowHover}>
-                          <td style="text-align: center; vertical-align: middle; border-right: 1px solid rgba(0,0,0,0.05); padding: 4px; cursor: ${row.hasChildren ? 'pointer':'default'};">${collapseBtn}</td>
+                          <td style="width: 24px; min-width: 24px; max-width: 24px; text-align: center; vertical-align: middle; border-right: 1px solid rgba(0,0,0,0.05); padding: 0; cursor: ${row.hasChildren ? 'pointer':'default'};">${collapseBtn}</td>
                           <td style="text-align:left; border-right: 1px solid rgba(0,0,0,0.05); padding: 12px 16px; ${rowStyle}">${row.Producto}</td>`;
             tbHtml += renderRowContent(row, false);
             tbHtml += '</tr>';
@@ -6765,9 +7017,9 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         });
         if(totalRow) {
              tbHtml = `<tr style="background:#eef2f5;">
-                          <td style="text-align: center; border-right: 1px solid rgba(0,0,0,0.05);"></td>
+                          <td style="width: 24px; min-width: 24px; max-width: 24px; text-align: center; border-right: 1px solid rgba(0,0,0,0.05); padding: 0;"></td>
                           <td style="text-align:left; font-weight:800; border-right: 1px solid rgba(0,0,0,0.05); padding: 12px 16px;">TOTAL</td>` 
-                          + renderRowContent(totalRow, true) + 
+                           + renderRowContent(totalRow, true) + 
                        '</tr>' + tbHtml;
         }
         
@@ -6777,7 +7029,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         });
         if(tsbRow) {
              tbHtml += `<tr style="background:#eef2f5;">
-                           <td style="text-align: center; border-right: 1px solid rgba(0,0,0,0.05);"></td>
+                           <td style="width: 24px; min-width: 24px; max-width: 24px; text-align: center; border-right: 1px solid rgba(0,0,0,0.05); padding: 0;"></td>
                            <td style="text-align:left; font-weight:800; color: #10b981; border-right: 1px solid rgba(0,0,0,0.05); padding: 12px 16px;">TOTAL SIN BON</td>` 
                            + renderRowContent(tsbRow, true).replace(/<td/g, '<td style="color: #10b981;"') + 
                        '</tr>';
@@ -6785,9 +7037,26 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
 
         tbody.innerHTML = tbHtml;
         
-        const chartMonths = [...prevMonths, ...currMonths].map(m => m.key);
-        const chartLabels = [...prevMonths, ...currMonths].map(m => m.label);
-        renderVentasCeoChart(displayData.filter(d => !d.parentId && d.values), chartMonths, chartLabels);
+        let chartMonths = ['__real24', '__realAnoAnt', '__po26'];
+        let chartLabels = ['Real 2024', 'REAL AÑO ANT.', 'PPTO'];
+        
+        prevMonths.forEach(m => { chartMonths.push(m.key); chartLabels.push(m.label); });
+        chartMonths.push('__prevAvg'); chartLabels.push(prevAvgLabel);
+        
+        currMonths.forEach(m => { chartMonths.push(m.key); chartLabels.push(m.label); });
+        chartMonths.push('__currAvg'); chartLabels.push(currAvgLabel);
+        
+        const chartDataRows = displayData.filter(d => {
+            const isVisible = !d.parentId || window.expandedVentasCeoGroups.has(d.parentId);
+            if (!isVisible) return false;
+            
+            const isExpanded = d.hasChildren && window.expandedVentasCeoGroups.has(d.id);
+            if (isExpanded) return false;
+            
+            return d.values !== undefined;
+        });
+        
+        renderVentasCeoChart(chartDataRows, chartMonths, chartLabels);
     }
     
     window.toggleVentasCeoGroup = function(groupId, btn) {
@@ -6801,8 +7070,8 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
     
     document.getElementById('btn-ventas-expandir')?.addEventListener('click', () => {
         if(!window.expandedVentasCeoGroups) window.expandedVentasCeoGroups = new Set();
-        Object.values(CEO_HIERARCHY).forEach(h => {
-            if(!h.parentId) window.expandedVentasCeoGroups.add(h.id);
+        (ceoData || []).forEach(d => {
+            if(d.hasChildren && d.id) window.expandedVentasCeoGroups.add(d.id);
         });
         window.renderVentasCEO();
     });
@@ -6839,7 +7108,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             chartData.push(item);
         });
         
-        const margin = { top: 30, right: 150, bottom: 50, left: 60 };
+        const margin = { top: 30, right: 150, bottom: 100, left: 60 };
         const width = container.clientWidth;
         const height = container.clientHeight;
         const boundedWidth = width - margin.left - margin.right;
@@ -6869,14 +7138,22 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             .range([boundedHeight, 0])
             .nice();
 
+        const top3PerDate = {};
+        chartData.forEach(d => {
+            const vals = seriesKeys.map(k => ({ key: k, val: d[k] || 0 }));
+            vals.sort((a,b) => b.val - a.val);
+            top3PerDate[d.label] = vals.slice(0, 3).map(v => v.key);
+        });
+
         const colorScale = d3.scaleOrdinal(d3.schemeTableau10).domain(seriesKeys);
 
-        g.selectAll("g.layer")
+        const layer = g.selectAll("g.layer")
             .data(stack)
             .enter().append("g")
             .attr("class", "layer")
-            .attr("fill", d => colorScale(d.key))
-            .selectAll("rect")
+            .attr("fill", d => colorScale(d.key));
+            
+        layer.selectAll("rect")
             .data(d => d)
             .enter().append("rect")
             .attr("x", d => x(d.data.label))
@@ -6898,6 +7175,45 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 d3.select(this).attr("opacity", 1);
                 d3.selectAll(".d3-tooltip").remove();
             });
+
+        const isPrecio = ventasCeoCurrentMetric === 'Precio Unitario';
+        const formatter = new Intl.NumberFormat('es-DO', { 
+            minimumFractionDigits: isPrecio ? 1 : 0, 
+            maximumFractionDigits: isPrecio ? 1 : 0 
+        });
+
+        layer.selectAll("text.segment-label")
+            .data(d => d)
+            .enter().append("text")
+            .attr("class", "segment-label")
+            .attr("x", d => x(d.data.label) + x.bandwidth() / 2)
+            .attr("y", d => y(d[1]) + (y(d[0]) - y(d[1])) / 2 + 3)
+            .attr("text-anchor", "middle")
+            .attr("fill", "white")
+            .style("font-size", "10px")
+            .style("font-weight", "600")
+            .style("pointer-events", "none")
+            .text(function(d) {
+                const subName = d3.select(this.parentNode).datum().key;
+                const top3 = top3PerDate[d.data.label] || [];
+                const heightPx = y(d[0]) - y(d[1]);
+                if (top3.includes(subName) && heightPx > 20) {
+                    return formatter.format(d[1] - d[0]);
+                }
+                return "";
+            });
+
+        g.selectAll("text.total-label")
+            .data(chartData)
+            .enter().append("text")
+            .attr("class", "total-label")
+            .attr("x", d => x(d.label) + x.bandwidth() / 2)
+            .attr("y", d => y(d.total) - 8)
+            .attr("text-anchor", "middle")
+            .style("font-size", "11px")
+            .style("font-weight", "bold")
+            .style("fill", "var(--text-primary)")
+            .text(d => formatter.format(d.total));
 
         g.append("g")
             .attr("transform", `translate(0,${boundedHeight})`)
@@ -6930,7 +7246,8 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             .attr("x", 20)
             .attr("y", 7.5)
             .attr("dy", "0.32em")
-            .text(d => d.length > 20 ? d.slice(0,20)+'...' : d);
+            .style("font-size", "10px")
+            .text(d => d.length > 35 ? d.slice(0, 32) + '...' : d);
     }
     
     document.getElementById('btn-ventas-vol')?.addEventListener('click', () => {
@@ -6953,8 +7270,9 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         const resetBtn = (id) => {
             const btn = document.getElementById(id);
             if(btn) {
-                btn.style.background = '#e2e8f0';
+                btn.style.background = 'transparent';
                 btn.style.color = 'var(--text-secondary)';
+                btn.style.boxShadow = 'none';
             }
         };
         resetBtn('btn-ventas-vol');
@@ -6967,8 +7285,9 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         
         const activeBtn = document.getElementById(activeId);
         if(activeBtn) {
-            activeBtn.style.background = 'var(--primary)';
-            activeBtn.style.color = 'white';
+            activeBtn.style.background = 'white';
+            activeBtn.style.color = 'var(--primary)';
+            activeBtn.style.boxShadow = '0 1px 2px rgba(0,0,0,0.05)';
         }
     }
 
