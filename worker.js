@@ -7,9 +7,16 @@ self.onmessage = function(e) {
         const fileType = e.data.fileType || 'master';
         
         self.postMessage({ type: 'progress', progress: 50, message: "Decodificando archivo Excel en segundo plano..." });
-        let workbook = XLSX.read(new Uint8Array(buffer), { type: 'array', cellDates: true });
         
+        let workbook;
+
+        // ==========================================
+        // 1. PROCESAMIENTO DE VENTAS CEO (SIN cellDates)
+        // ==========================================
         if (fileType === 'ventas_ceo') {
+            // CRÍTICO: Se lee en crudo para preservar los seriales de fecha de Excel (ej. 45292)
+            workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+            
             self.postMessage({ type: 'progress', progress: 75, message: "Procesando datos de Ventas CEO..." });
             
             const consejoSheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('consejo'));
@@ -42,7 +49,11 @@ self.onmessage = function(e) {
             return;
         }
 
-        // Master processing
+        // ==========================================
+        // 2. PROCESAMIENTO MASTER FINANCIERO (CON cellDates)
+        // ==========================================
+        workbook = XLSX.read(new Uint8Array(buffer), { type: 'array', cellDates: true });
+        
         self.postMessage({ type: 'progress', progress: 75, message: "Ejecutando motor de datos financieros..." });
         let engineResult = financialEngine(workbook);
         
