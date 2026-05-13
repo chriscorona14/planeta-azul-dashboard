@@ -888,103 +888,77 @@ document.addEventListener('DOMContentLoaded', async () => {
     const dropZone = document.getElementById('dropZone');
 
     // Setup Export and Mobile Menu
-    const btnExportExcel = document.getElementById('btnExportExcel');
-    if (btnExportExcel) {
-        btnExportExcel.addEventListener('click', () => {
-            if (!globalFinancialData || globalFinancialData.length === 0) {
-                alert('No hay datos para exportar.');
-                return;
-            }
-            exportToExcelSuite(globalFinancialData);
-        });
-    }
-
-    const btnExportPDF = document.getElementById('btnExportPDF');
-    if (btnExportPDF) {
-        btnExportPDF.addEventListener('click', () => {
-            if (!globalFinancialData || globalFinancialData.length === 0) {
-                alert('No hay datos para exportar.');
-                return;
-            }
-            
+    const btnExportCSV = document.getElementById('btn-export-csv');
+    if (btnExportCSV) {
+        btnExportCSV.addEventListener('click', () => {
             const mainContainer = document.querySelector('.main-container');
             const views = mainContainer.querySelectorAll('.view-container');
-            const headerActions = document.querySelector('.header-actions');
-            const sidebar = document.querySelector('.sidebar');
-            const mobileHeader = document.querySelector('.mobile-header');
-            
-            // Store original state
-            let activeViewId = '';
-            views.forEach(v => {
-                if (v.classList.contains('active')) activeViewId = v.id;
-            });
-            const originalHeaderDisplay = headerActions ? headerActions.style.display : '';
-            const originalSidebarDisplay = sidebar ? sidebar.style.display : '';
-            const originalMobileHeaderDisplay = mobileHeader ? mobileHeader.style.display : '';
-            const originalMainPadding = mainContainer.style.padding;
-            const originalOverflow = mainContainer.style.overflow;
-            
-            // Force charts visibility for PDF
-            const dashboardChartsGrid = document.querySelector('.dashboard-charts-grid');
-            const originalChartsGridDisplay = dashboardChartsGrid ? dashboardChartsGrid.style.display : '';
-            if (dashboardChartsGrid) {
-                dashboardChartsGrid.style.setProperty('display', 'grid', 'important');
+            let activeViewId = 'view-resumen';
+            if (views && views.length > 0) {
+                views.forEach(v => {
+                    if (v.classList.contains('active')) activeViewId = v.id;
+                });
             }
 
-            // Modify DOM for PDF capture
-            if (headerActions) headerActions.style.display = 'none';
-            if (sidebar) sidebar.style.display = 'none';
-            if (mobileHeader) mobileHeader.style.display = 'none';
-            
-            mainContainer.style.padding = '20px';
-            mainContainer.style.overflow = 'visible';
+            let dataToExport = [];
+            let prefix = 'reporte';
+            const dateStr = new Date().toISOString().slice(0, 7);
 
-            views.forEach(v => {
-                if (v.id !== 'view-config') {
-                    v.classList.add('active');
-                    v.style.display = 'block';
-                    v.style.pageBreakAfter = 'always';
-                } else {
-                    v.style.display = 'none';
+            if (activeViewId === 'view-ventas-ceo') {
+                if (!ceoData || ceoData.length === 0) {
+                    alert('No hay datos de Ventas CEO para exportar.');
+                    return;
                 }
-            });
-
-            // Trigger resize event to force D3 to redraw if necessary.
-            window.dispatchEvent(new Event('resize'));
-            
-            const opt = {
-                margin:       [0.5, 0.5, 0.5, 0.5],
-                filename:     'Reporte_Planeta_Azul.pdf',
-                image:        { type: 'jpeg', quality: 0.98 },
-                html2canvas:  { scale: 2, useCORS: true, logging: false, windowWidth: 1200 },
-                jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
-            };
-
-            // Wait 800ms before generating PDF
-            setTimeout(() => {
-                html2pdf().set(opt).from(mainContainer).save().then(() => {
-                    // Restore original state
-                    if (headerActions) headerActions.style.display = originalHeaderDisplay;
-                    if (sidebar) sidebar.style.display = originalSidebarDisplay;
-                    if (mobileHeader) mobileHeader.style.display = originalMobileHeaderDisplay;
-                    if (dashboardChartsGrid) dashboardChartsGrid.style.display = originalChartsGridDisplay;
-                    
-                    mainContainer.style.padding = originalMainPadding;
-                    mainContainer.style.overflow = originalOverflow;
-                    
-                    views.forEach(v => {
-                        v.style.display = '';
-                        v.style.pageBreakAfter = '';
-                        if (v.id !== activeViewId) {
-                            v.classList.remove('active');
-                        } else {
-                            v.classList.add('active');
+                dataToExport = ceoData.map(row => {
+                    const flatObj = { Producto: row.Producto, Tipo: row.Tipo };
+                    if (row.values) {
+                        for (const key in row.values) {
+                            flatObj[key] = row.values[key];
                         }
-                    });
-                    
-                    window.dispatchEvent(new Event('resize'));
+                    }
+                    return flatObj;
                 });
-            }, 800);
+                prefix = 'reporte_ventas_ceo';
+            } else {
+                if (!globalFinancialData || globalFinancialData.length === 0) {
+                    alert('No hay datos financieros para exportar.');
+                    return;
+                }
+
+                function flattenObject(ob, prefix = '') {
+                    const result = {};
+                    for (const i in ob) {
+                        if (Object.prototype.hasOwnProperty.call(ob, i)) {
+                            if ((typeof ob[i]) === 'object' && ob[i] !== null && !Array.isArray(ob[i])) {
+                                const flatObject = flattenObject(ob[i], prefix + i + '_');
+                                for (const x in flatObject) {
+                                    if (Object.prototype.hasOwnProperty.call(flatObject, x)) {
+                                        result[x] = flatObject[x];
+                                    }
+                                }
+                            } else {
+                                result[prefix + i] = ob[i];
+                            }
+                        }
+                    }
+                    return result;
+                }
+
+                dataToExport = globalFinancialData.map(d => {
+                    const flat = flattenObject(d);
+                    const result = { Periodo: d.date };
+                    for (const key in flat) {
+                        if (key !== 'date') {
+                            result[key] = flat[key];
+                        }
+                    }
+                    return result;
+                });
+                prefix = 'reporte_planeta_azul';
+            }
+
+            const filename = `${prefix}_${dateStr}.csv`;
+            downloadCSV(dataToExport, filename);
         });
     }
 
@@ -1412,64 +1386,37 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 });
 
-function exportToExcelSuite(data) {
-    const wb = XLSX.utils.book_new();
+function downloadCSV(data, filename) {
+    if (!data || !data.length) return;
 
-    // 1. Resumen_Ejecutivo (Visual formatting)
-    let totalVentas = 0;
-    let totalEbitda = 0;
-    data.forEach(d => {
-        totalVentas += d.kpis?.ingresos || 0;
-        totalEbitda += d.kpis?.ebitda || 0;
+    const columns = [];
+    data.forEach(row => {
+        Object.keys(row).forEach(key => {
+            if (!columns.includes(key)) columns.push(key);
+        });
     });
-    let margenPromedio = totalVentas ? (totalEbitda / totalVentas) * 100 : 0;
 
-    const resumenData = [
-        { A: "RESUMEN EJECUTIVO FINANCIERO", B: "" },
-        { A: "", B: "" },
-        { A: "VENTAS TOTALES", B: formatRawCurrency(totalVentas) },
-        { A: "EBITDA ACUMULADO", B: formatRawCurrency(totalEbitda) },
-        { A: "MARGEN PROMEDIO", B: margenPromedio.toFixed(2) + "%" },
-        { A: "", B: "" },
-        { A: "PERIODO ANALIZADO", B: `${data[0]?.date || ''} - ${data[data.length-1]?.date || ''}` }
-    ];
-    const resSheet = XLSX.utils.json_to_sheet(resumenData, { skipHeader: true });
-    XLSX.utils.book_append_sheet(wb, resSheet, "RESUMEN_EJECUTIVO");
+    let csvContent = '\uFEFF'; 
+    csvContent += columns.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';') + '\n';
 
-    // 2. KPI_Dashboard
-    const kpiData = data.map(d => ({
-        Periodo: d.date,
-        Ingresos: d.kpis.ingresos,
-        EBITDA: d.kpis.ebitda,
-        "Margen EBITDA %": (d.kpis.margen_ebitda * 100).toFixed(2) + "%",
-        "Utilidad Neta": d.pnl?.netIncome || 0,
-        "Cash Flow": d.kpis.cashflow
-    }));
-    const kpiSheet = XLSX.utils.json_to_sheet(kpiData);
-    XLSX.utils.book_append_sheet(wb, kpiSheet, "KPI_Dashboard");
+    data.forEach(row => {
+        const rowStr = columns.map(c => {
+            const val = row[c] !== undefined && row[c] !== null ? String(row[c]) : '';
+            return `"${val.replace(/"/g, '""')}"`;
+        }).join(';');
+        csvContent += rowStr + '\n';
+    });
 
-    // 3. PnL_Detallado
-    const pnlTable = document.getElementById('pnlDetailedTable');
-    if(pnlTable) {
-        const pnlSht = XLSX.utils.table_to_sheet(pnlTable, {raw: false});
-        XLSX.utils.book_append_sheet(wb, pnlSht, "PnL_Detallado");
-    }
-
-    // 4. Balance_Sheet
-    const balTable = document.getElementById('balanceTable');
-    if(balTable) {
-        const balSht = XLSX.utils.table_to_sheet(balTable, {raw: false});
-        XLSX.utils.book_append_sheet(wb, balSht, "Balance_Sheet");
-    }
-
-    // 5. Cash_Flow
-    const cfTable = document.getElementById('cashflowTable');
-    if(cfTable) {
-        const cfSht = XLSX.utils.table_to_sheet(cfTable, {raw: false});
-        XLSX.utils.book_append_sheet(wb, cfSht, "Cash_Flow");
-    }
-
-    XLSX.writeFile(wb, "Reporte_Ejecutivo_CEO.xlsx");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
 }
 
 // File Processing Logic Separated from Rendering
