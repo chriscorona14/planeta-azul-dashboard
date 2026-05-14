@@ -380,7 +380,7 @@ window.hasVentasAccess = false;
 window.applyRoleBasedUI = function(hasMaster, hasVentas) {
     // --- PASE VIP PARA ENTORNO DE DESARROLLO / PREVIEW ---
     const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const isVercelPreview = window.location.hostname.includes('run.app'); // Ajustado para AI Studio / Cloud Run
+    const isVercelPreview = window.location.hostname.includes('run.app') || window.location.hostname.includes('vercel.app'); // Ajustado para AI Studio / Cloud Run y Vercel
     
     if (isLocalhost || isVercelPreview) {
         console.warn("🛠️ Modo Dev/Preview detectado: Otorgando acceso total simulado.");
