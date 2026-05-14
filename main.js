@@ -380,12 +380,29 @@ window.hasVentasAccess = false;
 window.applyRoleBasedUI = function(hasMaster, hasVentas) {
     // --- PASE VIP PARA ENTORNO DE DESARROLLO / PREVIEW ---
     const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const isVercelPreview = window.location.hostname.includes('run.app') || window.location.hostname.includes('vercel.app'); // Ajustado para AI Studio / Cloud Run y Vercel
+    const isAiStudioPreview = window.location.hostname.includes('run.app'); 
     
-    if (isLocalhost || isVercelPreview) {
-        console.warn("🛠️ Modo Dev/Preview detectado: Otorgando acceso total simulado.");
-        hasMaster = true;
-        hasVentas = true;
+    if (isLocalhost || isAiStudioPreview) {
+        const urlParams = new URLSearchParams(window.location.search);
+        const roleOverride = urlParams.get('role');
+        
+        if (roleOverride === 'ventas') {
+            hasMaster = false;
+            hasVentas = true;
+            console.warn("🛠️ Preview: Simulando rol Ventas CEO.");
+        } else if (roleOverride === 'master') {
+            hasMaster = true;
+            hasVentas = false;
+            console.warn("🛠️ Preview: Simulando rol Master Financiero.");
+        } else if (roleOverride === 'none') {
+            hasMaster = false;
+            hasVentas = false;
+            console.warn("🛠️ Preview: Simulando sin acceso.");
+        } else {
+            hasMaster = true;
+            hasVentas = true;
+            console.warn("🛠️ Preview detectado: Acceso total simulado. Agrega ?role=ventas o ?role=master a la URL para probar roles específicos.");
+        }
     }
     // -----------------------------------------------------
 
@@ -1349,6 +1366,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (globalFinancialData && globalFinancialData.length > 0 && monthSelector) {
                 const idx = parseInt(monthSelector.value);
                 if (!isNaN(idx)) renderActiveViewLazy(globalFinancialData, idx);
+            } else if (id === 'menu-ventas-ceo' && typeof window.renderVentasCEO === 'function' && typeof ceoData !== 'undefined' && ceoData) {
+                window.renderVentasCEO();
             }
         });
     });
