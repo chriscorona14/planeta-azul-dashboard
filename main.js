@@ -380,7 +380,7 @@ window.hasVentasAccess = false;
 window.applyRoleBasedUI = function(hasMaster, hasVentas) {
     // --- PASE VIP PARA ENTORNO DE DESARROLLO / PREVIEW ---
     const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const isAiStudioPreview = window.location.hostname.includes('run.app'); 
+    const isAiStudioPreview = window.location.hostname.includes('run.app') || window.location.hostname.includes('vercel.app'); 
     
     if (isLocalhost || isAiStudioPreview) {
         const urlParams = new URLSearchParams(window.location.search);
@@ -407,7 +407,7 @@ window.applyRoleBasedUI = function(hasMaster, hasVentas) {
     // -----------------------------------------------------
 
     const mainContainer = document.querySelector('.main-container');
-    const sidebarItems = document.querySelectorAll('.sidebar-menu .menu-item');
+    const sidebarItems = document.querySelectorAll('.sidebar .menu-item');
     const ventasCeoMenuBtn = document.getElementById('menu-ventas-ceo');
     const monthSelector = document.getElementById('monthSelector');
     const viewModeToggle = document.querySelector('.view-mode-toggle');
@@ -621,9 +621,11 @@ async function fetchMasterData(token = null) {
             if (err.name === 'AbortError') console.warn("Tiempo de espera de red agotado.");
         }
 
-        // Aplicamos el RBAC después de las peticiones
+        // Aplicamos el RBAC después de las peticiones, pero si operamos con caché, mantenemos permisos
         if (typeof window.applyRoleBasedUI === 'function') {
-            window.applyRoleBasedUI(window.hasMasterAccess, window.hasVentasAccess);
+            const finalMaster = window.hasMasterAccess || (window.isMagicLoaded && globalFinancialData && globalFinancialData.length > 0) ? true : false;
+            const finalVentas = window.hasVentasAccess || (window.isMagicLoaded && typeof ceoData !== 'undefined' && ceoData && ceoData.length > 0) ? true : false;
+            window.applyRoleBasedUI(finalMaster, finalVentas);
         }
 
         if (window._m365Interval) clearInterval(window._m365Interval);
@@ -827,7 +829,9 @@ window.handleZeroState = function() {
         }
         
         if(typeof window.applyRoleBasedUI === 'function') {
-           window.applyRoleBasedUI(window.hasMasterAccess !== false, window.hasVentasAccess !== false);
+           const inferredMaster = window.hasMasterAccess || (globalFinancialData && globalFinancialData.length > 0) ? true : false;
+           const inferredVentas = window.hasVentasAccess || (typeof ceoData !== 'undefined' && ceoData && ceoData.length > 0) ? true : false;
+           window.applyRoleBasedUI(inferredMaster, inferredVentas);
         }
     }
 };
@@ -925,20 +929,25 @@ async function loadCacheInstant() {
             if (typeof window.renderVentasCEO === 'function' && document.getElementById("view-ventas-ceo") && document.getElementById("view-ventas-ceo").classList.contains("active")) {
                 window.renderVentasCEO();
             }
+            window.isMagicLoaded = true;
         }
 
         if (cachedRecord && cachedRecord.data && cachedRecord.data.length > 0) {
             console.log("🚀 Magic Load F5: Renderizando UI alzada instantáneamente.");
-            
             window.isMagicLoaded = true; // 🔥 AÑADE ESTA LÍNEA AQUÍ
-            
             globalFinancialData = cachedRecord.data;
             renderDashboard(globalFinancialData);
-            
             if (window.updateLastUpdatedTime) {
                 window.updateLastUpdatedTime(cachedRecord.timestamp);
             }
+        }
 
+        if (window.isMagicLoaded) {
+            if (typeof window.applyRoleBasedUI === 'function') {
+                const inferredMaster = window.hasMasterAccess || (globalFinancialData && globalFinancialData.length > 0) ? true : false;
+                const inferredVentas = window.hasVentasAccess || (typeof ceoData !== 'undefined' && ceoData && ceoData.length > 0) ? true : false;
+                window.applyRoleBasedUI(inferredMaster, inferredVentas);
+            }
             const loaderEl = document.getElementById('loader');
             if (loaderEl) loaderEl.style.display = 'none';
             return true;
@@ -1366,7 +1375,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (globalFinancialData && globalFinancialData.length > 0 && monthSelector) {
                 const idx = parseInt(monthSelector.value);
                 if (!isNaN(idx)) renderActiveViewLazy(globalFinancialData, idx);
-            } else if (id === 'menu-ventas-ceo' && typeof window.renderVentasCEO === 'function' && typeof ceoData !== 'undefined' && ceoData) {
+            }
+            if (id === 'menu-ventas-ceo' && typeof window.renderVentasCEO === 'function' && typeof ceoData !== 'undefined' && ceoData) {
                 window.renderVentasCEO();
             }
         });
