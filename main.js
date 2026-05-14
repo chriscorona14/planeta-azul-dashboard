@@ -374,6 +374,126 @@ function showErrorUI(mensaje) {
     `;
 }
 
+window.hasMasterAccess = false;
+window.hasVentasAccess = false;
+
+window.applyRoleBasedUI = function(hasMaster, hasVentas) {
+    // --- PASE VIP PARA ENTORNO DE DESARROLLO / PREVIEW ---
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const isVercelPreview = window.location.hostname.includes('run.app'); // Ajustado para AI Studio / Cloud Run
+    
+    if (isLocalhost || isVercelPreview) {
+        console.warn("🛠️ Modo Dev/Preview detectado: Otorgando acceso total simulado.");
+        hasMaster = true;
+        hasVentas = true;
+    }
+    // -----------------------------------------------------
+
+    const mainContainer = document.querySelector('.main-container');
+    const sidebarItems = document.querySelectorAll('.sidebar-menu .menu-item');
+    const ventasCeoMenuBtn = document.getElementById('menu-ventas-ceo');
+    const monthSelector = document.getElementById('monthSelector');
+    const viewModeToggle = document.querySelector('.view-mode-toggle');
+    const dropZone = document.getElementById('dropZone');
+    const sidebar = document.querySelector('.sidebar');
+    const contentHeader = document.querySelector('.content-header');
+    const headerActions = document.querySelector('.header-actions');
+    const headerInfo = document.querySelector('.header-info');
+    const viewContainers = document.querySelectorAll('.view-container');
+
+    // Limpiar banner previo si existe
+    let deniedBanner = document.getElementById('access-denied-banner');
+    if (deniedBanner) deniedBanner.remove();
+
+    if (hasMaster && hasVentas) {
+        // Escenario 1: Ambos true (Admin)
+        if (mainContainer) mainContainer.style.display = '';
+        if (sidebar) sidebar.style.display = '';
+        if (contentHeader) contentHeader.style.display = '';
+        if (headerActions) headerActions.style.display = 'flex';
+        if (headerInfo) headerInfo.style.display = '';
+        if (monthSelector) monthSelector.style.display = 'block';
+        if (viewModeToggle) viewModeToggle.style.display = 'flex';
+        if (dropZone) dropZone.style.display = 'none';
+        viewContainers.forEach(v => v.style.display = '');
+        sidebarItems.forEach(item => item.style.display = '');
+
+    } else if (!hasMaster && hasVentas) {
+        // Escenario 2: Sólo Ventas CEO
+        if (mainContainer) mainContainer.style.display = '';
+        if (sidebar) sidebar.style.display = '';
+        if (contentHeader) contentHeader.style.display = '';
+        if (headerActions) headerActions.style.display = 'none';
+        if (headerInfo) headerInfo.style.display = '';
+        viewContainers.forEach(v => v.style.display = '');
+        sidebarItems.forEach(item => {
+            const link = item.querySelector('a');
+            if (link && link.id !== 'menu-ventas-ceo') {
+                item.style.display = 'none';
+            } else {
+                item.style.display = '';
+            }
+        });
+        if (monthSelector) monthSelector.style.display = 'none';
+        if (viewModeToggle) viewModeToggle.style.display = 'none';
+        if (dropZone) dropZone.style.display = 'none';
+        if (ventasCeoMenuBtn) ventasCeoMenuBtn.click();
+
+    } else if (hasMaster && !hasVentas) {
+        // Escenario 3: Sólo Master Financiero
+        if (mainContainer) mainContainer.style.display = '';
+        if (sidebar) sidebar.style.display = '';
+        if (contentHeader) contentHeader.style.display = '';
+        if (headerActions) headerActions.style.display = 'flex';
+        if (headerInfo) headerInfo.style.display = '';
+        if (monthSelector) monthSelector.style.display = 'block';
+        if (viewModeToggle) viewModeToggle.style.display = 'flex';
+        viewContainers.forEach(v => v.style.display = '');
+        sidebarItems.forEach(item => {
+            const link = item.querySelector('a');
+            if (link && link.id === 'menu-ventas-ceo') {
+                item.style.display = 'none';
+            } else {
+                item.style.display = '';
+            }
+        });
+
+    } else if (!hasMaster && !hasVentas) {
+        // Escenario 4: Ambos false
+        if (mainContainer) mainContainer.style.display = 'none';
+        if (sidebar) sidebar.style.display = 'none';
+        if (contentHeader) contentHeader.style.display = 'none';
+        
+        // Mostrar mensaje prominente
+        deniedBanner = document.createElement('div');
+        deniedBanner.id = 'access-denied-banner';
+        deniedBanner.style.position = 'fixed';
+        deniedBanner.style.top = '0';
+        deniedBanner.style.left = '0';
+        deniedBanner.style.width = '100%';
+        deniedBanner.style.height = '100%';
+        deniedBanner.style.background = '#f3f4f6';
+        deniedBanner.style.display = 'flex';
+        deniedBanner.style.alignItems = 'center';
+        deniedBanner.style.justifyContent = 'center';
+        deniedBanner.style.fontFamily = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+        deniedBanner.style.zIndex = '999999';
+        
+        deniedBanner.innerHTML = `
+            <div style="background:white; padding:40px; border-radius:12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align:center; max-width:450px; width:90%;">
+                <div style="color:#004a99; font-size:50px; margin-bottom:20px;">🔒</div>
+                <h2 style="color:#111827; margin:0 0 10px 0; font-size:1.5rem;">Acceso Denegado</h2>
+                <p style="color:#6b7280; line-height:1.5; margin-bottom:30px;">No tienes permisos para visualizar los reportes corporativos en SharePoint.<br><br>Por favor, contacta al administrador del sistema.</p>
+                <button onclick="sessionStorage.clear(); localStorage.clear(); location.href='/';" 
+                        style="background:#004a99; color:white; border:none; padding:12px 24px; border-radius:6px; font-weight:600; cursor:pointer; width:100%; transition: background 0.2s;">
+                    Cerrar Sesión / Cambiar Cuenta
+                </button>
+            </div>
+        `;
+        document.body.appendChild(deniedBanner);
+    }
+};
+
 async function fetchMasterData(token = null) {
     const statusEl = document.getElementById('engineStatus');
     const sidebarSyncDot = document.getElementById('sidebarSyncDot');
@@ -438,101 +558,132 @@ async function fetchMasterData(token = null) {
     }
 
     // ==========================================
-    // 2. DESCARGA DEL ARCHIVO (O365 o Proxy)
+    // 2. DESCARGA DEL ARCHIVO (O365 o Proxy) y VENTAS CEO
     // ==========================================
     try {
         const SYNC_TIMEOUT = 45000;
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), SYNC_TIMEOUT);
         let arrayBuffer = null;
+        let arrayBufferCeo = null;
+        
+        window.hasMasterAccess = false;
+        window.hasVentasAccess = false;
 
         try {
             if (token) {
+                // Descarga Master Financiero
                 const encodedUrl = btoa(SHARPOINT_FILE_URL).replace(/=/g, '').replace(/\//g, '_').replace(/\+/g, '-');
                 const graphUrl = `https://graph.microsoft.com/v1.0/shares/u!${encodedUrl}/driveItem/content`;
                 const req = await fetch(graphUrl, { headers: { "Authorization": `Bearer ${token}` }, signal: controller.signal });
-                if (req.ok) arrayBuffer = await req.arrayBuffer();
+                if (req.ok) {
+                    arrayBuffer = await req.arrayBuffer();
+                    window.hasMasterAccess = true;
+                }
+
+                // Descarga Ventas CEO inmediata
+                const CEO_FILE_URL = import.meta.env.VITE_CEO_FILE_URL || import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID;
+                if (CEO_FILE_URL) {
+                    const encodedCeoUrl = btoa(CEO_FILE_URL).replace(/=/g, '').replace(/\//g, '_').replace(/\+/g, '-');
+                    const graphUrlCeo = `https://graph.microsoft.com/v1.0/shares/u!${encodedCeoUrl}/driveItem/content`;
+                    const reqCeo = await fetch(graphUrlCeo, { headers: { "Authorization": `Bearer ${token}` }, signal: controller.signal });
+                    if (reqCeo.ok) {
+                        arrayBufferCeo = await reqCeo.arrayBuffer();
+                        window.hasVentasAccess = true;
+                    }
+                }
             } else {
                 const response = await fetch("/api/downloadSync", { signal: controller.signal });
-                if (response.ok) arrayBuffer = await response.arrayBuffer();
+                if (response.ok) {
+                    arrayBuffer = await response.arrayBuffer();
+                    window.hasMasterAccess = true;
+                }
             }
             clearTimeout(timeoutId);
         } catch (err) {
             if (err.name === 'AbortError') console.warn("Tiempo de espera de red agotado.");
         }
 
-        // Si falló la descarga, pero ya estamos viendo el Dashboard gracias a la caché
+        // Aplicamos el RBAC después de las peticiones
+        if (typeof window.applyRoleBasedUI === 'function') {
+            window.applyRoleBasedUI(window.hasMasterAccess, window.hasVentasAccess);
+        }
+
         if (window._m365Interval) clearInterval(window._m365Interval);
-        if (!arrayBuffer) {
+        
+        // Si no hay acceso a ninguno y no hay cache local, error general
+        if (!arrayBuffer && !arrayBufferCeo) {
             if (window.isMagicLoaded) {
                 if (statusEl) statusEl.innerHTML = "✅ Operando con Caché Local (Sin conexión nueva)";
                 if (sidebarSyncDot) sidebarSyncDot.style.backgroundColor = 'var(--success)';
                 if (sidebarSyncText) sidebarSyncText.innerText = 'Caché Local';
-                return; // Cortamos aquí, el usuario sigue trabajando normal.
+                return;
             }
-            throw new Error("No se pudo obtener el archivo fuente y no hay caché.");
+            throw new Error("No se pudo obtener ningún archivo fuente y no hay caché.");
         }
 
         // ==========================================
         // 3. PROCESAR CON WORKER
         // ==========================================
-        const engineResult = await new Promise((resolve, reject) => {
-            const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
-            worker.onmessage = (e) => {
-                const data = e.data;
-                if (data.type === 'progress') {
-                    // CRÍTICO: Solo actualizar el texto del loader si NO estamos en modo silencioso
-                    if (loader && !window.isMagicLoaded) {
-                        const lt = document.getElementById('loadingText');
-                        if (lt) lt.innerText = data.message || "Procesando...";
-                        const pb = document.getElementById('progressBar');
-                        if (pb && data.progress) pb.style.width = `${data.progress}%`;
-                    }
-                } else if (data.type === 'done') {
-                    resolve(data.engineResult);
-                    worker.terminate();
-                } else if (data.type === 'error') {
-                    reject(new Error(data.error));
-                    worker.terminate();
+        if (arrayBuffer || window.isMagicLoaded) {
+            if (arrayBuffer) {
+                const engineResult = await new Promise((resolve, reject) => {
+                    const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+                    worker.onmessage = (e) => {
+                        const data = e.data;
+                        if (data.type === 'progress') {
+                            if (loader && !window.isMagicLoaded) {
+                                const lt = document.getElementById('loadingText');
+                                if (lt) lt.innerText = data.message || "Procesando...";
+                                const pb = document.getElementById('progressBar');
+                                if (pb && data.progress) pb.style.width = `${data.progress}%`;
+                            }
+                        } else if (data.type === 'done') {
+                            resolve(data.engineResult);
+                            worker.terminate();
+                        } else if (data.type === 'error') {
+                            reject(new Error(data.error));
+                            worker.terminate();
+                        }
+                    };
+                    worker.onerror = (err) => {
+                        reject(new Error(err.message || "Error fatal en el worker."));
+                        worker.terminate();
+                    };
+                    worker.postMessage({ buffer: arrayBuffer }, [arrayBuffer]);
+                });
+
+                // 4. GUARDAR EN DISCO (INDEXEDDB) Y ACTUALIZAR UI SUAVEMENTE
+                try {
+                    const CACHE_KEY = 'MASTER_FINANCE_KEY';
+                    const db = await new Promise((resolve, reject) => {
+                        const req = indexedDB.open('PlanetaAzulDB', 3);
+                        req.onupgradeneeded = (e) => {
+                            if (!e.target.result.objectStoreNames.contains('finance_cache')) {
+                                e.target.result.createObjectStore('finance_cache');
+                            }
+                        };
+                        req.onsuccess = () => resolve(req.result);
+                        req.onerror = () => reject(req.error);
+                    });
+                    await new Promise((resolve, reject) => {
+                        const tx = db.transaction('finance_cache', 'readwrite');
+                        tx.objectStore('finance_cache').put({ data: engineResult.data, timestamp: Date.now() }, CACHE_KEY);
+                        tx.oncomplete = resolve;
+                        tx.onerror = reject;
+                    });
+                } catch (e) {
+                    console.warn("⚠️ Error guardando caché en IndexedDB:", e);
                 }
-            };
-            worker.onerror = (err) => {
-                reject(new Error(err.message || "Error fatal en el worker (probablemente falta de memoria)."));
-                worker.terminate();
-            };
-            worker.postMessage({ buffer: arrayBuffer }, [arrayBuffer]);
-        });
 
-        // ==========================================
-        // 4. GUARDAR EN DISCO (INDEXEDDB) Y ACTUALIZAR UI SUAVEMENTE
-        // ==========================================
-        try {
-            const CACHE_KEY = 'MASTER_FINANCE_KEY';
-            const db = await new Promise((resolve, reject) => {
-                const req = indexedDB.open('PlanetaAzulDB', 3);
-                req.onupgradeneeded = (e) => {
-                    if (!e.target.result.objectStoreNames.contains('finance_cache')) {
-                        e.target.result.createObjectStore('finance_cache');
-                    }
-                };
-                req.onsuccess = () => resolve(req.result);
-                req.onerror = () => reject(req.error);
-            });
-            await new Promise((resolve, reject) => {
-                const tx = db.transaction('finance_cache', 'readwrite');
-                tx.objectStore('finance_cache').put({ data: engineResult.data, timestamp: Date.now() }, CACHE_KEY);
-                tx.oncomplete = resolve;
-                tx.onerror = reject;
-            });
-            console.log("✨ Datos procesados y actualizados en IndexedDB con éxito.");
-        } catch (e) {
-            console.warn("⚠️ Error guardando caché en IndexedDB:", e);
+                globalFinancialData = engineResult.data;
+                window.isMagicLoaded = true;
+                
+                if (window.hasMasterAccess || window.isMagicLoaded) {
+                    renderDashboard(globalFinancialData);
+                }
+            }
         }
-
-        // Refrescar los números de la pantalla sin que el usuario sufra un parpadeo agresivo
-        globalFinancialData = engineResult.data;
-        window.isMagicLoaded = true; // Consolidamos la bandera
-        renderDashboard(globalFinancialData);
         
         if (loader) loader.style.display = 'none';
         if (statusEl) statusEl.innerHTML = "✅ Sincronizado con O365";
@@ -546,51 +697,35 @@ async function fetchMasterData(token = null) {
         }
 
         // ==========================================
-        // 5. DOBLE DESCARGA: VENTAS CEO (Persistencia Silenciosa)
+        // 5. PROCESAR VENTAS CEO
         // ==========================================
-        const CEO_FILE_URL = import.meta.env.VITE_CEO_FILE_URL || import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID;
-        if (CEO_FILE_URL && token) {
-            setTimeout(async () => {
-                try {
-                    console.log("Iniciando descarga asincrónica de Ventas CEO...");
-                    const encodedCeoUrl = btoa(CEO_FILE_URL).replace(/=/g, '').replace(/\//g, '_').replace(/\+/g, '-');
-                    const graphUrlCeo = `https://graph.microsoft.com/v1.0/shares/u!${encodedCeoUrl}/driveItem/content`;
-                    
-                    const reqCeo = await fetch(graphUrlCeo, { headers: { "Authorization": `Bearer ${token}` }});
-                    if (!reqCeo.ok) throw new Error("Fallo al obtener archivo de Ventas CEO desde OneDrive");
-                    
-                    const arrayBufferCeo = await reqCeo.arrayBuffer();
-                    
-                    // Procesamiento Independiente en el Worker
-                    const resultCeo = await new Promise((resolve, reject) => {
-                        const ceoWorker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
-                        ceoWorker.onmessage = (e) => {
-                            const data = e.data;
-                            if (data.type === 'done_ventas') {
-                                resolve(data.result);
-                                ceoWorker.terminate();
-                            } else if (data.type === 'error') {
-                                reject(new Error(data.error));
-                                ceoWorker.terminate();
-                            }
-                        };
-                        ceoWorker.onerror = (err) => {
-                            reject(new Error(err.message));
+        if (arrayBufferCeo) {
+            try {
+                const resultCeo = await new Promise((resolve, reject) => {
+                    const ceoWorker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+                    ceoWorker.onmessage = (e) => {
+                        const data = e.data;
+                        if (data.type === 'done_ventas') {
+                            resolve(data.result);
                             ceoWorker.terminate();
-                        };
-                        ceoWorker.postMessage({ buffer: arrayBufferCeo, fileType: 'ventas_ceo' }, [arrayBufferCeo]);
-                    });
-                    
-                    // Usar la función existente para mapear el JSON extraído (actualiza ceoData internamente)
-                    if (typeof window.processVentasCeoWorkbook === 'function') {
-                        window.processVentasCeoWorkbook(null, null, resultCeo);
-                        console.log("✅ Archivo Ventas CEO procesado y renderizado exitosamente.");
-                    }
-                    
-                } catch (err) {
-                    console.warn("Persistencia Silenciosa: Fallo en la carga de Ventas CEO, omitiendo error...", err);
+                        } else if (data.type === 'error') {
+                            reject(new Error(data.error));
+                            ceoWorker.terminate();
+                        }
+                    };
+                    ceoWorker.onerror = (err) => {
+                        reject(new Error(err.message));
+                        ceoWorker.terminate();
+                    };
+                    ceoWorker.postMessage({ buffer: arrayBufferCeo, fileType: 'ventas_ceo' }, [arrayBufferCeo]);
+                });
+                
+                if (typeof window.processVentasCeoWorkbook === 'function') {
+                    window.processVentasCeoWorkbook(null, null, resultCeo);
                 }
-            }, 500); // Dar un respiro a la UI antes de arrancar con el CEO
+            } catch (err) {
+                console.warn("Fallo procesando Ventas CEO", err);
+            }
         }
 
     } catch (error) {
@@ -630,7 +765,9 @@ window.syncNavigationUI = function(menuId) {
 };
 
 window.handleZeroState = function() {
-    const hasData = globalFinancialData && globalFinancialData.length > 0;
+    const hasData = (globalFinancialData && globalFinancialData.length > 0) || 
+                    (typeof ceoData !== 'undefined' && ceoData && ceoData.length > 0) || 
+                    window.hasVentasAccess;
     
     const sidebar = document.querySelector('.sidebar');
     const headerActions = document.querySelector('.header-actions');
@@ -640,6 +777,7 @@ window.handleZeroState = function() {
     const mainContainer = document.querySelector('.main-container');
     const loginBtn = document.getElementById('loginM365Btn');
 
+    // Siempre aplicar RBAC rules en vez de ocultar todo si hay acceso
     if (!hasData) {
         if(sidebar) sidebar.style.display = 'none';
         if(headerActions) headerActions.style.display = 'none';
@@ -670,6 +808,10 @@ window.handleZeroState = function() {
                 viewConfig.appendChild(dropZone);
             }
         }
+        
+        if(typeof window.applyRoleBasedUI === 'function') {
+           window.applyRoleBasedUI(window.hasMasterAccess !== false, window.hasVentasAccess !== false);
+        }
     }
 };
 
@@ -693,6 +835,30 @@ window.updateLastUpdatedTime = function(timestamp) {
 
 async function loadCacheInstant() {
     try {
+        const CACHE_VERSION = 'v4';
+        if (localStorage.getItem('ventas_cache_version') !== CACHE_VERSION) {
+            localStorage.setItem('ventas_cache_version', CACHE_VERSION);
+            const db = await new Promise((resolve, reject) => {
+                const req = indexedDB.open('PlanetaAzulDB', 3);
+                req.onupgradeneeded = (e) => {
+                    if (!e.target.result.objectStoreNames.contains('finance_cache')) {
+                        e.target.result.createObjectStore('finance_cache');
+                    }
+                };
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+            });
+            await new Promise((resolve, reject) => {
+                const tx = db.transaction('finance_cache', 'readwrite');
+                tx.objectStore('finance_cache').delete('MASTER_FINANCE_KEY');
+                tx.objectStore('finance_cache').delete('CEO_VENTAS_KEY');
+                tx.oncomplete = resolve;
+                tx.onerror = reject;
+            });
+            console.log("Caché invalidado por nueva versión.");
+            return false;
+        }
+
         const CACHE_KEY = 'MASTER_FINANCE_KEY';
         const db = await new Promise((resolve, reject) => {
             const req = indexedDB.open('PlanetaAzulDB', 3);
@@ -1150,6 +1316,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             const searchWrapper = document.getElementById('searchContainerWrapper');
+            const viewModeToggle = document.querySelector('.view-mode-toggle');
             if (monthSelector) {
                 if (id === 'menu-config' || id === 'menu-glosario') {
                     monthSelector.style.display = 'none';
@@ -1158,8 +1325,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             }
             
+            if (viewModeToggle) {
+                const viewsWithYTD = ['menu-kpi', 'menu-resumen', 'menu-preliminar'];
+                if (viewsWithYTD.includes(id)) {
+                    viewModeToggle.style.display = 'flex';
+                } else {
+                    viewModeToggle.style.display = 'none';
+                }
+            }
+            
             if (searchWrapper) {
-                const viewsWithSearch = ['menu-resumen', 'menu-preliminar', 'menu-pnl', 'menu-balance', 'menu-cashflow', 'menu-wc'];
+                const viewsWithSearch = ['menu-resumen', 'menu-preliminar', 'menu-pnl', 'menu-balance', 'menu-cashflow', 'menu-wc', 'menu-estados'];
                 if (viewsWithSearch.includes(id) && globalFinancialData && globalFinancialData.length > 0) {
                     searchWrapper.style.display = 'flex';
                 } else {
@@ -1219,7 +1395,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const query = e.target.value.toLowerCase();
             
             // Filter desktop tables
-            const tablesToFilter = ['pnlDetailedTable', 'balanceTable', 'covenantTable', 'cashflowTable', 'cfMetricsTable', 'tableResumenOperativo', 'tableVentasSegmento', 'tableCostosSegmento', 'tableMargenSegmento', 'tableOpex'];
+            const tablesToFilter = ['pnlDetailedTable', 'balanceTable', 'covenantTable', 'cashflowTable', 'cfMetricsTable', 'tableResumenOperativo', 'tableVentasSegmento', 'tableCostosSegmento', 'tableMargenSegmento', 'tableOpex', 'table-estados'];
             tablesToFilter.forEach(tId => {
                 const table = document.getElementById(tId);
                 if (table) {
@@ -1242,7 +1418,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const mobileContainersToFilter = [
                  'pnlMobileContainer', 'balanceMobileContainer', 'covenantMobileContainer', 
                  'cashflowMobileContainer', 'cfMetricsMobileContainer',
-                 'resumenOperativoMobileContainer', 'ventasSegmentoMobileContainer', 'costosSegmentoMobileContainer', 'margenSegmentoMobileContainer', 'opexMobileContainer'
+                 'resumenOperativoMobileContainer', 'ventasSegmentoMobileContainer', 'costosSegmentoMobileContainer', 'margenSegmentoMobileContainer', 'opexMobileContainer', 'estadosMobileContainer'
             ];
             mobileContainersToFilter.forEach(cId => {
                 const container = document.getElementById(cId);
@@ -1833,7 +2009,7 @@ function renderDashboard(data) {
     const searchWrapper = document.getElementById('searchContainerWrapper');
     if (searchWrapper) {
         const activeMenu = document.querySelector('.menu-item a.active');
-        const viewsWithSearch = ['menu-resumen', 'menu-preliminar', 'menu-pnl', 'menu-balance', 'menu-cashflow', 'menu-wc'];
+        const viewsWithSearch = ['menu-resumen', 'menu-preliminar', 'menu-pnl', 'menu-balance', 'menu-cashflow', 'menu-wc', 'menu-estados'];
         if (activeMenu && viewsWithSearch.includes(activeMenu.id)) {
             searchWrapper.style.display = 'flex';
         }
@@ -3961,7 +4137,8 @@ function renderKPIDashboard(data, selectedIndex) {
         const diff = currVal - prevVal;
         const pct = prevVal !== 0 ? (diff / Math.abs(prevVal)) * 100 : 0;
         el.style.color = (diff >= 0 ? 'var(--success)' : 'var(--danger)');
-        el.textContent = `${diff >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(1)}% vs mes ant.`;
+        const timeLabel = isYTDMode ? 'año ant.' : 'mes ant.';
+        el.textContent = `${diff >= 0 ? '▲' : '▼'} ${Math.abs(pct).toFixed(1)}% vs ${timeLabel}`;
     };
 
     updateBulletChart('utilidad', utilidad, curr.ppto?.kpis?.utilidad || 0, ytdData.real.utilidad, ytdData.ppto.utilidad);
@@ -4643,13 +4820,15 @@ function updateTrend(id, curr, prev, ppto = null, suffix = "") {
     const diff = curr - prev;
     const pct = prev !== 0 ? (diff / Math.abs(prev)) * 100 : 0;
     
+    const timeLabel = isYTDMode ? "año ant." : "mes ant.";
+    
     let html = '';
     if (diff >= 0.01) {
-        html = `<span style="color:var(--success)">▲ ${pct.toFixed(1)}%</span> vs mes ant.`;
+        html = `<span style="color:var(--success)">▲ ${pct.toFixed(1)}%</span> vs ${timeLabel}`;
     } else if (diff <= -0.01) {
-        html = `<span style="color:var(--danger)">▼ ${Math.abs(pct).toFixed(1)}%</span> vs mes ant.`;
+        html = `<span style="color:var(--danger)">▼ ${Math.abs(pct).toFixed(1)}%</span> vs ${timeLabel}`;
     } else {
-        html = `Sin cambios vs mes ant.`;
+        html = `Sin cambios vs ${timeLabel}`;
     }
 
     if (ppto !== null && ppto !== 0) {
@@ -6565,6 +6744,10 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 
                 Object.keys(row.values || {}).forEach(k => {
                     accumulated[k] = (accumulated[k] || 0) + (row.values[k] || 0);
+                    if (row.isPpto && row.isPpto[k]) {
+                        if (!resultRow.isPpto) resultRow.isPpto = {};
+                        resultRow.isPpto[k] = true;
+                    }
                 });
                 Object.keys(row.pptoValues || {}).forEach(k => {
                     accumulated_ppto[k] = (accumulated_ppto[k] || 0) + (row.pptoValues[k] || 0);
@@ -6713,6 +6896,8 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                  let pptoVal = obj.pptoValues[dateStr] || 0;
                  if (realVal === 0 && pptoVal !== 0) {
                      obj.values[dateStr] = pptoVal;
+                     if (!obj.isPpto) obj.isPpto = {};
+                     obj.isPpto[dateStr] = true;
                  }
              }
              
@@ -7213,14 +7398,26 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         addTh('Var %', 'var(--sidebar)', 'white');
         addTh('PPTO', 'var(--sidebar)', 'white');
         
+        const checkIsPpto = (monthKey) => !!(ceoData && ceoData.some(d => d.isPpto && d.isPpto[monthKey]));
+
         // Prev Months
         const displayPrevMonths = window.ventasCeoColPrev ? prevMonths.slice(2) : prevMonths;
-        displayPrevMonths.forEach(m => addTh(m.label, 'var(--sidebar)', 'white'));
+        displayPrevMonths.forEach(m => {
+            const isPpto = checkIsPpto(m.key);
+            const label = isPpto ? `${m.label} (PPTO)` : m.label;
+            const bg = isPpto ? '#e08924' : 'var(--sidebar)';
+            addTh(label, bg, 'white');
+        });
         addTh(prevAvgLabel, '#73A5C6', 'white'); // distinctive color
         
         // Curr Months
         const displayCurrMonths = window.ventasCeoColCurr ? currMonths.slice(2) : currMonths;
-        displayCurrMonths.forEach(m => addTh(m.label, 'var(--sidebar)', 'white'));
+        displayCurrMonths.forEach(m => {
+            const isPpto = checkIsPpto(m.key);
+            const label = isPpto ? `${m.label} (PPTO)` : m.label;
+            const bg = isPpto ? '#e08924' : 'var(--sidebar)';
+            addTh(label, bg, 'white');
+        });
         addTh(currAvgLabel, '#73A5C6', 'white');
         addTh('Var %', 'var(--sidebar)', 'white');
         
@@ -7364,16 +7561,18 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         tbody.innerHTML = tbHtml;
         
         let chartMonths = ['__real24', '__realAnoAnt', '__po26'];
-        let chartLabels = ['Real 2024', 'REAL AÑO ANTERIOR', 'PO 26'];
+        let chartLabels = ['Real 2024', 'REAL AÑO ANTERIOR', 'PPTO'];
         
         const dividers = [];
 
-        dividers.push({ left: 'PO 26' }); // Divider after PO 26
+        dividers.push({ left: 'PPTO' }); // Divider after PPTO
 
         displayPrevMonths.forEach((m, idx) => { 
-            chartMonths.push(m.key); chartLabels.push(m.label); 
+            const isPpto = checkIsPpto(m.key);
+            const label = isPpto ? `${m.label} (PPTO)` : m.label;
+            chartMonths.push(m.key); chartLabels.push(label); 
             if (idx === displayPrevMonths.length - 1) {
-                dividers.push({ left: m.label });
+                dividers.push({ left: label });
             }
         });
         
@@ -7382,9 +7581,11 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         dividers.push({ left: prevAvgChartLabel });
         
         displayCurrMonths.forEach((m, idx) => { 
-            chartMonths.push(m.key); chartLabels.push(m.label);
+            const isPpto = checkIsPpto(m.key);
+            const label = isPpto ? `${m.label} (PPTO)` : m.label;
+            chartMonths.push(m.key); chartLabels.push(label);
             if (idx === displayCurrMonths.length - 1) {
-                dividers.push({ left: m.label });
+                dividers.push({ left: label });
             }
         });
         
@@ -7402,6 +7603,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         });
         
         renderVentasCeoChart(chartDataRows, chartMonths, chartLabels, dividers);
+        updateVentasButtons();
     }
     
     if(window.ventasCeoColPrev === undefined) window.ventasCeoColPrev = true;
@@ -7439,7 +7641,8 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         const chartData = [];
         dateCols.forEach((c, idx) => {
             let label = dateLabels ? dateLabels[idx] : c;
-            let item = { label: label, date: c };
+            const isPpto = label.includes('(PPTO)');
+            let item = { label: label, date: c, isPpto: isPpto };
             let total = 0;
             displayData.forEach(row => {
                 let val = 0;
@@ -7495,34 +7698,62 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
 
         const colorScale = d3.scaleOrdinal(d3.schemeTableau10).domain(seriesKeys);
 
+        const defs = svg.append("defs");
+        defs.append("pattern")
+            .attr("id", "pattern-stripe")
+            .attr("width", 8)
+            .attr("height", 8)
+            .attr("patternUnits", "userSpaceOnUse")
+            .attr("patternTransform", "rotate(45)")
+            .append("rect")
+            .attr("width", 4)
+            .attr("height", 8)
+            .attr("transform", "translate(0,0)")
+            .attr("fill", "rgba(255, 255, 255, 0.3)");
+
         const layer = g.selectAll("g.layer")
             .data(stack)
             .enter().append("g")
             .attr("class", "layer")
             .attr("fill", d => colorScale(d.key));
             
-        layer.selectAll("rect")
+        const rects = layer.selectAll("g.bar-group")
             .data(d => d)
-            .enter().append("rect")
+            .enter().append("g")
+            .attr("class", "bar-group");
+
+        // Base colored rectangle
+        rects.append("rect")
             .attr("x", d => x(d.data.label))
             .attr("y", d => y(d[1]))
             .attr("height", d => Math.max(0, y(d[0]) - y(d[1])))
             .attr("width", x.bandwidth())
+            .attr("opacity", d => d.data.isPpto ? 0.6 : 1)
             .on("mouseover", function(event, d) {
-                const subName = formatSegmentName(d3.select(this.parentNode).datum().key);
-                d3.select(this).attr("opacity", 0.8);
+                const subName = formatSegmentName(d3.select(this.parentNode.parentNode).datum().key);
+                d3.select(this).attr("opacity", d.data.isPpto ? 0.8 : 0.8);
                 const tip = d3.select("body").append("div")
                     .attr("class", "d3-tooltip")
                     .style("opacity", 1)
-                    .html(`<strong>${subName}</strong><br/>${d.data.label}<br/>Valor: ${(d[1]-d[0]).toLocaleString('es-DO', {maximumFractionDigits:1})}`);
+                    .html(`<strong>${subName}${d.data.isPpto ? ' (PPTO)' : ''}</strong><br/>${d.data.label}<br/>Valor: ${(d[1]-d[0]).toLocaleString('es-DO', {maximumFractionDigits:1})}`);
                 const rect = this.getBoundingClientRect();
                 tip.style("left", (rect.left + window.pageXOffset) + "px")
                    .style("top", (rect.top + window.pageYOffset - 40) + "px");
             })
-            .on("mouseout", function() {
-                d3.select(this).attr("opacity", 1);
+            .on("mouseout", function(event, d) {
+                d3.select(this).attr("opacity", d.data.isPpto ? 0.6 : 1);
                 d3.selectAll(".d3-tooltip").remove();
             });
+
+        // Overlay pattern for PPTO
+        rects.append("rect")
+            .filter(d => d.data.isPpto)
+            .attr("x", d => x(d.data.label))
+            .attr("y", d => y(d[1]))
+            .attr("height", d => Math.max(0, y(d[0]) - y(d[1])))
+            .attr("width", x.bandwidth())
+            .attr("fill", "url(#pattern-stripe)")
+            .style("pointer-events", "none");
 
         const isPrecio = ventasCeoCurrentMetric === 'Precio Unitario';
         const formatter = new Intl.NumberFormat('es-DO', { 
