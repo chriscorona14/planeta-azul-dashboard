@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import { GoogleGenAI } from "@google/genai";
 import * as d3 from 'd3';
-import { financialEngine, formatCurrency, formatRawCurrency, formatPercent, normalizeText, calculateYTD } from "./financialEngine.js";
+import { financialEngine, formatCurrency, formatRawCurrency, formatPercent, normalizeText, calculateYTD, formatSegmentName } from "./financialEngine.js";
 import { buildLLMInput } from "./buildLLMInput.js";
 import { validateLLMInput } from "./validator.js";
 
@@ -1848,18 +1848,119 @@ function renderDashboard(data) {
     }, 10);
 }
 
+function getAggregatedData(dataArray, currentIndex, isYTD) {
+    if (currentIndex < 0 || !dataArray[currentIndex]) return { currAgg: null, prevAgg: null };
+    
+    const curr = dataArray[currentIndex];
+    
+    if (!isYTD) {
+        const operationalData = dataArray.filter(d => isYear2026(d));
+        const currIdxInOp = operationalData.findIndex(d => d.date === curr.date);
+        const operationalPrev = currIdxInOp > 0 ? operationalData[currIdxInOp - 1] : curr;
+        return { 
+            currAgg: curr, 
+            prevAgg: operationalPrev 
+        };
+    }
+
+    const targetYear = curr.sortDate ? curr.sortDate.getFullYear() : 2026;
+    const targetMonth = curr.sortDate ? curr.sortDate.getMonth() : 11;
+
+    const createEmptyAgg = () => ({
+        kpis: { ingresos: 0, ebitda: 0, cashflow: 0, utilidad: 0, margen_ebitda: 0 },
+        pnl: { categorias: {}, segments: {}, opexDetalle: {} },
+        ppto: {
+            kpis: { ingresos: 0, ebitda: 0, cashflow: 0, utilidad: 0 },
+            pnl: { categorias: {}, segments: {}, opexDetalle: {} }
+        }
+    });
+
+    const sumAgg = (agg, source) => {
+        if (!source) return;
+        if (source.kpis) {
+            agg.kpis.ingresos += source.kpis.ingresos || 0;
+            agg.kpis.ebitda += source.kpis.ebitda || 0;
+            agg.kpis.cashflow += source.kpis.cashflow || 0;
+            agg.kpis.utilidad += source.kpis.utilidad || 0;
+        }
+        if (source.pnl && source.pnl.categorias) {
+            for (const [key, val] of Object.entries(source.pnl.categorias)) {
+                agg.pnl.categorias[key] = (agg.pnl.categorias[key] || 0) + val;
+            }
+        }
+        if (source.pnl && source.pnl.segments) {
+            for (const [seg, segData] of Object.entries(source.pnl.segments)) {
+                if (!agg.pnl.segments[seg]) agg.pnl.segments[seg] = { ventas: 0, costos: 0 };
+                agg.pnl.segments[seg].ventas += segData.ventas || 0;
+                agg.pnl.segments[seg].costos += segData.costos || 0;
+            }
+        }
+        if (source.pnl && source.pnl.opexDetalle) {
+            for (const [key, val] of Object.entries(source.pnl.opexDetalle)) {
+                agg.pnl.opexDetalle[key] = (agg.pnl.opexDetalle[key] || 0) + val;
+            }
+        }
+        if (source.ppto) {
+            if (source.ppto.kpis) {
+                agg.ppto.kpis.ingresos += source.ppto.kpis.ingresos || 0;
+                agg.ppto.kpis.ebitda += source.ppto.kpis.ebitda || 0;
+                agg.ppto.kpis.cashflow += source.ppto.kpis.cashflow || 0;
+                agg.ppto.kpis.utilidad += source.ppto.kpis.utilidad || 0;
+            }
+            if (source.ppto.pnl && source.ppto.pnl.categorias) {
+                 for (const [key, val] of Object.entries(source.ppto.pnl.categorias)) {
+                    agg.ppto.pnl.categorias[key] = (agg.ppto.pnl.categorias[key] || 0) + val;
+                }
+            }
+            if (source.ppto.pnl && source.ppto.pnl.segments) {
+                for (const [seg, segData] of Object.entries(source.ppto.pnl.segments)) {
+                    if (!agg.ppto.pnl.segments[seg]) agg.ppto.pnl.segments[seg] = { ventas: 0, costos: 0 };
+                    agg.ppto.pnl.segments[seg].ventas += segData.ventas || 0;
+                    agg.ppto.pnl.segments[seg].costos += segData.costos || 0;
+                }
+            }
+            if (source.ppto.pnl && source.ppto.pnl.opexDetalle) {
+                for (const [key, val] of Object.entries(source.ppto.pnl.opexDetalle)) {
+                    agg.ppto.pnl.opexDetalle[key] = (agg.ppto.pnl.opexDetalle[key] || 0) + val;
+                }
+            }
+        }
+    };
+
+    const currAgg = createEmptyAgg();
+    const prevAgg = createEmptyAgg();
+
+    dataArray.forEach(d => {
+        if (!d.sortDate) return;
+        const dYear = d.sortDate.getFullYear();
+        const dMonth = d.sortDate.getMonth();
+
+        if (dYear === targetYear && dMonth <= targetMonth) {
+            sumAgg(currAgg, d);
+        }
+        
+        if (dYear === targetYear - 1 && dMonth <= targetMonth) {
+            sumAgg(prevAgg, d);
+        }
+    });
+
+    currAgg.kpis.margen_ebitda = currAgg.kpis.ingresos !== 0 ? currAgg.kpis.ebitda / currAgg.kpis.ingresos : 0;
+    prevAgg.kpis.margen_ebitda = prevAgg.kpis.ingresos !== 0 ? prevAgg.kpis.ebitda / prevAgg.kpis.ingresos : 0;
+
+    return { currAgg, prevAgg };
+}
+
 function updateUI(data, index) {
     if (!data || !data[index]) return;
     const curr = data[index];
     
-    // Identificar el anterior operativo
-    const operationalData = data.filter(d => isYear2026(d));
-    const currIdxInOp = operationalData.findIndex(d => d.date === curr.date);
-    const prev = currIdxInOp > 0 ? operationalData[currIdxInOp - 1] : curr;
+    // Usamos getAggregatedData para obtener currAgg y prevAgg basándonos en isYTDMode
+    const { currAgg, prevAgg } = getAggregatedData(data, index, isYTDMode);
     
-    // Safety guards for kpis
-    const kpis = curr.kpis || { ingresos: 0, ebitda: 0, cashflow: 0, margen_ebitda: 0 };
-    const prevKpis = prev.kpis || kpis;
+    // Variables for rendering explicitly (using the aggregated data for the specified cards)
+    const aggKpis = currAgg.kpis || { ingresos: 0, ebitda: 0, cashflow: 0, margen_ebitda: 0 };
+    const prevAggKpis = prevAgg.kpis || aggKpis;
+    const aggPptoKpis = (currAgg.ppto && currAgg.ppto.kpis) ? currAgg.ppto.kpis : { ingresos: 0, ebitda: 0 };
     
     // Integrity Badge logic
     const integrityBadge = document.getElementById('integrityBadge');
@@ -1876,15 +1977,17 @@ function updateUI(data, index) {
         }
     }
 
-    document.getElementById('kpi-ventas').textContent = formatCurrency(kpis.ingresos);
-    document.getElementById('kpi-ebitda').textContent = formatCurrency(kpis.ebitda);
+    // Inyectar en Tarjetas de KPIs: Ingresos Netos, Costo de Ventas, EBITDA
+    document.getElementById('kpi-ventas').textContent = formatCurrency(aggKpis.ingresos);
+    document.getElementById('kpi-ebitda').textContent = formatCurrency(aggKpis.ebitda);
 
-    const categories = (curr.pnl && curr.pnl.categorias) ? curr.pnl.categorias : {};
-    const totalCost = categories["Costo de Ventas"] || 0;
-    const prevCategories = (prev.pnl && prev.pnl.categorias) ? prev.pnl.categorias : categories;
-    const prevTotalCost = prevCategories["Costo de Ventas"] || 0;
+    const aggCategories = (currAgg.pnl && currAgg.pnl.categorias) ? currAgg.pnl.categorias : {};
+    const aggTotalCost = aggCategories["Costo de Ventas"] || 0;
+    const prevAggCategories = (prevAgg.pnl && prevAgg.pnl.categorias) ? prevAgg.pnl.categorias : aggCategories;
+    const prevAggTotalCost = prevAggCategories["Costo de Ventas"] || 0;
+    const aggPptoCategories = (currAgg.ppto && currAgg.ppto.pnl && currAgg.ppto.pnl.categorias) ? currAgg.ppto.pnl.categorias : {};
 
-    document.getElementById('val-ratio').textContent = formatCurrency(totalCost);
+    document.getElementById('val-ratio').textContent = formatCurrency(aggTotalCost);
 
     const statusEl = document.getElementById('engineStatus');
     if (statusEl && curr.pnl && curr.pnl.detectedRows) {
@@ -1896,10 +1999,10 @@ function updateUI(data, index) {
     }
     
     document.getElementById('periodLabel').textContent = `Periodo de Análisis: ${curr.date || 'Actual'}`;
-    updateTrend('sub-ventas', kpis.ingresos, prevKpis.ingresos, curr.ppto?.kpis?.ingresos || 0);
-    const margin = ((kpis.margen_ebitda || 0) * 100).toFixed(1);
-    updateTrend('sub-ebitda', kpis.ebitda, prevKpis.ebitda, curr.ppto?.kpis?.ebitda || 0, ` | Margen: ${margin}%`);
-    updateTrend('sub-ratio', totalCost, prevTotalCost, curr.ppto?.pnl?.categorias?.["Costo de Ventas"] || 0);
+    updateTrend('sub-ventas', aggKpis.ingresos, prevAggKpis.ingresos, aggPptoKpis.ingresos || 0);
+    const margin = ((aggKpis.margen_ebitda || 0) * 100).toFixed(1);
+    updateTrend('sub-ebitda', aggKpis.ebitda, prevAggKpis.ebitda, aggPptoKpis.ebitda || 0, ` | Margen: ${margin}%`);
+    updateTrend('sub-ratio', aggTotalCost, prevAggTotalCost, aggPptoCategories["Costo de Ventas"] || 0);
 
     // Renderizar resto condicionalmente
     renderActiveViewLazy(data, index);
@@ -2014,16 +2117,49 @@ function renderActiveViewLazy(data, index) {
 
         let viewResumen = document.getElementById("view-resumen");
         if (viewResumen && viewResumen.classList.contains("active")) {
-            // Re-render resumen widgets fully
-            const kpis = curr.kpis || { ingresos: 0, ebitda: 0, cashflow: 0, margen_ebitda: 0 };
-            const categories = (curr.pnl && curr.pnl.categorias) ? curr.pnl.categorias : {};
-            const prevCategories = (operationalPrev.pnl && operationalPrev.pnl.categorias) ? operationalPrev.pnl.categorias : categories;
-            const totalCost = categories["Costo de Ventas"] || 0;
-            const pptoCategories = (curr.ppto && curr.ppto.pnl && curr.ppto.pnl.categorias) ? curr.ppto.pnl.categorias : {};
+            const { currAgg, prevAgg } = getAggregatedData(data, index, isYTDMode);
+            
+            // Dynamic headers logic
+            let currentLabel = curr.date || 'Periodo Actual';
+            let prevLabel = operationalPrev.date || 'Periodo Previo';
 
-            const segments = (curr.pnl && curr.pnl.segments) ? curr.pnl.segments : {};
-            const prevSegments = (operationalPrev.pnl && operationalPrev.pnl.segments) ? operationalPrev.pnl.segments : {};
-            const pptoSegments = (curr.ppto && curr.ppto.pnl && curr.ppto.pnl.segments) ? curr.ppto.pnl.segments : {};
+            if (isYTDMode && curr.sortDate) {
+                const monthNames = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+                const m = curr.sortDate.getMonth();
+                const y = curr.sortDate.getFullYear();
+                currentLabel = `Ene-${monthNames[m]} ${y}`;
+                prevLabel = `Ene-${monthNames[m]} ${y - 1}`;
+            }
+
+            const headerIds = [
+                'tableResumenOperativo',
+                'tableVentasSegmento',
+                'tableCostosSegmento',
+                'tableMargenSegmento',
+                'tableOpex'
+            ];
+            
+            headerIds.forEach(id => {
+                const table = document.getElementById(id);
+                if (table) {
+                    const ths = table.querySelectorAll('thead th');
+                    if (ths.length > 2) {
+                        ths[1].textContent = prevLabel; // 2nd col
+                        ths[2].textContent = currentLabel; // 3rd col
+                    }
+                }
+            });
+
+            // Re-render resumen widgets fully
+            const aggKpis = currAgg.kpis || { ingresos: 0, ebitda: 0, cashflow: 0, margen_ebitda: 0 };
+            const aggCategories = (currAgg.pnl && currAgg.pnl.categorias) ? currAgg.pnl.categorias : {};
+            const prevAggCategories = (prevAgg.pnl && prevAgg.pnl.categorias) ? prevAgg.pnl.categorias : aggCategories;
+            const aggTotalCost = aggCategories["Costo de Ventas"] || 0;
+            const aggPptoCategories = (currAgg.ppto && currAgg.ppto.pnl && currAgg.ppto.pnl.categorias) ? currAgg.ppto.pnl.categorias : {};
+
+            const segments = (currAgg.pnl && currAgg.pnl.segments) ? currAgg.pnl.segments : {};
+            const prevSegments = (prevAgg.pnl && prevAgg.pnl.segments) ? prevAgg.pnl.segments : {};
+            const pptoSegments = (currAgg.ppto && currAgg.ppto.pnl && currAgg.ppto.pnl.segments) ? currAgg.ppto.pnl.segments : {};
             
             // Render Segmentos Ventas
             const segmentsSection = document.getElementById('segments-section');
@@ -2040,7 +2176,7 @@ function renderActiveViewLazy(data, index) {
                     const pptoVentas = pptoSegments[name] ? pptoSegments[name].ventas : 0;
                     const diff = ventas - prevVentas;
                     const diffPpto = ventas - pptoVentas;
-                    const pctPart = kpis.ingresos !== 0 ? (ventas / kpis.ingresos) * 100 : 0;
+                    const pctPart = aggKpis.ingresos !== 0 ? (ventas / aggKpis.ingresos) * 100 : 0;
                     const pctMoM = prevVentas !== 0 ? (diff / Math.abs(prevVentas)) * 100 : 0;
                     const pctPpto = pptoVentas !== 0 ? (diffPpto / Math.abs(pptoVentas)) * 100 : 0;
                     
@@ -2053,7 +2189,7 @@ function renderActiveViewLazy(data, index) {
                     return `<tr>
                         <td style="font-weight:600">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
-                                <span>${name}</span>
+                                <span>${formatSegmentName(name)}</span>
                                 <span style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 500;">${pctPart.toFixed(1)}%</span>
                             </div>
                             <div class="bar-container"><div class="bar-fill" style="width: ${Math.min(100, Math.max(0, pctPart))}%;"></div></div>
@@ -2091,7 +2227,7 @@ function renderActiveViewLazy(data, index) {
                     const pptoColor = pptoCostos < 0 ? 'var(--danger)' : 'inherit';
         
                     return `<tr>
-                        <td style="font-weight:600">${name}</td>
+                        <td style="font-weight:600">${formatSegmentName(name)}</td>
                         <td style="color:${prevColor}">${formatCurrency(prevCostos)}</td>
                         <td style="color:${valColor}">${formatCurrency(costos)}</td>
                         <td style="color:${pptoColor}">${formatCurrency(pptoCostos)}</td>
@@ -2133,7 +2269,7 @@ function renderActiveViewLazy(data, index) {
                     const prevColor = prevMargen < 0 ? 'var(--danger)' : 'inherit';
         
                     return `<tr>
-                        <td style="font-weight:600">${name}</td>
+                        <td style="font-weight:600">${formatSegmentName(name)}</td>
                         <td>${pctPrevMargen.toFixed(1)}%</td>
                         <td style="font-weight:700">${pctMargen.toFixed(1)}%</td>
                         <td>${pctPptoMargen.toFixed(1)}%</td>
@@ -2148,9 +2284,9 @@ function renderActiveViewLazy(data, index) {
             // Render OPEX Detalle
             const opexSection = document.getElementById('opex-section');
             const opexBody = document.getElementById('opexBody');
-            const opexDetalle = (curr.pnl && curr.pnl.opexDetalle) ? curr.pnl.opexDetalle : {};
-            const prevOpexDetalle = (operationalPrev.pnl && operationalPrev.pnl.opexDetalle) ? operationalPrev.pnl.opexDetalle : opexDetalle;
-            const pptoOpexDetalle = (curr.ppto && curr.ppto.pnl && curr.ppto.pnl.opexDetalle) ? curr.ppto.pnl.opexDetalle : {};
+            const opexDetalle = (currAgg.pnl && currAgg.pnl.opexDetalle) ? currAgg.pnl.opexDetalle : {};
+            const prevOpexDetalle = (prevAgg.pnl && prevAgg.pnl.opexDetalle) ? prevAgg.pnl.opexDetalle : opexDetalle;
+            const pptoOpexDetalle = (currAgg.ppto && currAgg.ppto.pnl && currAgg.ppto.pnl.opexDetalle) ? currAgg.ppto.pnl.opexDetalle : {};
         
             if (Object.keys(opexDetalle).length > 0) {
                 opexSection.style.display = 'block';
@@ -2182,16 +2318,16 @@ function renderActiveViewLazy(data, index) {
 
             // Render Tabla Detallada General
             const tableBody = document.getElementById('tableBody');
-            if (Object.keys(categories).length > 0) {
-                const filteredEntries = Object.entries(categories).filter(([cat]) => 
+            if (Object.keys(aggCategories).length > 0) {
+                const filteredEntries = Object.entries(aggCategories).filter(([cat]) => 
                     !cat.toLowerCase().includes("opex") && 
                     !cat.toLowerCase().includes("extraordinarios") &&
                     !cat.toLowerCase().includes("utilidad")
                 );
                 
                 tableBody.innerHTML = filteredEntries.map(([cat, val]) => {
-                    const prevVal = prevCategories[cat] || 0;
-                    const pptoVal = pptoCategories[cat] || 0;
+                    const prevVal = prevAggCategories[cat] || 0;
+                    const pptoVal = aggPptoCategories[cat] || 0;
                     const diff = val - prevVal;
                     const pct = prevVal !== 0 ? (diff / Math.abs(prevVal)) * 100 : 0;
                     const diffPpto = val - pptoVal;
@@ -2217,11 +2353,11 @@ function renderActiveViewLazy(data, index) {
             // Build Mobile views
             setTimeout(() => {
                 buildMobileAccordionsFromTable('tableResumenOperativo', 'resumenOperativoMobileContainer', 'Resumen Operativo', '');
-                buildMobileAccordionsFromTable('tableVentasSegmento', 'ventasSegmentoMobileContainer', 'Segmentos de Venta', formatCurrency(kpis.ingresos));
-                buildMobileAccordionsFromTable('tableCostosSegmento', 'costosSegmentoMobileContainer', 'Desglose de Costos', formatCurrency(totalCost));
+                buildMobileAccordionsFromTable('tableVentasSegmento', 'ventasSegmentoMobileContainer', 'Segmentos de Venta', formatCurrency(aggKpis.ingresos));
+                buildMobileAccordionsFromTable('tableCostosSegmento', 'costosSegmentoMobileContainer', 'Desglose de Costos', formatCurrency(aggTotalCost));
                 buildMobileAccordionsFromTable('tableMargenSegmento', 'margenSegmentoMobileContainer', 'Margen Bruto por Segmento', '');
                 
-                const currOpex = (curr.pnl && curr.pnl.opexDetalle) ? Object.values(curr.pnl.opexDetalle).reduce((acc, val) => acc + val, 0) : 0;
+                const currOpex = (currAgg.pnl && currAgg.pnl.opexDetalle) ? Object.values(currAgg.pnl.opexDetalle).reduce((acc, val) => acc + val, 0) : 0;
                 buildMobileAccordionsFromTable('tableOpex', 'opexMobileContainer', 'Detalle de Gastos OPEX', formatCurrency(currOpex));
                 
                 // Trigger account search filter if active
@@ -2911,7 +3047,7 @@ function renderPreliminaryView(data, selectedIndex = -1) {
         { label: "Diferencial cambiario", match: ["diferencial cambiario", "cambiario"], isTotal: false },
         { label: "Ingresos (Gastos) Extraordinarios", match: ["extraordinario", "extraordinarios", "ingresos (gastos) extraordinarios"], isTotal: false },
         { label: "Utilidad antes de impuesto", match: ["utilidad antes de impuesto", "antes de impuesto", "net income before"], isTotal: true },
-        { label: "Tasa Cambio Cierre", match: ["fx", "tasa cambio", "tasa de cambio", "dop", "tipo de cambio", "t.c", "tc"], isTotal: false }
+        { label: "Tasa de cierre USD", match: ["fx", "tasa cambio", "tasa de cambio", "dop", "tipo de cambio", "t.c", "tc", "tasa cambio cierre", "fx eop"], isTotal: false }
     ];
 
     window.expandedGroups = window.expandedGroups || new Set();
@@ -2970,7 +3106,7 @@ function renderPreliminaryView(data, selectedIndex = -1) {
             }
         }
 
-        if (rowLabel === "Tasa Cambio Cierre") {
+        if (rowLabel === "Tasa de cierre USD") {
             if (targetItem.ppto && targetItem.ppto.tasaCambio !== undefined) {
                 ppto = targetItem.ppto.tasaCambio;
             }
@@ -3094,7 +3230,7 @@ function renderPreliminaryView(data, selectedIndex = -1) {
         const item = data[targetIdx];
         if (!item) return { actual: 0, ppto: 0 };
 
-        if (isYTDMode && row.label === "Tasa Cambio Cierre") {
+        if (isYTDMode && row.label === "Tasa de cierre USD") {
             const targetYear = item.sortDate.getFullYear();
             let sumEbitdaLocal = 0;
             let sumEbitdaUsd = 0;
@@ -3258,7 +3394,7 @@ function renderPreliminaryView(data, selectedIndex = -1) {
 
         html += `<tr ${idAttr} style="${bgRow} ${displayStyle}">
             <td style="border-right: 1px solid rgba(0,0,0,0.05); padding: 5px; text-align: center; vertical-align: middle;">${collapseBtn}</td>
-            <td style="border-right: 1px solid rgba(0,0,0,0.05); padding: 14px 16px; padding-left: ${paddingLeft}; font-size: 1.05em; ${styleText}">${row.label}</td>
+            <td style="border-right: 1px solid rgba(0,0,0,0.05); padding: 14px 16px; padding-left: ${paddingLeft}; font-size: 1.05em; ${styleText}">${formatSegmentName(row.label)}</td>
             <td style="text-align:right; padding: 14px 16px; font-size: 1.05em; ${styleText}">${formatRowVal(prevVal)}</td>
             <td style="text-align:right; color:var(--text-secondary); font-size:0.95em; padding: 14px 16px;">${(isTasa || hidePct) ? '' : (Math.abs(pPrev)*100).toFixed(0)+'%'}</td>
             <td style="text-align:right; border-left: 2px solid var(--sidebar-accent); background:rgba(0, 150, 199, 0.05); padding: 14px 16px; font-size: 1.05em; ${styleText}">${formatRowVal(currVal)}</td>
@@ -3585,6 +3721,7 @@ function renderDetailedPnL(data, selectedIndex = -1) {
         if (displayConcept.trim() === "Ventas P6") {
             displayConcept = "Ventas BON";
         }
+        displayConcept = formatSegmentName(displayConcept);
 
         return `<tr class="${rowClass}">
             <td class="${cellClass}">${displayConcept}</td>
@@ -3605,31 +3742,131 @@ function renderKPIDashboard(data, selectedIndex) {
     const prev = selectedIndex > 0 ? data[selectedIndex - 1] : curr;
     const prevKpis = prev.kpis || kpis;
 
+    const getPeriodStr = (idx) => {
+        if (idx < 0 || !data[idx]) return "N/A";
+        const item = data[idx];
+        if (!isYTDMode || !item.sortDate) return item.date;
+        try {
+            const targetYear = item.sortDate.getFullYear();
+            let startItem = item;
+            for (let i = idx; i >= 0; i--) {
+                if (data[i].sortDate && data[i].sortDate.getFullYear() === targetYear) {
+                    startItem = data[i];
+                } else {
+                    break;
+                }
+            }
+            const startMonth = startItem.date.split(' ')[0];
+            const endMonth = item.date.split(' ')[0];
+            if (startMonth === endMonth) return item.date;
+            return `${startMonth} a ${endMonth} ${targetYear}`;
+        } catch(e) {
+            return item.date;
+        }
+    };
+
     // 1. Update Score Cards
     const levValue = curr.balance.ebitdaLTM > 0 ? (curr.balance.deudaTotal / curr.balance.ebitdaLTM).toFixed(2) : "0.00";
     document.getElementById('dash-lev').textContent = levValue + 'x';
 
     const statusLev = document.getElementById('status-lev');
     if (statusLev) {
-        statusLev.textContent = "Estable";
-        statusLev.style.color = "var(--text-secondary)";
+        const prevLevValue = prev.balance.ebitdaLTM > 0 ? (prev.balance.deudaTotal / prev.balance.ebitdaLTM).toFixed(2) : "0.00";
+        const diffLev = parseFloat(levValue) - parseFloat(prevLevValue);
+        if (Math.abs(diffLev) < 0.01) {
+            statusLev.textContent = "Estable";
+            statusLev.style.color = "var(--text-secondary)";
+        } else if (diffLev < 0) {
+            statusLev.textContent = "▲ Mejorando";
+            statusLev.style.color = "var(--success)";
+        } else {
+            statusLev.textContent = "▼ Cayendo";
+            statusLev.style.color = "var(--danger)";
+        }
+        const prevDateStr = getPeriodStr(selectedIndex - 1);
+        statusLev.setAttribute('data-tooltip', `<strong>Previo (${prevDateStr}):</strong> <br/> ${prevLevValue}x`);
     }
 
     // Secondary CEO KPIs
-    const utilidad = kpis.utilidad || 0;
-    const margenNeto = kpis.margen_neto || 0;
-    const margenBruto = kpis.margen_bruto || 0;
+    let utilidad = kpis.utilidad || 0;
+    let margenNeto = kpis.margen_neto || 0;
+    let margenBruto = kpis.margen_bruto || 0;
+    
+    let prevMargenNeto = prevKpis.margen_neto || 0;
+    let prevMargenBruto = prevKpis.margen_bruto || 0;
+
+    // Helper to calculate accumulated metrics for a given index up to the beginning of its year
+    const getAccumulatedRatios = (idx) => {
+        if (idx < 0) return null;
+        const targetItem = data[idx];
+        const targetYear = targetItem.sortDate.getFullYear();
+        let sumIngresos = 0, sumUtilidad = 0, sumGrossMargin = 0;
+        
+        for (let i = idx; i >= 0; i--) {
+            const item = data[i];
+            if (item.sortDate.getFullYear() !== targetYear) break;
+            sumIngresos += (item.kpis?.ingresos || 0);
+            sumUtilidad += (item.kpis?.utilidad || 0);
+            sumGrossMargin += (item.kpis?.margen_bruto || 0) * (item.kpis?.ingresos || 0);
+        }
+        
+        const monthNumber = targetItem.sortDate.getMonth() + 1;
+        return {
+            utilidad: sumUtilidad,
+            margen_bruto: sumIngresos !== 0 ? sumGrossMargin / sumIngresos : 0,
+            margen_neto: sumIngresos !== 0 ? sumUtilidad / sumIngresos : 0,
+            monthNumber: monthNumber
+        };
+    };
+
+    let dispMonthNumber = 1;
+    if (isYTDMode) {
+        const currYTD = getAccumulatedRatios(selectedIndex);
+        if (currYTD) {
+            utilidad = currYTD.utilidad;
+            margenNeto = currYTD.margen_neto;
+            margenBruto = currYTD.margen_bruto;
+            dispMonthNumber = currYTD.monthNumber;
+        }
+        
+        const prevYTD = getAccumulatedRatios(selectedIndex - 1);
+        if (prevYTD) {
+            prevMargenNeto = prevYTD.margen_neto;
+            prevMargenBruto = prevYTD.margen_bruto;
+        } else {
+            prevMargenNeto = margenNeto;
+            prevMargenBruto = margenBruto;
+        }
+    }
+
     document.getElementById('dash-margen-neto').textContent = formatPercent(margenNeto);
     const margenBrutoEl = document.getElementById('dash-margen-bruto');
     if (margenBrutoEl) margenBrutoEl.textContent = formatPercent(margenBruto);
 
-    // ROE (Utilidad LTM / Patrimonio) - Estimado: multiplicamos utilidad mensual x 12
+    // ROE (Utilidad LTM / Patrimonio) - Estimado
     const patrimonio = curr.balance.patrimonio > 0 ? curr.balance.patrimonio : 1; 
     const activos = curr.balance.activos > 0 ? curr.balance.activos : 1;
     
     // Si la utilidad y activos son > 0 lo mostramos. Si patrimonio = 0 (anomalía), no mostrar div by zero
-    const roe = curr.balance.patrimonio !== 0 ? ((utilidad * 12) / curr.balance.patrimonio) : 0;
-    const roa = curr.balance.activos !== 0 ? ((utilidad * 12) / curr.balance.activos) : 0;
+    // En YTD mode, anualizamos la utilidad acumulada dividiéndola por el número de meses y multiplicando por 12
+    const annualizedUtility = isYTDMode ? (utilidad / dispMonthNumber) * 12 : utilidad * 12;
+    const roe = curr.balance.patrimonio !== 0 ? (annualizedUtility / curr.balance.patrimonio) : 0;
+    const roa = curr.balance.activos !== 0 ? (annualizedUtility / curr.balance.activos) : 0;
+
+    let prevUtilidad = prevKpis.utilidad || 0;
+    let prevDispMonthNumber = 1;
+    if (isYTDMode) {
+        const prevYTD = getAccumulatedRatios(selectedIndex - 1);
+        if (prevYTD) {
+            prevUtilidad = prevYTD.utilidad;
+            prevDispMonthNumber = prevYTD.monthNumber;
+        }
+    }
+    const prevAnnualizedUtility = isYTDMode ? (prevUtilidad / prevDispMonthNumber) * 12 : prevUtilidad * 12;
+    const prevPatrimonio = prev.balance.patrimonio > 0 ? prev.balance.patrimonio : 1;
+    const prevActivos = prev.balance.activos > 0 ? prev.balance.activos : 1;
+    const prevRoe = prev.balance.patrimonio !== 0 ? (prevAnnualizedUtility / prevPatrimonio) : 0;
+    const prevRoa = prev.balance.activos !== 0 ? (prevAnnualizedUtility / prevActivos) : 0;
     
     document.getElementById('dash-roe').textContent = formatPercent(roe);
     document.getElementById('dash-roa').textContent = formatPercent(roa);
@@ -3647,18 +3884,23 @@ function renderKPIDashboard(data, selectedIndex) {
     const prevDpo = prev.cashflowDetail?.dpo || 0;
     const prevCcc = prevDso + prevDio - prevDpo;
     const cccDiff = prevCcc !== 0 ? ((ccc - prevCcc) / Math.abs(prevCcc)) * 100 : 0;
-    if (ccc === 0 && prevCcc === 0) {
-        document.getElementById('status-ccc').textContent = "Estable";
-        document.getElementById('status-ccc').style.color = "var(--text-secondary)";
-    } else if (ccc < prevCcc) {
-        document.getElementById('status-ccc').textContent = "▲ Mejorando";
-        document.getElementById('status-ccc').style.color = "var(--success)";
-    } else if (ccc > prevCcc) {
-        document.getElementById('status-ccc').textContent = "▼ Empeorando";
-        document.getElementById('status-ccc').style.color = "var(--danger)";
-    } else {
-        document.getElementById('status-ccc').textContent = "Estable";
-        document.getElementById('status-ccc').style.color = "var(--text-secondary)";
+    const statusCcc = document.getElementById('status-ccc');
+    if (statusCcc) {
+        if (ccc === 0 && prevCcc === 0) {
+            statusCcc.textContent = "Estable";
+            statusCcc.style.color = "var(--text-secondary)";
+        } else if (ccc < prevCcc) {
+            statusCcc.textContent = "▲ Mejorando";
+            statusCcc.style.color = "var(--success)";
+        } else if (ccc > prevCcc) {
+            statusCcc.textContent = "▼ Cayendo";
+            statusCcc.style.color = "var(--danger)";
+        } else {
+            statusCcc.textContent = "Estable";
+            statusCcc.style.color = "var(--text-secondary)";
+        }
+        const prevDateStr = getPeriodStr(selectedIndex - 1);
+        statusCcc.setAttribute('data-tooltip', `<strong>Previo (${prevDateStr}):</strong> <br/> ${prevCcc.toFixed(0)} días`);
     }
 
     const updateBulletChart = (idPrefix, realValMonthly, pptoValMonthly, realYtd, pptoYtd) => {
@@ -3725,7 +3967,7 @@ function renderKPIDashboard(data, selectedIndex) {
     updateBulletChart('utilidad', utilidad, curr.ppto?.kpis?.utilidad || 0, ytdData.real.utilidad, ytdData.ppto.utilidad);
     
     // update simple status for ratios
-    const updateRatioStatus = (elId, diff) => {
+    const updateRatioStatus = (elId, diff, prevVal) => {
         const el = document.getElementById(elId);
         if(!el) return;
         el.textContent = diff >= 0 ? "▲ Mejorando" : "▼ Cayendo";
@@ -3734,22 +3976,31 @@ function renderKPIDashboard(data, selectedIndex) {
             el.textContent = "Estable";
             el.style.color = "var(--text-secondary)";
         }
+        if (prevVal !== undefined) {
+            const prevDateStr = getPeriodStr(selectedIndex - 1);
+            el.setAttribute('data-tooltip', `<strong>Previo (${prevDateStr}):</strong> <br/> ${formatPercent(prevVal)}`);
+        }
     };
     
-    updateRatioStatus('status-margen-neto', margenNeto - (prevKpis.margen_neto || 0));
-    updateRatioStatus('status-margen-bruto', margenBruto - (prevKpis.margen_bruto || 0));
+    updateRatioStatus('status-margen-neto', margenNeto - prevMargenNeto, prevMargenNeto);
+    updateRatioStatus('status-margen-bruto', margenBruto - prevMargenBruto, prevMargenBruto);
 
     // ROE, ROA status
-    const evaluateStatus = (elId, val) => {
+    const evaluateStatus = (elId, val, prevVal) => {
         const el = document.getElementById(elId);
         if(!el) return;
         if(val > 0.15) { el.textContent = "Óptimo"; el.style.color = "var(--success)"; }
         else if(val > 0) { el.textContent = "Adecuado"; el.style.color = "var(--info)"; }
         else if(val === 0) { el.textContent = "Insuficiente Data"; el.style.color = "var(--text-secondary)"; }
         else { el.textContent = "Bajo Cero (Atención)"; el.style.color = "var(--danger)"; }
+        
+        if (prevVal !== undefined) {
+             const prevDateStr = getPeriodStr(selectedIndex - 1);
+             el.setAttribute('data-tooltip', `<strong>Previo (${prevDateStr}):</strong> <br/> ${formatPercent(prevVal)}`);
+        }
     };
-    evaluateStatus('status-roe', roe);
-    evaluateStatus('status-roa', roa);
+    evaluateStatus('status-roe', roe, prevRoe);
+    evaluateStatus('status-roa', roa, prevRoa);
 
     // -- Variación Interanual (YoY) --
     let yoyData = null;
@@ -3821,19 +4072,20 @@ function renderKPIDashboard(data, selectedIndex) {
         
         if (valueEl) {
             valueEl.textContent = `${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`;
-            const yoyDateStr = yoyItem ? yoyItem.date : 'año ant.';
-            const tooltipStr = `Vs. ${yoyDateStr}: ${formatCurrency(finalPrevValue)}`;
-            valueEl.title = tooltipStr;
+            const yoyDateStr = yoyItem ? getPeriodStr(data.indexOf(yoyItem)) : 'año ant.';
+            valueEl.setAttribute('data-tooltip', `<strong>Vs. ${yoyDateStr}:</strong> <br/> ${formatCurrency(finalPrevValue)}`);
+            valueEl.removeAttribute('title');
             if (valueEl.parentElement) {
-                valueEl.parentElement.title = tooltipStr;
+                valueEl.parentElement.setAttribute('data-tooltip', `<strong>Vs. ${yoyDateStr}:</strong> <br/> ${formatCurrency(finalPrevValue)}`);
+                valueEl.parentElement.removeAttribute('title');
             }
         }
         if (statusEl) {
             if (pct >= 0.01) {
-                statusEl.textContent = "▲ Crecimiento";
+                statusEl.textContent = "▲ Mejorando";
                 statusEl.style.color = "var(--success)";
             } else if (pct <= -0.01) {
-                statusEl.textContent = "▼ Decrecimiento";
+                statusEl.textContent = "▼ Cayendo";
                 statusEl.style.color = "var(--danger)";
             } else {
                 statusEl.textContent = "Estable";
@@ -4544,7 +4796,7 @@ function renderEstadosFinancieros(data, selectedIndex = -1) {
         { label: "Ingreso Interes / (Efectivo + CDs)", type: "ratio", dataKey: ["Ingreso Interes / (Efectivo + CDs)", "Ingreso Interés / (Efectivo + CDs)"] },
 
         { label: "Variables Macro", type: "bold", borderT: "1px dashed var(--text-secondary)" },
-        { label: "FX EOP", type: "decimal" }
+        { label: "Tasa de cierre USD", type: "decimal", dataKey: ["Tasa de cierre USD", "FX EOP", "Tasa Cambio Cierre", "FX"] }
     ];
 
     // Compute occurrences to handle duplicate labels correctly (e.g., "Costo de Ventas" twice)
@@ -4596,7 +4848,7 @@ function renderEstadosFinancieros(data, selectedIndex = -1) {
             cellStyle += 'font-weight: 500;';
         }
 
-        let labelHtml = item.label;
+        let labelHtml = formatSegmentName(item.label);
         if (item.subtitle) {
             labelHtml += `<div style="font-size: 0.75rem; font-weight: 600; color:var(--text-secondary); margin-top:2px;">${item.subtitle}</div>`;
         }
@@ -5055,7 +5307,10 @@ function renderMarginTrendChart(globalData, index) {
         .attr("width", x.bandwidth())
         .attr("y", d => yLeft(d.pptoIngresos))
         .attr("height", d => Math.max(0, height - margin.top - margin.bottom - yLeft(d.pptoIngresos)))
-        .attr("fill", "#e2e8f0")
+        .attr("fill", "rgba(148, 163, 184, 0.6)")
+        .attr("stroke", "rgba(71, 85, 105, 1)")
+        .attr("stroke-width", 2)
+        .attr("stroke-dasharray", "4,4")
         .attr("rx", 4)
         .style("opacity", d => d.pptoIngresos > 0 ? 1 : 0);
 
@@ -5155,7 +5410,7 @@ function renderMarginTrendChart(globalData, index) {
     legend.append("rect").attr("x", 0).attr("y", 0).attr("width", 10).attr("height", 10).attr("fill", "var(--sidebar-accent)");
     legend.append("text").attr("x", 15).attr("y", 9).style("font-size", "10px").text("Real");
     
-    legend.append("rect").attr("x", 50).attr("y", 0).attr("width", 10).attr("height", 10).attr("fill", "#e2e8f0");
+    legend.append("rect").attr("x", 50).attr("y", 0).attr("width", 10).attr("height", 10).attr("fill", "rgba(148, 163, 184, 0.6)").attr("stroke", "rgba(71, 85, 105, 1)").attr("stroke-width", 1).attr("stroke-dasharray", "2,2");
     legend.append("text").attr("x", 65).attr("y", 9).style("font-size", "10px").text("PPTO");
     
     legend.append("line").attr("x1", 105).attr("y1", 5).attr("x2", 125).attr("y2", 5).attr("stroke", "var(--warning)").attr("stroke-width", 2);
@@ -6490,6 +6745,8 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             let prodVal = String(r[prodKey] || '').trim();
             if(!prodVal || prodVal === '0') return; // Skip empty rows
             
+            prodVal = prodVal.replace(/\s*\(\s*ZUMOS\s*\)\s*/i, ' ').replace(/\s{2,}/g, ' ').trim();
+            
             let firstCell = prodVal.toUpperCase();
             if(firstCell.includes("PRECIO UNITARIO")) return;
             
@@ -6714,8 +6971,9 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                     finalType = "Volumen";
                 }
                 
+                let rawProducto = String(d.Producto).replace(/\s*\(\s*ZUMOS\s*\)\s*/i, ' ').replace(/\s{2,}/g, ' ').trim();
                 let p = {
-                    Producto: String(d.Producto).trim(),
+                    Producto: rawProducto,
                     Tipo: finalType,
                     values: {}
                 };
@@ -6860,9 +7118,23 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
     
     // El input del home (upload-ventas-ceo-home) ahora se maneja con el botón Procesar Archivos
 
+    window.togglePrevVentasCEO = function() {
+        const newVal = !window.ventasCeoColPrev;
+        window.ventasCeoColPrev = newVal;
+        window.ventasCeoColCurr = newVal;
+        window.renderVentasCEO();
+    };
+
+    window.toggleCurrVentasCEO = function() {
+        const newVal = !window.ventasCeoColCurr;
+        window.ventasCeoColPrev = newVal;
+        window.ventasCeoColCurr = newVal;
+        window.renderVentasCEO();
+    };
+
     window.renderVentasCEO = function() {
         if(!ceoData) return;
-        
+
         const thead = document.getElementById('ventas-ceo-thead');
         const tbody = document.getElementById('ventas-ceo-tbody');
         if(!thead || !tbody) return;
@@ -6919,11 +7191,14 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             return res;
         };
         
-        const currMonths = getMonthsArr(currYear, currMonth, 5);
-        const prevMonths = getMonthsArr(currYear-1, currMonth, 5);
+        const currMonths = getMonthsArr(currYear, currMonth, 4);
+        const prevMonths = getMonthsArr(currYear-1, currMonth, 4);
         
-        const prevAvgLabel = `Promedio ${prevMonths[0].label} - ${prevMonths[4].label}`;
-        const currAvgLabel = `Promedio ${currMonths[0].label} - ${currMonths[4].label}`;
+        const prevBtnStr = `<button onclick="togglePrevVentasCEO()" style="border: 1px solid rgba(255,255,255,0.4); background:transparent; color:white; border-radius:4px; width:20px; height:20px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; margin-left:8px; font-weight:bold; padding:0; line-height:1;" title="Mostrar/Ocultar meses">${window.ventasCeoColPrev ? '+' : '-'}</button>`;
+        const currBtnStr = `<button onclick="toggleCurrVentasCEO()" style="border: 1px solid rgba(255,255,255,0.4); background:transparent; color:white; border-radius:4px; width:20px; height:20px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; margin-left:8px; font-weight:bold; padding:0; line-height:1;" title="Mostrar/Ocultar meses">${window.ventasCeoColCurr ? '+' : '-'}</button>`;
+        
+        const prevAvgLabel = `Promedio ${prevMonths[0].label} - ${prevMonths[3].label}${prevBtnStr}`;
+        const currAvgLabel = `Promedio ${currMonths[0].label} - ${currMonths[3].label}${currBtnStr}`;
         
         let thHtml = `<th style="width: 24px; min-width: 24px; max-width: 24px; text-align: center; border:none; background: var(--sidebar); color: white; padding: 0;"></th>
                       <th style="text-align:left; background: var(--sidebar); color: white; border:none; border-right:1px solid rgba(255,255,255,0.2); padding: 12px 16px;">Producto</th>`;
@@ -6934,16 +7209,18 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         
         // Static columns
         addTh('Real 2024', 'var(--sidebar)', 'white');
-        addTh('REAL AÑO ANT.', 'var(--sidebar)', 'white');
+        addTh('<span title="Prom. Mensual Año Ant." style="cursor:help;">REAL AÑO ANT.</span>', 'var(--sidebar)', 'white');
         addTh('Var %', 'var(--sidebar)', 'white');
         addTh('PPTO', 'var(--sidebar)', 'white');
         
         // Prev Months
-        prevMonths.forEach(m => addTh(m.label, 'var(--sidebar)', 'white'));
+        const displayPrevMonths = window.ventasCeoColPrev ? prevMonths.slice(2) : prevMonths;
+        displayPrevMonths.forEach(m => addTh(m.label, 'var(--sidebar)', 'white'));
         addTh(prevAvgLabel, '#73A5C6', 'white'); // distinctive color
         
         // Curr Months
-        currMonths.forEach(m => addTh(m.label, 'var(--sidebar)', 'white'));
+        const displayCurrMonths = window.ventasCeoColCurr ? currMonths.slice(2) : currMonths;
+        displayCurrMonths.forEach(m => addTh(m.label, 'var(--sidebar)', 'white'));
         addTh(currAvgLabel, '#73A5C6', 'white');
         addTh('Var %', 'var(--sidebar)', 'white');
         
@@ -6969,7 +7246,15 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             const po26Key = `2026-${reqM}`;
             
             let real24 = row.values[currKey] || 0;
-            let realAnoAnt = row.values[prevKey] || 0;
+            
+            let prevYearSum = 0;
+            let prevYearCount = 12;
+            for(let m=1; m<=12; m++) {
+                let pKey = `${prevY}-${String(m).padStart(2, '0')}`;
+                prevYearSum += (row.values[pKey] || 0);
+            }
+            let realAnoAnt = prevYearSum / prevYearCount;
+            
             let po26 = (row.pptoValues && row.pptoValues[po26Key]) ? row.pptoValues[po26Key] : 0;
             
             if (po26 === 0 && row.pptoValues) {
@@ -6994,7 +7279,9 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             prevMonths.forEach(m => {
                 let v = row.values[m.key] || 0;
                 prevSum += v; prevCount++;
-                html += `<td style="text-align:right; ${cellStyle}">${formatVal(v)}</td>`;
+                if (displayPrevMonths.find(dm => dm.key === m.key)) {
+                    html += `<td style="text-align:right; ${cellStyle}">${formatVal(v)}</td>`;
+                }
             });
             const prevAvg = prevCount ? (prevSum/prevCount) : 0;
             row.__prevAvg = prevAvg;
@@ -7004,7 +7291,9 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             currMonths.forEach(m => {
                 let v = row.values[m.key] || 0;
                 currSum += v; currCount++;
-                html += `<td style="text-align:right; ${cellStyle}">${formatVal(v)}</td>`;
+                if (displayCurrMonths.find(dm => dm.key === m.key)) {
+                    html += `<td style="text-align:right; ${cellStyle}">${formatVal(v)}</td>`;
+                }
             });
             const currAvg = currCount ? (currSum/currCount) : 0;
             row.__currAvg = currAvg;
@@ -7043,7 +7332,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
 
             tbHtml += `<tr data-group="${row.parentId || ''}" id="ventasceo-row-${row.id}" ${rowOnclick} ${rowHover}>
                           <td style="width: 24px; min-width: 24px; max-width: 24px; text-align: center; vertical-align: middle; border-right: 1px solid rgba(0,0,0,0.05); padding: 0; cursor: ${row.hasChildren ? 'pointer':'default'};">${collapseBtn}</td>
-                          <td style="text-align:left; border-right: 1px solid rgba(0,0,0,0.05); padding: 12px 16px; ${rowStyle}">${row.Producto}</td>`;
+                          <td style="text-align:left; border-right: 1px solid rgba(0,0,0,0.05); padding: 12px 16px; ${rowStyle}">${formatSegmentName(row.Producto)}</td>`;
             tbHtml += renderRowContent(row, false);
             tbHtml += '</tr>';
         });
@@ -7067,7 +7356,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         if(tsbRow) {
              tbHtml += `<tr style="background:#eef2f5;">
                            <td style="width: 24px; min-width: 24px; max-width: 24px; text-align: center; border-right: 1px solid rgba(0,0,0,0.05); padding: 0;"></td>
-                           <td style="text-align:left; font-weight:800; color: #10b981; border-right: 1px solid rgba(0,0,0,0.05); padding: 12px 16px;">TOTAL SIN BON</td>` 
+                           <td style="text-align:left; font-weight:800; color: #10b981; border-right: 1px solid rgba(0,0,0,0.05); padding: 12px 16px;">${formatSegmentName('TOTAL SIN BON')}</td>` 
                            + renderRowContent(tsbRow, true).replace(/<td/g, '<td style="color: #10b981;"') + 
                        '</tr>';
         }
@@ -7075,14 +7364,33 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         tbody.innerHTML = tbHtml;
         
         let chartMonths = ['__real24', '__realAnoAnt', '__po26'];
-        let chartLabels = ['Real 2024', 'REAL AÑO ANT.', 'PPTO'];
+        let chartLabels = ['Real 2024', 'REAL AÑO ANTERIOR', 'PO 26'];
         
-        prevMonths.forEach(m => { chartMonths.push(m.key); chartLabels.push(m.label); });
-        chartMonths.push('__prevAvg'); chartLabels.push(prevAvgLabel);
+        const dividers = [];
+
+        dividers.push({ left: 'PO 26' }); // Divider after PO 26
+
+        displayPrevMonths.forEach((m, idx) => { 
+            chartMonths.push(m.key); chartLabels.push(m.label); 
+            if (idx === displayPrevMonths.length - 1) {
+                dividers.push({ left: m.label });
+            }
+        });
         
-        currMonths.forEach(m => { chartMonths.push(m.key); chartLabels.push(m.label); });
-        chartMonths.push('__currAvg'); chartLabels.push(currAvgLabel);
+        const prevAvgChartLabel = `Promedio\n${prevMonths[0].label} - ${prevMonths[3].label}`;
+        chartMonths.push('__prevAvg'); chartLabels.push(prevAvgChartLabel);
+        dividers.push({ left: prevAvgChartLabel });
         
+        displayCurrMonths.forEach((m, idx) => { 
+            chartMonths.push(m.key); chartLabels.push(m.label);
+            if (idx === displayCurrMonths.length - 1) {
+                dividers.push({ left: m.label });
+            }
+        });
+        
+        const currAvgChartLabel = `Promedio\n${currMonths[0].label} - ${currMonths[3].label}`;
+        chartMonths.push('__currAvg'); chartLabels.push(currAvgChartLabel);
+
         const chartDataRows = displayData.filter(d => {
             const isVisible = !d.parentId || window.expandedVentasCeoGroups.has(d.parentId);
             if (!isVisible) return false;
@@ -7093,9 +7401,12 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             return d.values !== undefined;
         });
         
-        renderVentasCeoChart(chartDataRows, chartMonths, chartLabels);
+        renderVentasCeoChart(chartDataRows, chartMonths, chartLabels, dividers);
     }
     
+    if(window.ventasCeoColPrev === undefined) window.ventasCeoColPrev = true;
+    if(window.ventasCeoColCurr === undefined) window.ventasCeoColCurr = true;
+
     window.toggleVentasCeoGroup = function(groupId, btn) {
         if(window.expandedVentasCeoGroups.has(groupId)) {
             window.expandedVentasCeoGroups.delete(groupId);
@@ -7118,7 +7429,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         window.renderVentasCEO();
     });
     
-    function renderVentasCeoChart(displayData, dateCols, dateLabels) {
+    function renderVentasCeoChart(displayData, dateCols, dateLabels, dividers) {
         const container = document.getElementById('ventas-ceo-chart');
         if (!container) return;
         container.innerHTML = '';
@@ -7198,7 +7509,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             .attr("height", d => Math.max(0, y(d[0]) - y(d[1])))
             .attr("width", x.bandwidth())
             .on("mouseover", function(event, d) {
-                const subName = d3.select(this.parentNode).datum().key;
+                const subName = formatSegmentName(d3.select(this.parentNode).datum().key);
                 d3.select(this).attr("opacity", 0.8);
                 const tip = d3.select("body").append("div")
                     .attr("class", "d3-tooltip")
@@ -7254,13 +7565,46 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
 
         g.append("g")
             .attr("transform", `translate(0,${boundedHeight})`)
-            .call(d3.axisBottom(x))
+            .call(d3.axisBottom(x).tickSize(0).tickPadding(10))
             .selectAll("text")
-            .attr("transform", "rotate(-45)")
-            .style("text-anchor", "end")
-            .style("font-size", "12px")
-            .attr("dx", "-.8em")
-            .attr("dy", ".15em");
+            .style("text-anchor", "middle")
+            .style("font-size", "11px")
+            .style("font-weight", "600")
+            .style("fill", "var(--sidebar-dark)")
+            .each(function(d) {
+                 const textGroup = d3.select(this);
+                 textGroup.text(""); // Clear original text
+                 if(d.includes("\n")) {
+                     const lines = d.split("\n");
+                     lines.forEach((line, index) => {
+                         textGroup.append("tspan")
+                             .attr("x", 0)
+                             .attr("dy", index === 0 ? "0" : "1.2em")
+                             .text(line);
+                     });
+                 } else {
+                     textGroup.append("tspan")
+                         .attr("x", 0)
+                         .attr("dy", "0")
+                         .text(d);
+                 }
+            });
+
+        if (dividers && dividers.length > 0) {
+            dividers.forEach(div => {
+                let leftX = x(div.left);
+                if (leftX !== undefined) {
+                    let dividerX = leftX + x.bandwidth() + (x.step() - x.bandwidth()) / 2;
+                    g.append("line")
+                        .attr("x1", dividerX)
+                        .attr("y1", -20)
+                        .attr("x2", dividerX)
+                        .attr("y2", boundedHeight + 40)
+                        .attr("stroke", "#0ea5e9") // Light blue
+                        .attr("stroke-width", 1.5);
+                }
+            });
+        }
 
         g.append("g")
             .call(d3.axisLeft(y).ticks(5))
@@ -7274,6 +7618,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         // Helper to format short names in the legend if needed so it doesn't overflow
         const getShortName = (name) => {
             if (!name) return "";
+            name = formatSegmentName(name);
             if (name.length <= 25) return name;
             let s = name.toUpperCase();
             if (s.includes("BOTELLON") && s.includes("18.9")) return s.includes("MAQUILA") ? "MAQ. BOTELLON 18.9L" : "APA BOTELLON 18.9L";
@@ -7312,7 +7657,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 .attr("fill", "var(--sidebar)")
                 .style("font-size", "13px")
                 .style("font-weight", "bold")
-                .html(`<tspan x="0" dy="0">Ult. 5 meses</tspan><tspan x="0" dy="16">% vs. AA</tspan>`);
+                .html(`<tspan x="0" dy="0">Ult. 4 meses</tspan><tspan x="0" dy="16">% vs. AA</tspan>`);
                 
             let totalPct = prevItem.total !== 0 ? (currItem.total - prevItem.total) / prevItem.total : (currItem.total > 0 ? 1 : 0);
             
@@ -7421,14 +7766,27 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         resetBtn('btn-ventas-precio');
         
         let activeId = 'btn-ventas-vol';
-        if(ventasCeoCurrentMetric === 'Monto (MM DOP)') activeId = 'btn-ventas-monto';
-        if(ventasCeoCurrentMetric === 'Precio Unitario') activeId = 'btn-ventas-precio';
+        let chartTitle = 'Volumen (k) de Unidades';
+        
+        if(ventasCeoCurrentMetric === 'Monto (MM DOP)') { 
+            activeId = 'btn-ventas-monto';
+            chartTitle = 'Monto (mDOP)';
+        }
+        if(ventasCeoCurrentMetric === 'Precio Unitario') { 
+            activeId = 'btn-ventas-precio';
+            chartTitle = 'Precio Unitario';
+        }
         
         const activeBtn = document.getElementById(activeId);
         if(activeBtn) {
             activeBtn.style.background = 'white';
             activeBtn.style.color = 'var(--primary)';
             activeBtn.style.boxShadow = '0 1px 2px rgba(0,0,0,0.05)';
+        }
+        
+        const titleEl = document.getElementById('ventas-ceo-chart-title');
+        if(titleEl) {
+            titleEl.textContent = chartTitle;
         }
     }
 
