@@ -91,6 +91,19 @@ function applyAiUIState() {
     if (summaryBox && !window.aiEnabled) {
         summaryBox.style.display = 'none';
     }
+    
+    const simMenuItem = document.getElementById('sim-menu-item');
+    if (simMenuItem) {
+        simMenuItem.style.display = window.aiEnabled ? 'block' : 'none';
+        
+        // Hide simulador view if AI is disabled
+        if (!window.aiEnabled) {
+            const simuladorView = document.getElementById('view-simulador');
+            if (simuladorView && simuladorView.classList.contains('active')) {
+                document.getElementById('menu-preliminar')?.click();
+            }
+        }
+    }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -378,36 +391,9 @@ window.hasMasterAccess = false;
 window.hasVentasAccess = false;
 
 window.applyRoleBasedUI = function(hasMaster, hasVentas) {
-    // --- PASE VIP PARA ENTORNO DE DESARROLLO / PREVIEW ---
-    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const isAiStudioPreview = window.location.hostname.includes('run.app') || window.location.hostname.includes('vercel.app'); 
-    
-    if (isLocalhost || isAiStudioPreview) {
-        const urlParams = new URLSearchParams(window.location.search);
-        const roleOverride = urlParams.get('role');
-        
-        if (roleOverride === 'ventas') {
-            hasMaster = false;
-            hasVentas = true;
-            console.warn("🛠️ Preview: Simulando rol Ventas CEO.");
-        } else if (roleOverride === 'master') {
-            hasMaster = true;
-            hasVentas = false;
-            console.warn("🛠️ Preview: Simulando rol Master Financiero.");
-        } else if (roleOverride === 'none') {
-            hasMaster = false;
-            hasVentas = false;
-            console.warn("🛠️ Preview: Simulando sin acceso.");
-        } else {
-            hasMaster = true;
-            hasVentas = true;
-            console.warn("🛠️ Preview detectado: Acceso total simulado. Agrega ?role=ventas o ?role=master a la URL para probar roles específicos.");
-        }
-    }
-    // -----------------------------------------------------
-
     const mainContainer = document.querySelector('.main-container');
     const sidebarItems = document.querySelectorAll('.sidebar .menu-item');
+    const simMenuItem = document.getElementById('sim-menu-item');
     const ventasCeoMenuBtn = document.getElementById('menu-ventas-ceo');
     const monthSelector = document.getElementById('monthSelector');
     const viewModeToggle = document.querySelector('.view-mode-toggle');
@@ -433,7 +419,11 @@ window.applyRoleBasedUI = function(hasMaster, hasVentas) {
         if (viewModeToggle) viewModeToggle.style.display = 'flex';
         if (dropZone) dropZone.style.display = 'none';
         viewContainers.forEach(v => v.style.display = '');
-        sidebarItems.forEach(item => item.style.display = '');
+        sidebarItems.forEach(item => {
+            if (item.id !== 'sim-menu-item') {
+                item.style.display = '';
+            }
+        });
 
     } else if (!hasMaster && hasVentas) {
         // Escenario 2: Sólo Ventas CEO
@@ -442,19 +432,56 @@ window.applyRoleBasedUI = function(hasMaster, hasVentas) {
         if (contentHeader) contentHeader.style.display = '';
         if (headerActions) headerActions.style.display = 'none';
         if (headerInfo) headerInfo.style.display = '';
-        viewContainers.forEach(v => v.style.display = '');
+        
+        // Hide all views except Ventas CEO
+        viewContainers.forEach(v => {
+            if (v.id === 'view-ventas-ceo') {
+                v.classList.add('active');
+                v.style.display = 'block';
+            } else {
+                v.classList.remove('active');
+                v.style.display = 'none';
+            }
+        });
+        
+        // Hide all sidebar items except Ventas CEO
         sidebarItems.forEach(item => {
             const link = item.querySelector('a');
             if (link && link.id !== 'menu-ventas-ceo') {
                 item.style.display = 'none';
-            } else {
+                link.classList.remove('active');
+            } else if (link) {
                 item.style.display = '';
+                link.classList.add('active');
             }
         });
+
+        // Also hide group-headers if necessary, for now we let CSS/HTML structure handle it
+        const groupHeaders = document.querySelectorAll('.sidebar .group-header');
+        groupHeaders.forEach(gh => {
+            if (gh.textContent && gh.textContent.toLowerCase().includes('seguimiento')) {
+                gh.style.display = 'none'; // Ocultar el grupo de Seguimiento si sólo tenemos Ventas
+            }
+        });
+
         if (monthSelector) monthSelector.style.display = 'none';
         if (viewModeToggle) viewModeToggle.style.display = 'none';
         if (dropZone) dropZone.style.display = 'none';
-        if (ventasCeoMenuBtn) ventasCeoMenuBtn.click();
+        
+        // Fallback robusto para renderizar Ventas CEO si el listener del click no está listo
+        if (typeof window.renderVentasCEO === 'function') {
+            window.renderVentasCEO();
+        } else {
+            let attempt = 0;
+            const iv = setInterval(() => {
+                attempt++;
+                if (typeof window.renderVentasCEO === 'function') {
+                    window.renderVentasCEO();
+                    clearInterval(iv);
+                }
+                if (attempt > 40) clearInterval(iv);
+            }, 50);
+        }
 
     } else if (hasMaster && !hasVentas) {
         // Escenario 3: Sólo Master Financiero
@@ -470,7 +497,7 @@ window.applyRoleBasedUI = function(hasMaster, hasVentas) {
             const link = item.querySelector('a');
             if (link && link.id === 'menu-ventas-ceo') {
                 item.style.display = 'none';
-            } else {
+            } else if (item.id !== 'sim-menu-item') {
                 item.style.display = '';
             }
         });
@@ -2258,6 +2285,8 @@ function renderActiveViewLazy(data, index) {
             renderWaterfallChart(data, index);
             renderMarginTrendChart(data, index);
             
+            // Hemos deshabilitado buildMobileAccordionsFromTable para pnlDetailedTable
+            // para permitir el scroll horizontal manejado por CSS, pero el usuario pidió accordeon
             setTimeout(() => {
                 buildMobileAccordionsFromTable('pnlDetailedTable', 'pnlMobileContainer');
             }, 10);
@@ -3610,6 +3639,12 @@ function renderPreliminaryView(data, selectedIndex = -1) {
     });
 
     tableBody.innerHTML = html;
+
+    setTimeout(() => {
+        if (typeof buildMobileAccordionsFromTable === 'function') {
+            buildMobileAccordionsFromTable('preliminarTable', 'preliminarMobileContainer', 'Resumen Ejecutivo');
+        }
+    }, 10);
 }
 
 /**
@@ -4936,7 +4971,6 @@ function renderEstadosFinancieros(data, selectedIndex = -1) {
 
     // 2. Define the explicit requested structure
     const EXPLICIT_STRUCTURE = [
-        { label: "Estado de Resultados", type: "category_main" },
         { label: "Ventas Netas", type: "bold", dataKey: ["Ventas Netas", "Ventas totales", "Ingresos"] },
         { label: "Ventas BT5", type: "indent" },
         { label: "Ventas EVP", type: "indent" },
@@ -5061,7 +5095,15 @@ function renderEstadosFinancieros(data, selectedIndex = -1) {
             labelHtml += `<div style="font-size: 0.75rem; font-weight: 600; color:var(--text-secondary); margin-top:2px;">${item.subtitle}</div>`;
         }
         
-        let rowHtml = `<td style="${cellStyle} ${commonTdStyle}">${labelHtml}</td>`;
+        let firstStyle = `${cellStyle} ${commonTdStyle}`;
+        if (item.type === "category_main") {
+            firstStyle += ` background: rgb(132,159,186) !important; color: white !important;`;
+        } else if (item.type === "category") {
+            firstStyle += ` background: #e0f2fe !important; color: #0369a1 !important;`;
+        } else {
+            firstStyle += ` background: var(--card, #ffffff) !important;`;
+        }
+        let rowHtml = `<td style="${firstStyle}">${labelHtml}</td>`;
         
         let total = 0;
         let isTotalizable = !isRatio(item.type) && !isDecimal(item.type) && item.type !== "category_main" && item.type !== "category";
@@ -5149,7 +5191,12 @@ function renderEstadosFinancieros(data, selectedIndex = -1) {
         }
 
         // ALWAYS render row since the user wants to see the explicit structure
-        tbBody += `<tr style="${rowBgColor}">${rowHtml}</tr>`;
+        let rowClasses = [];
+        if (item.type === "category_main" || item.type === "category") rowClasses.push('row-category');
+        if (item.type === "bold") rowClasses.push('row-total');
+        
+        let rowClassStr = rowClasses.length > 0 ? ` class="${rowClasses.join(' ')}"` : '';
+        tbBody += `<tr style="${rowBgColor}"${rowClassStr}>${rowHtml}</tr>`;
     });
 
     // Unmapped items (Otras Cuentas)
@@ -7349,11 +7396,34 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
     window.renderVentasCEO = function() {
         if(!ceoData) return;
 
+        const isMobile = window.innerWidth <= 768;
+
         const thead = document.getElementById('ventas-ceo-thead');
         const tbody = document.getElementById('ventas-ceo-tbody');
         if(!thead || !tbody) return;
         
         tbody.innerHTML = '';
+        thead.innerHTML = '';
+        
+        const tableContainer = document.getElementById('ventas-ceo-table-container');
+        let cardsContainer = document.getElementById('ventas-ceo-cards-container');
+        
+        if (isMobile) {
+            if (tableContainer) tableContainer.style.display = 'none';
+            if (!cardsContainer) {
+                cardsContainer = document.createElement('div');
+                cardsContainer.id = 'ventas-ceo-cards-container';
+                cardsContainer.className = 'ceo-cards-container';
+                if (tableContainer && tableContainer.parentElement) {
+                    tableContainer.parentElement.insertBefore(cardsContainer, tableContainer);
+                }
+            }
+            cardsContainer.style.display = 'flex';
+            cardsContainer.innerHTML = '';
+        } else {
+            if (tableContainer) tableContainer.style.display = '';
+            if (cardsContainer) cardsContainer.style.display = 'none';
+        }
         
         if(!window.expandedVentasCeoGroups) window.expandedVentasCeoGroups = new Set();
         
@@ -7378,6 +7448,22 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
            if (!isNaN(idx) && globalFinancialData[idx]) {
                selectedDate = globalFinancialData[idx].sortDate || new Date(globalFinancialData[idx].date);
            }
+        } else if (ceoData && ceoData.length > 0) {
+            // Find the most recent date available in ceoData values
+            let maxKey = null;
+            ceoData.forEach(d => {
+                if (d.values) {
+                    Object.keys(d.values).forEach(k => {
+                        if (!maxKey || k > maxKey) maxKey = k;
+                    });
+                }
+            });
+            if (maxKey) {
+                const [y, m] = maxKey.split('-');
+                if (y && m) {
+                    selectedDate = new Date(parseInt(y), parseInt(m) - 1, 1);
+                }
+            }
         }
         
         const currYear = selectedDate.getFullYear();
@@ -7422,7 +7508,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         };
         
         // Static columns
-        addTh('Real 2024', 'var(--sidebar)', 'white');
+        addTh(`Real ${currYear}`, 'var(--sidebar)', 'white');
         addTh('<span title="Prom. Mensual Año Ant." style="cursor:help;">REAL AÑO ANT.</span>', 'var(--sidebar)', 'white');
         addTh('Var %', 'var(--sidebar)', 'white');
         addTh('PPTO', 'var(--sidebar)', 'white');
@@ -7466,10 +7552,11 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             const reqM = String(currMonth + 1).padStart(2, '0');
             const prevY = currYear - 1;
             
-            const currKey = `2024-${reqM}`;
+            const currKey = `${reqY}-${reqM}`;
             const prevKey = `${prevY}-${reqM}`;
             
-            const po26Key = `2026-${reqM}`;
+            // Assume upcoming year is reqY + 2
+            const poStrKey = `${reqY + 2}-${reqM}`;
             
             let real24 = row.values[currKey] || 0;
             
@@ -7481,10 +7568,10 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             }
             let realAnoAnt = prevYearSum / prevYearCount;
             
-            let po26 = (row.pptoValues && row.pptoValues[po26Key]) ? row.pptoValues[po26Key] : 0;
+            let po26 = (row.pptoValues && row.pptoValues[poStrKey]) ? row.pptoValues[poStrKey] : 0;
             
             if (po26 === 0 && row.pptoValues) {
-                let altKey = `${currYear}-${reqM}`;
+                let altKey = `${reqY}-${reqM}`;
                 if (row.pptoValues[altKey]) po26 = row.pptoValues[altKey];
             }
             
@@ -7532,6 +7619,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         };
         
         let tbHtml = '';
+        let cardsHtml = '';
         displayData.forEach(row => {
             let isVisible = true;
             if (row.parentId) {
@@ -7561,18 +7649,73 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                           <td style="text-align:left; border-right: 1px solid rgba(0,0,0,0.05); padding: 12px 16px; ${rowStyle}">${formatSegmentName(row.Producto)}</td>`;
             tbHtml += renderRowContent(row, false);
             tbHtml += '</tr>';
+            
+            if (isMobile) {
+                let currMonthVal = row.__real24;
+                let varPct = row.__realAnoAnt ? ((row.__real24 - row.__realAnoAnt)/row.__realAnoAnt) : 0;
+                let avgVal = row.__currAvg;
+                
+                let pctColor = varPct > 0 ? '#10b981' : (varPct < 0 ? '#ef4444' : 'var(--text-secondary)');
+                let clickAttr = row.hasChildren ? `onclick="toggleVentasCeoGroup('${row.id}')" style="cursor:pointer;"` : '';
+                let titleMargin = row.parentId ? "margin-left: 16px; border-left: 2px solid var(--border); padding-left: 8px;" : "";
+                
+                cardsHtml += `
+                <div class="ceo-card" ${clickAttr}>
+                    <div class="ceo-card-title" style="${titleMargin}">
+                        <span>${formatSegmentName(row.Producto)}</span>
+                        ${row.hasChildren ? `<span>${isExpanded ? '▼' : '►'}</span>` : ''}
+                    </div>
+                    <div class="ceo-card-metric">
+                        <span class="ceo-card-metric-label">Actual (${currYear})</span>
+                        <span class="ceo-card-metric-value">${formatVal(currMonthVal)}</span>
+                    </div>
+                    <div class="ceo-card-metric">
+                        <span class="ceo-card-metric-label">Promedio (${currMonths[0].label.split('-')[0]} - ${currMonths[currMonths.length-1].label.split('-')[0]})</span>
+                        <span class="ceo-card-metric-value">${formatVal(avgVal)}</span>
+                    </div>
+                    <div class="ceo-card-metric" style="margin-bottom: 0;">
+                        <span class="ceo-card-metric-label">YoY %</span>
+                        <span class="ceo-card-metric-value" style="color: ${pctColor}">${formatPct(varPct)}</span>
+                    </div>
+                </div>`;
+            }
         });
         
         const totalRow = ceoData.find(d => {
             const p = d.Producto ? d.Producto.trim().toUpperCase() : '';
             return d.Tipo === ventasCeoCurrentMetric && p === 'TOTAL';
         });
+        
         if(totalRow) {
+             const tRowHtml = renderRowContent(totalRow, true);
              tbHtml = `<tr style="background:#eef2f5;">
                           <td style="width: 24px; min-width: 24px; max-width: 24px; text-align: center; border-right: 1px solid rgba(0,0,0,0.05); padding: 0;"></td>
                           <td style="text-align:left; font-weight:800; border-right: 1px solid rgba(0,0,0,0.05); padding: 12px 16px;">TOTAL</td>` 
-                           + renderRowContent(totalRow, true) + 
+                           + tRowHtml + 
                        '</tr>' + tbHtml;
+                       
+             if (isMobile) {
+                let varPct = totalRow.__realAnoAnt ? ((totalRow.__real24 - totalRow.__realAnoAnt)/totalRow.__realAnoAnt) : 0;
+                let pctColor = varPct > 0 ? '#10b981' : (varPct < 0 ? '#ef4444' : 'var(--text-secondary)');
+                cardsHtml = `
+                <div class="ceo-card" style="background: #eef2f5; border: 2px solid var(--border);">
+                    <div class="ceo-card-title">
+                        <span>TOTAL</span>
+                    </div>
+                    <div class="ceo-card-metric">
+                        <span class="ceo-card-metric-label">Actual (${currYear})</span>
+                        <span class="ceo-card-metric-value">${formatVal(totalRow.__real24)}</span>
+                    </div>
+                    <div class="ceo-card-metric">
+                        <span class="ceo-card-metric-label">Promedio</span>
+                        <span class="ceo-card-metric-value">${formatVal(totalRow.__currAvg)}</span>
+                    </div>
+                    <div class="ceo-card-metric" style="margin-bottom: 0;">
+                        <span class="ceo-card-metric-label">YoY %</span>
+                        <span class="ceo-card-metric-value" style="color: ${pctColor}">${formatPct(varPct)}</span>
+                    </div>
+                </div>` + cardsHtml;
+             }
         }
         
         const tsbRow = ceoData.find(d => {
@@ -7585,9 +7728,36 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                            <td style="text-align:left; font-weight:800; color: #10b981; border-right: 1px solid rgba(0,0,0,0.05); padding: 12px 16px;">${formatSegmentName('TOTAL SIN BON')}</td>` 
                            + renderRowContent(tsbRow, true).replace(/<td/g, '<td style="color: #10b981;"') + 
                        '</tr>';
+                       
+             if (isMobile) {
+                let varPct = tsbRow.__realAnoAnt ? ((tsbRow.__real24 - tsbRow.__realAnoAnt)/tsbRow.__realAnoAnt) : 0;
+                let pctColor = varPct > 0 ? '#10b981' : (varPct < 0 ? '#ef4444' : 'var(--text-secondary)');
+                cardsHtml += `
+                <div class="ceo-card" style="background: #eef2f5; border: 2px solid #10b981;">
+                    <div class="ceo-card-title" style="color: #10b981;">
+                        <span>TOTAL SIN BON</span>
+                    </div>
+                    <div class="ceo-card-metric">
+                        <span class="ceo-card-metric-label">Actual (${currYear})</span>
+                        <span class="ceo-card-metric-value" style="color: #10b981;">${formatVal(tsbRow.__real24)}</span>
+                    </div>
+                    <div class="ceo-card-metric">
+                        <span class="ceo-card-metric-label">Promedio</span>
+                        <span class="ceo-card-metric-value" style="color: #10b981;">${formatVal(tsbRow.__currAvg)}</span>
+                    </div>
+                    <div class="ceo-card-metric" style="margin-bottom: 0;">
+                        <span class="ceo-card-metric-label">YoY %</span>
+                        <span class="ceo-card-metric-value" style="color: ${pctColor}">${formatPct(varPct)}</span>
+                    </div>
+                </div>`;
+             }
         }
 
         tbody.innerHTML = tbHtml;
+        if (isMobile) {
+            const container = document.getElementById('ventas-ceo-cards-container');
+            if (container) container.innerHTML = cardsHtml;
+        }
         
         let chartMonths = ['__real24', '__realAnoAnt', '__po26'];
         let chartLabels = ['Real 2024', 'REAL AÑO ANTERIOR', 'PPTO'];

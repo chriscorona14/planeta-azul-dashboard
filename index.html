@@ -1208,6 +1208,51 @@
         }
       }
       
+      @media (max-width: 768px) {
+        /* 2. Solución para revivir la Gráfica de Ventas CEO en móvil */
+        #ventas-ceo-chart-container {
+          position: relative;
+          height: 300px !important; /* Fuerza una altura mínima para que Chart.js pueda dibujar */
+          width: 100% !important;
+          margin-bottom: 20px;
+        }
+        
+        .ceo-cards-container {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          margin-top: 16px;
+        }
+        .ceo-card {
+          background: #ffffff;
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          padding: 16px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .ceo-card-title {
+          font-weight: 600;
+          color: var(--text);
+          margin-bottom: 12px;
+          font-size: 1rem;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .ceo-card-metric {
+          display: flex;
+          justify-content: space-between;
+          margin-bottom: 8px;
+          font-size: 0.9rem;
+        }
+        .ceo-card-metric-label {
+          color: var(--text-secondary);
+        }
+        .ceo-card-metric-value {
+          font-weight: 600;
+          color: var(--text);
+        }
+      }
     </style>
   </head>
   <body>
@@ -1375,7 +1420,7 @@
             <div class="menu-item">
               <a href="#" id="menu-estados" style="padding-left: 24px;">Estados Financieros</a>
             </div>
-            <div class="menu-item" style="display: none;">
+            <div class="menu-item" id="sim-menu-item" style="display: none;">
               <a href="#" id="menu-simulador" style="padding-left: 24px;">Simulador What-If</a>
             </div>
           </div>
@@ -2199,6 +2244,7 @@
             </thead>
             <tbody id="preliminarBody"></tbody>
           </table>
+          <div id="preliminarMobileContainer" style="display: none;"></div>
         </div>
       </div>
 
