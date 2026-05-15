@@ -7435,13 +7435,35 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         
         // Dynamically get active month
         let selectedDate = new Date();
+        let foundDate = false;
         const monthSelector = document.getElementById('monthSelector');
         if (monthSelector && globalFinancialData && globalFinancialData.length > 0) {
            const idx = parseInt(monthSelector.value, 10);
            if (!isNaN(idx) && globalFinancialData[idx]) {
-               selectedDate = globalFinancialData[idx].sortDate || new Date(globalFinancialData[idx].date);
+               const item = globalFinancialData[idx];
+               if (item.sortDate) {
+                   selectedDate = new Date(item.sortDate);
+               } else if (item.date) {
+                   const mMatch = String(item.date).toLowerCase().match(/([a-z]+) (\d{4})/);
+                   if (mMatch) {
+                       const mIndex = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'].findIndex(m => m === mMatch[1].slice(0,3));
+                       if (mIndex >= 0) {
+                           selectedDate = new Date(parseInt(mMatch[2]), mIndex, 1);
+                       } else {
+                           selectedDate = new Date(item.date);
+                       }
+                   } else {
+                       selectedDate = new Date(item.date);
+                   }
+               }
+               
+               if (!isNaN(selectedDate.getTime())) {
+                   foundDate = true;
+               }
            }
-        } else if (ceoData && ceoData.length > 0) {
+        } 
+        
+        if (!foundDate && ceoData && ceoData.length > 0) {
             // Find the most recent date available in ceoData values
             let maxKey = null;
             ceoData.forEach(d => {
@@ -7454,9 +7476,17 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             if (maxKey) {
                 const [y, m] = maxKey.split('-');
                 if (y && m) {
-                    selectedDate = new Date(parseInt(y), parseInt(m) - 1, 1);
+                    const tempDate = new Date(parseInt(y), parseInt(m) - 1, 1);
+                    if (!isNaN(tempDate.getTime())) {
+                        selectedDate = tempDate;
+                        foundDate = true;
+                    }
                 }
             }
+        }
+        
+        if (!foundDate || isNaN(selectedDate.getTime())) {
+            selectedDate = new Date(); // Ultimate fallback
         }
         
         const currYear = selectedDate.getFullYear();
