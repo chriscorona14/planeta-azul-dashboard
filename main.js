@@ -614,6 +614,14 @@ async function fetchMasterData(token = null) {
                 if (req.ok) {
                     arrayBuffer = await req.arrayBuffer();
                     window.hasMasterAccess = true;
+                } else {
+                    window.hasMasterAccess = false;
+                    globalFinancialData = null;
+                    try {
+                        const db = await new Promise(r => { const req = indexedDB.open('PlanetaAzulDB', 3); req.onsuccess = () => r(req.result); });
+                        const tx = db.transaction('finance_cache', 'readwrite');
+                        tx.objectStore('finance_cache').delete('MASTER_FINANCE_KEY');
+                    } catch(e) {}
                 }
 
                 // Descarga Ventas CEO inmediata
@@ -625,6 +633,14 @@ async function fetchMasterData(token = null) {
                     if (reqCeo.ok) {
                         arrayBufferCeo = await reqCeo.arrayBuffer();
                         window.hasVentasAccess = true;
+                    } else {
+                        window.hasVentasAccess = false;
+                        ceoData = null;
+                        try {
+                            const db = await new Promise(r => { const req = indexedDB.open('PlanetaAzulDB', 3); req.onsuccess = () => r(req.result); });
+                            const tx = db.transaction('finance_cache', 'readwrite');
+                            tx.objectStore('finance_cache').delete('CEO_VENTAS_KEY');
+                        } catch(e) {}
                     }
                 }
             } else {
@@ -7057,10 +7073,10 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                         'jul': '07', 'ago': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12'
                     };
                     const match = textK.match(/^([a-z]{3})[-\/ ]?(\d{2,4})$/);
-                    if(match) {
+                    if(match && monthsMap[match[1].toLowerCase()]) {
                         let y = match[2];
                         if(y.length === 2) y = "20" + y;
-                        let dateStr = `${y}-${monthsMap[match[1]]}`;
+                        let dateStr = `${y}-${monthsMap[match[1].toLowerCase()]}`;
                         obj.values[dateStr] = val;
                     }
                 } else if (textK.match(/^\d{4}-\d{2}$/) || textK.match(/^\d{4}-\d{2}-\d{2}/)) {
@@ -7253,10 +7269,10 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                         };
                         const regex = /([a-z]{3})[-/ ]?(\d{2,4})/;
                         const match = textK.match(regex);
-                        if(match && monthsMap[match[1]]) {
+                        if(match && monthsMap[match[1].toLowerCase()]) {
                             let y = match[2];
                             if(y.length === 2) y = "20" + y;
-                            dateStr = `${y}-${monthsMap[match[1]]}`;
+                            dateStr = `${y}-${monthsMap[match[1].toLowerCase()]}`;
                             isDate = true;
                         }
                     }
