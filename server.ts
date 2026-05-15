@@ -7,6 +7,50 @@ async function startServer() {
   const PORT = 3000;
 
   // API routes FIRST
+  app.use(express.json({ limit: '10mb' }));
+
+  app.post("/api/gemini/insights", async (req, res) => {
+    try {
+      const { financialData } = req.body;
+      if (!financialData) {
+         return res.status(400).json({ error: "Missing financialData" });
+      }
+
+      const { GoogleGenAI } = require("@google/genai");
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+         return res.status(500).json({ error: "GEMINI_API_KEY environment variable is missing" });
+      }
+
+      const ai = new GoogleGenAI({
+         apiKey: apiKey,
+         httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+      });
+
+      const prompt = `You are a Senior CFO analyzing financial data for a company. 
+I will provide you with the most recent financial data summary.
+Please provide a concise Executive Summary highlighting:
+1. Key performance indicators and their significance.
+2. Positive and negative trends.
+3. Potential risks or opportunities shown in the data.
+
+Please format your response in Spanish, using simple HTML (e.g. <b>, <ul>, <li>, <br>) without a markdown wrapper.
+Keep the overall summary under 300 words and be highly analytical and direct.
+
+Data: ${JSON.stringify(financialData)}`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.1-pro-preview",
+        contents: prompt,
+      });
+
+      res.json({ insight: response.text });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+
   app.get("/api/downloadSync", async (req, res) => {
     try {
       const url = "https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc={cfe13828-c964-447a-8147-feb8de79816c}&download=1";

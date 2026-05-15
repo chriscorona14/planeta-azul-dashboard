@@ -1,5 +1,6 @@
 {
   "name": "Movil: Dashboard de Control Financiero+",
   "description": "Dashboard analítico para gestión financiera con carga de Excel, KPIs y comparativos mensuales.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

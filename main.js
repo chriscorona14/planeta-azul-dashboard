@@ -92,6 +92,11 @@ function applyAiUIState() {
         summaryBox.style.display = 'none';
     }
     
+    const insightsSection = document.getElementById('ai-insights-section');
+    if (insightsSection) {
+        insightsSection.style.display = window.aiEnabled ? 'block' : 'none';
+    }
+    
     const simMenuItem = document.getElementById('sim-menu-item');
     if (simMenuItem) {
         simMenuItem.style.display = window.aiEnabled ? 'block' : 'none';
@@ -353,11 +358,8 @@ async function connectM365() {
             return;
         }
         if (error.errorCode === "interaction_in_progress" || (error.message && error.message.includes("popup_window_error"))) {
-            console.warn("Popup bloqueado o interacción en progreso. Iniciando login por redirección...");
-            await msalInstance.loginRedirect({
-                 scopes: ["User.Read", "Files.Read", "Files.Read.All"],
-                 prompt: "select_account"
-            });
+            console.warn("Popup bloqueado o interacción en progreso.");
+            alert("Bloqueador de ventanas emergentes detectado. Por favor, habilite las ventanas emergentes para Microsoft 365 o abra la aplicación en una nueva pestaña.");
             return;
         }
         console.error(error);
@@ -433,10 +435,10 @@ window.applyRoleBasedUI = function(hasMaster, hasVentas) {
         if (mainContainer) mainContainer.style.display = '';
         if (sidebar) sidebar.style.display = '';
         if (contentHeader) contentHeader.style.display = '';
-        if (headerActions) headerActions.style.display = 'none';
+        if (headerActions) headerActions.style.display = 'flex';
         if (headerInfo) headerInfo.style.display = '';
-        if (monthSelector) monthSelector.style.display = 'none';
-        if (viewModeToggle) viewModeToggle.style.display = 'none';
+        if (monthSelector) monthSelector.style.display = 'block';
+        if (viewModeToggle) viewModeToggle.style.display = 'flex';
         if (dropZone) dropZone.style.display = 'none';
 
         if (groupSeguimiento) groupSeguimiento.style.display = 'none';
@@ -1080,10 +1082,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                     // Do not redirect to interactive login automatically to prevent interrupting the cached UI
                     // Only prompt if we have no cached data at all.
                     if (!loadedFromCache) {
-                        console.log("Usuario conocido pero token expirado y sin caché: Redirigiendo a inicio de sesión corporativo...");
-                        msalInstance.loginRedirect({
-                            scopes: ["User.Read", "Files.Read", "Files.Read.All"]
-                        });
+                        console.log("Usuario conocido pero token expirado y sin caché: Se requiere inicio de sesión interactivo.");
+                        // Evitar Redirect automático en iframes
+                        if (window.parent === window) {
+                            msalInstance.loginRedirect({
+                                scopes: ["User.Read", "Files.Read", "Files.Read.All"]
+                            });
+                        } else {
+                            console.warn("Redirección automática omitida debido a entorno de iFrame.");
+                        }
                     } else {
                         const sidebarSyncText = document.getElementById('sidebarSyncText');
                         if (sidebarSyncText) {
@@ -1093,10 +1100,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
             } else if (!loadedFromCache) {
-                console.log("Usuario nuevo sin caché: Redirigiendo a inicio de sesión corporativo...");
-                msalInstance.loginRedirect({
-                    scopes: ["User.Read", "Files.Read", "Files.Read.All"]
-                });
+                console.log("Usuario nuevo sin caché: Se requiere inicio de sesión interactivo.");
+                // Evitar Redirect automático en iframes
+                if (window.parent === window) {
+                    msalInstance.loginRedirect({
+                        scopes: ["User.Read", "Files.Read", "Files.Read.All"]
+                    });
+                } else {
+                    console.warn("Redirección automática omitida debido a entorno de iFrame.");
+                }
             }
         }).catch(err => {
              console.error("MSAL Initialization failed:", err);
@@ -8257,6 +8269,62 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         if(titleEl) {
             titleEl.textContent = chartTitle;
         }
+    }
+
+    const btnGenerateInsights = document.getElementById('btn-generate-insights');
+    if (btnGenerateInsights) {
+        btnGenerateInsights.addEventListener('click', async () => {
+            const btn = btnGenerateInsights;
+            const content = document.getElementById('ai-insights-content');
+            
+            const monthSelector = document.getElementById('monthSelector');
+            const idx = monthSelector ? parseInt(monthSelector.value, 10) : (window.globalFinancialData ? window.globalFinancialData.length - 1 : 0);
+            
+            const dataToAnalyze = (window.globalFinancialData && window.globalFinancialData.length > 0) ? window.globalFinancialData[idx] : null;
+
+            if (!dataToAnalyze) {
+                content.innerHTML = '<span style="color: var(--destructive)">No hay datos disponibles para analizar. Cargue un archivo financiero o espere a que se procese.</span>';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="spin"></i> Analizando...';
+            lucide.createIcons();
+
+            try {
+                const summaryInfo = {
+                    date: dataToAnalyze.date,
+                    kpis: dataToAnalyze.kpis,
+                    pnl_summary: dataToAnalyze.pnl,
+                    balance: dataToAnalyze.balance
+                };
+
+                const response = await fetch('/api/gemini/insights', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ financialData: summaryInfo })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Error: ${response.status} ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                
+                if (result.error) {
+                    throw new Error(result.error);
+                }
+
+                content.innerHTML = result.insight;
+            } catch (err) {
+                console.error(err);
+                content.innerHTML = `<span style="color: var(--destructive)">Falló la generación de insights: ${err.message}</span>`;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Actualizar Resumen';
+                lucide.createIcons();
+            }
+        });
     }
 
 });
