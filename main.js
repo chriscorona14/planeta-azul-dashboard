@@ -344,6 +344,7 @@ async function connectM365() {
             prompt: "select_account"
         });
         const token = loginResponse.accessToken;
+        window.m365LoggedIn = true;
         
         await fetchMasterData(token);
     } catch (error) {
@@ -393,8 +394,6 @@ window.hasVentasAccess = false;
 window.applyRoleBasedUI = function(hasMaster, hasVentas) {
     const mainContainer = document.querySelector('.main-container');
     const sidebarItems = document.querySelectorAll('.sidebar .menu-item');
-    const simMenuItem = document.getElementById('sim-menu-item');
-    const ventasCeoMenuBtn = document.getElementById('menu-ventas-ceo');
     const monthSelector = document.getElementById('monthSelector');
     const viewModeToggle = document.querySelector('.view-mode-toggle');
     const dropZone = document.getElementById('dropZone');
@@ -403,6 +402,11 @@ window.applyRoleBasedUI = function(hasMaster, hasVentas) {
     const headerActions = document.querySelector('.header-actions');
     const headerInfo = document.querySelector('.header-info');
     const viewContainers = document.querySelectorAll('.view-container');
+
+    const groupSeguimiento = document.getElementById('grupo-seguimiento');
+    const headerSeguimiento = groupSeguimiento ? groupSeguimiento.previousElementSibling : null;
+    const groupVentas = document.getElementById('grupo-ventas');
+    const headerVentas = groupVentas ? groupVentas.previousElementSibling : null;
 
     // Limpiar banner previo si existe
     let deniedBanner = document.getElementById('access-denied-banner');
@@ -418,12 +422,11 @@ window.applyRoleBasedUI = function(hasMaster, hasVentas) {
         if (monthSelector) monthSelector.style.display = 'block';
         if (viewModeToggle) viewModeToggle.style.display = 'flex';
         if (dropZone) dropZone.style.display = 'none';
-        viewContainers.forEach(v => v.style.display = '');
-        sidebarItems.forEach(item => {
-            if (item.id !== 'sim-menu-item') {
-                item.style.display = '';
-            }
-        });
+        
+        if (groupSeguimiento) groupSeguimiento.style.display = '';
+        if (headerSeguimiento) headerSeguimiento.style.display = 'flex';
+        if (groupVentas) groupVentas.style.display = '';
+        if (headerVentas) headerVentas.style.display = 'flex';
 
     } else if (!hasMaster && hasVentas) {
         // Escenario 2: Sólo Ventas CEO
@@ -432,8 +435,16 @@ window.applyRoleBasedUI = function(hasMaster, hasVentas) {
         if (contentHeader) contentHeader.style.display = '';
         if (headerActions) headerActions.style.display = 'none';
         if (headerInfo) headerInfo.style.display = '';
-        
-        // Hide all views except Ventas CEO
+        if (monthSelector) monthSelector.style.display = 'none';
+        if (viewModeToggle) viewModeToggle.style.display = 'none';
+        if (dropZone) dropZone.style.display = 'none';
+
+        if (groupSeguimiento) groupSeguimiento.style.display = 'none';
+        if (headerSeguimiento) headerSeguimiento.style.display = 'none';
+        if (groupVentas) groupVentas.style.display = '';
+        if (headerVentas) headerVentas.style.display = 'flex';
+
+        // Ocultar todas las vistas excepto Ventas CEO y activarla
         viewContainers.forEach(v => {
             if (v.id === 'view-ventas-ceo') {
                 v.classList.add('active');
@@ -444,43 +455,9 @@ window.applyRoleBasedUI = function(hasMaster, hasVentas) {
             }
         });
         
-        // Hide all sidebar items except Ventas CEO
-        sidebarItems.forEach(item => {
-            const link = item.querySelector('a');
-            if (link && link.id !== 'menu-ventas-ceo') {
-                item.style.display = 'none';
-                link.classList.remove('active');
-            } else if (link) {
-                item.style.display = '';
-                link.classList.add('active');
-            }
-        });
-
-        // Also hide group-headers if necessary, for now we let CSS/HTML structure handle it
-        const groupHeaders = document.querySelectorAll('.sidebar .group-header');
-        groupHeaders.forEach(gh => {
-            if (gh.textContent && gh.textContent.toLowerCase().includes('seguimiento')) {
-                gh.style.display = 'none'; // Ocultar el grupo de Seguimiento si sólo tenemos Ventas
-            }
-        });
-
-        if (monthSelector) monthSelector.style.display = 'none';
-        if (viewModeToggle) viewModeToggle.style.display = 'none';
-        if (dropZone) dropZone.style.display = 'none';
-        
-        // Fallback robusto para renderizar Ventas CEO si el listener del click no está listo
+        // Render Ventas
         if (typeof window.renderVentasCEO === 'function') {
             window.renderVentasCEO();
-        } else {
-            let attempt = 0;
-            const iv = setInterval(() => {
-                attempt++;
-                if (typeof window.renderVentasCEO === 'function') {
-                    window.renderVentasCEO();
-                    clearInterval(iv);
-                }
-                if (attempt > 40) clearInterval(iv);
-            }, 50);
         }
 
     } else if (hasMaster && !hasVentas) {
@@ -492,15 +469,20 @@ window.applyRoleBasedUI = function(hasMaster, hasVentas) {
         if (headerInfo) headerInfo.style.display = '';
         if (monthSelector) monthSelector.style.display = 'block';
         if (viewModeToggle) viewModeToggle.style.display = 'flex';
-        viewContainers.forEach(v => v.style.display = '');
-        sidebarItems.forEach(item => {
-            const link = item.querySelector('a');
-            if (link && link.id === 'menu-ventas-ceo') {
-                item.style.display = 'none';
-            } else if (item.id !== 'sim-menu-item') {
-                item.style.display = '';
-            }
-        });
+        if (dropZone) dropZone.style.display = 'none';
+
+        if (groupSeguimiento) groupSeguimiento.style.display = '';
+        if (headerSeguimiento) headerSeguimiento.style.display = 'flex';
+        if (groupVentas) groupVentas.style.display = 'none';
+        if (headerVentas) headerVentas.style.display = 'none';
+
+        // Si Ventas CEO estaba activo, mover al KPI
+        const vv = document.getElementById('view-ventas-ceo');
+        if (vv && vv.classList.contains('active')) {
+            vv.classList.remove('active');
+            vv.style.display = 'none';
+            document.getElementById('menu-kpi')?.click();
+        }
 
     } else if (!hasMaster && !hasVentas) {
         // Escenario 4: Ambos false
@@ -508,33 +490,42 @@ window.applyRoleBasedUI = function(hasMaster, hasVentas) {
         if (sidebar) sidebar.style.display = 'none';
         if (contentHeader) contentHeader.style.display = 'none';
         
-        // Mostrar mensaje prominente
-        deniedBanner = document.createElement('div');
-        deniedBanner.id = 'access-denied-banner';
-        deniedBanner.style.position = 'fixed';
-        deniedBanner.style.top = '0';
-        deniedBanner.style.left = '0';
-        deniedBanner.style.width = '100%';
-        deniedBanner.style.height = '100%';
-        deniedBanner.style.background = '#f3f4f6';
-        deniedBanner.style.display = 'flex';
-        deniedBanner.style.alignItems = 'center';
-        deniedBanner.style.justifyContent = 'center';
-        deniedBanner.style.fontFamily = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
-        deniedBanner.style.zIndex = '999999';
-        
-        deniedBanner.innerHTML = `
-            <div style="background:white; padding:40px; border-radius:12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align:center; max-width:450px; width:90%;">
-                <div style="color:#004a99; font-size:50px; margin-bottom:20px;">🔒</div>
-                <h2 style="color:#111827; margin:0 0 10px 0; font-size:1.5rem;">Acceso Denegado</h2>
-                <p style="color:#6b7280; line-height:1.5; margin-bottom:30px;">No tienes permisos para visualizar los reportes corporativos en SharePoint.<br><br>Por favor, contacta al administrador del sistema.</p>
-                <button onclick="sessionStorage.clear(); localStorage.clear(); location.href='/';" 
-                        style="background:#004a99; color:white; border:none; padding:12px 24px; border-radius:6px; font-weight:600; cursor:pointer; width:100%; transition: background 0.2s;">
-                    Cerrar Sesión / Cambiar Cuenta
-                </button>
-            </div>
-        `;
-        document.body.appendChild(deniedBanner);
+        // Evitaremos mostrar la pantalla de bloqueo "por un segundo" 
+        // revisando si genuinamente hubo un login denegado validando el estado de MSAL.
+        // Si no está registrado en window.m365LoggedIn = true, no mostramos el banner.
+        if (window.m365LoggedIn) {
+            deniedBanner = document.createElement('div');
+            deniedBanner.id = 'access-denied-banner';
+            deniedBanner.style.position = 'fixed';
+            deniedBanner.style.top = '0';
+            deniedBanner.style.left = '0';
+            deniedBanner.style.width = '100%';
+            deniedBanner.style.height = '100%';
+            deniedBanner.style.background = '#f3f4f6';
+            deniedBanner.style.display = 'flex';
+            deniedBanner.style.alignItems = 'center';
+            deniedBanner.style.justifyContent = 'center';
+            deniedBanner.style.fontFamily = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+            deniedBanner.style.zIndex = '999999';
+            
+            deniedBanner.innerHTML = `
+                <div style="background:white; padding:40px; border-radius:12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align:center; max-width:450px; width:90%;">
+                    <div style="color:#004a99; font-size:50px; margin-bottom:20px;">🔒</div>
+                    <h2 style="color:#111827; margin:0 0 10px 0; font-size:1.5rem;">Acceso Denegado</h2>
+                    <p style="color:#6b7280; line-height:1.5; margin-bottom:30px;">No tienes permisos para visualizar los reportes corporativos en este sistema.<br><br>Por favor, contacta al administrador.</p>
+                    <button onclick="sessionStorage.clear(); localStorage.clear(); location.href='/';" 
+                            style="background:#004a99; color:white; border:none; padding:12px 24px; border-radius:6px; font-weight:600; cursor:pointer; width:100%; transition: background 0.2s;">
+                        Cerrar Sesión / Refrescar
+                    </button>
+                </div>
+            `;
+            document.body.appendChild(deniedBanner);
+        } else {
+            // Simply call handleZeroState silently if there's no MSAL session active indicating a real block
+            if (typeof window.handleZeroState === 'function') {
+                window.handleZeroState();
+            }
+        }
     }
 };
 
@@ -1047,6 +1038,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const redirectResponse = await msalInstance.handleRedirectPromise();
                 if (redirectResponse) {
                     window.history.replaceState({}, document.title, window.location.pathname);
+                    window.m365LoggedIn = true;
                     fetchMasterData(redirectResponse.accessToken);
                     return;
                 }
@@ -1065,6 +1057,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     
                     // Background Update
                     // We assume fetchMasterData internally manages UI non-intrusiveness.
+                    window.m365LoggedIn = true;
                     fetchMasterData(response.accessToken);
                 } catch (error) {
                     console.warn("Silent login failed (Token expire/cache missing):", error);
