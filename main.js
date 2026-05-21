@@ -467,7 +467,10 @@ window.applyRoleBasedUI = function(hasMaster, hasVentas, hasComercial = false) {
         if (headerInfo) headerInfo.style.display = '';
         if (monthSelector) monthSelector.style.display = 'block';
         if (viewModeToggle) viewModeToggle.style.display = 'flex';
-        if (dropZone) dropZone.style.display = 'none';
+        if (dropZone) {
+            const isConfigActive = document.getElementById('view-config')?.classList.contains('active');
+            dropZone.style.display = isConfigActive ? 'block' : 'none';
+        }
 
         // Grupo Seguimiento
         if (groupSeguimiento) groupSeguimiento.style.display = hasMaster ? '' : 'none';
@@ -671,6 +674,14 @@ async function fetchMasterData(token = null) {
                     const reqComercial = await fetch(graphUrlComercial, { headers: { "Authorization": `Bearer ${token}` }, signal: controller.signal });
                     if (reqComercial.ok) {
                         const arrayBufferComercial = await reqComercial.arrayBuffer();
+                        if (!window.resumenComercialEngine) {
+                            try {
+                                const engine = await import('./resumenComercialEngine.js');
+                                window.resumenComercialEngine = engine;
+                            } catch (e) {
+                                console.error("Error importing resumenComercialEngine on demand:", e);
+                            }
+                        }
                         if (window.resumenComercialEngine) {
                             try {
                                 const result = await window.resumenComercialEngine.processManualFile(arrayBufferComercial);
@@ -708,6 +719,14 @@ async function fetchMasterData(token = null) {
                 if (responseComercial.ok) {
                     const arrayBufferComercial = await responseComercial.arrayBuffer();
                     // Enviar al motor para procesar y cachear
+                    if (!window.resumenComercialEngine) {
+                        try {
+                            const engine = await import('./resumenComercialEngine.js');
+                            window.resumenComercialEngine = engine;
+                        } catch (e) {
+                            console.error("Error importing resumenComercialEngine on demand:", e);
+                        }
+                    }
                     if (window.resumenComercialEngine) {
                         try {
                             const result = await window.resumenComercialEngine.processManualFile(arrayBufferComercial);
@@ -1583,6 +1602,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             // CRÍTICO: Disparar resize para D3.js
             window.dispatchEvent(new Event('resize'));
+            
+            const dropZone = document.getElementById('dropZone');
+            if (dropZone) {
+                if (id === 'menu-config') {
+                    dropZone.style.display = 'block';
+                } else {
+                    const hasActiveData = (globalFinancialData && globalFinancialData.length > 0) || (typeof ceoData !== 'undefined' && ceoData && ceoData.length > 0);
+                    if (hasActiveData) {
+                        dropZone.style.display = 'none';
+                    }
+                }
+            }
             
             if (globalFinancialData && globalFinancialData.length > 0 && monthSelector) {
                 const idx = parseInt(monthSelector.value);
