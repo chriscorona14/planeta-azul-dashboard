@@ -343,6 +343,14 @@ const encodeUrlM365 = (url) => {
     }
 };
 
+const resolveSharepointUrlClient = (inputUrl) => {
+    if (!inputUrl) return inputUrl;
+    if (/^[0-9a-fA-F\-]{36}$/.test(inputUrl) || /^\{[0-9a-fA-F\-]{36}\}$/.test(inputUrl)) {
+        return `https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc=${inputUrl.startsWith('{') ? inputUrl : '{' + inputUrl + '}'}&download=1`;
+    }
+    return inputUrl;
+};
+
 window.updateM365UI = function(account) {
     const loginM365Btn = document.getElementById('loginM365Btn');
     const m365ActiveSession = document.getElementById('m365ActiveSession');
@@ -637,7 +645,8 @@ async function fetchMasterData(token = null) {
                 SHARPOINT_VENTAS_FILE_URL = localStorage.getItem('CUSTOM_ONEDRIVE_VENTAS_URL') || import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID || runtimeConfig.VITE_CEO_FILE_URL;
 
                 // Descarga Master Financiero
-                const encodedUrl = encodeUrlM365(SHARPOINT_FILE_URL);
+                const resolvedUrl = resolveSharepointUrlClient(SHARPOINT_FILE_URL);
+                const encodedUrl = encodeUrlM365(resolvedUrl);
                 if (encodedUrl) {
                     const graphUrl = `https://graph.microsoft.com/v1.0/shares/u!${encodedUrl}/driveItem/content`;
                     const req = await fetch(graphUrl, { headers: { "Authorization": `Bearer ${token}` }, signal: controller.signal });
@@ -658,7 +667,8 @@ async function fetchMasterData(token = null) {
 
                 // Descarga Ventas CEO inmediata
                 const CEO_FILE_URL = SHARPOINT_VENTAS_FILE_URL || import.meta.env.VITE_CEO_FILE_URL || import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID || runtimeConfig.VITE_CEO_FILE_URL;
-                const encodedCeoUrl = encodeUrlM365(CEO_FILE_URL);
+                const resolvedCeoUrl = resolveSharepointUrlClient(CEO_FILE_URL);
+                const encodedCeoUrl = encodeUrlM365(resolvedCeoUrl);
                 if (encodedCeoUrl) {
                     const graphUrlCeo = `https://graph.microsoft.com/v1.0/shares/u!${encodedCeoUrl}/driveItem/content`;
                     const reqCeo = await fetch(graphUrlCeo, { headers: { "Authorization": `Bearer ${token}` }, signal: controller.signal });
@@ -679,7 +689,8 @@ async function fetchMasterData(token = null) {
 
                 // Descarga Resumen Comercial
                 const RESUMEN_COMERCIAL_URL = localStorage.getItem('CUSTOM_RESUMEN_COMERCIAL_URL') || import.meta.env.VITE_RESUMEN_COMERCIAL_URL || runtimeConfig.VITE_RESUMEN_COMERCIAL_URL;
-                const encodedComercialUrl = encodeUrlM365(RESUMEN_COMERCIAL_URL);
+                const resolvedComercialUrl = resolveSharepointUrlClient(RESUMEN_COMERCIAL_URL);
+                const encodedComercialUrl = encodeUrlM365(resolvedComercialUrl);
                 if (encodedComercialUrl) {
                     const graphUrlComercial = `https://graph.microsoft.com/v1.0/shares/u!${encodedComercialUrl}/driveItem/content`;
                     const reqComercial = await fetch(graphUrlComercial, { headers: { "Authorization": `Bearer ${token}` }, signal: controller.signal });
