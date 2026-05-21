@@ -786,7 +786,7 @@
         border-spacing: 0;
         width: 100%;
         min-width: 1100px;
-        table-layout: auto !important; /* Allow columns to breathe */
+        table-layout: auto;
       }
 
       .pnl-detail-table th,
@@ -796,7 +796,21 @@
         text-align: right;
         font-size: 0.82rem;
         white-space: nowrap;
-        width: auto !important; /* Override broad nth-child rules */
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* Specific styles for Commercial Detailed Table to keep columns perfectly balanced */
+      #resumen-comercial-table {
+        table-layout: fixed !important;
+        width: 100% !important;
+        min-width: 1250px !important;
+      }
+
+      #resumen-comercial-table th:first-child,
+      #resumen-comercial-table td:first-child {
+        width: 22% !important;
+        min-width: 22% !important;
+        max-width: 22% !important;
       }
 
       .pnl-detail-table tr:hover td {
@@ -1023,24 +1037,24 @@
       }
 
       /* Column Widths Alignment */
-      th:nth-child(1),
-      td:nth-child(1) {
+      .section-table th:nth-child(1),
+      .section-table td:nth-child(1) {
         width: 30%;
       }
-      th:nth-child(2),
-      td:nth-child(2) {
+      .section-table th:nth-child(2),
+      .section-table td:nth-child(2) {
         width: 17.5%;
       }
-      th:nth-child(3),
-      td:nth-child(3) {
+      .section-table th:nth-child(3),
+      .section-table td:nth-child(3) {
         width: 17.5%;
       }
-      th:nth-child(4),
-      td:nth-child(4) {
+      .section-table th:nth-child(4),
+      .section-table td:nth-child(4) {
         width: 17.5%;
       }
-      th:nth-child(5),
-      td:nth-child(5) {
+      .section-table th:nth-child(5),
+      .section-table td:nth-child(5) {
         width: 17.5%;
       }
 
@@ -1432,6 +1446,9 @@
           <div id="grupo-ventas" style="overflow: hidden; transition: max-height 0.3s ease; max-height: 200px;">
             <div class="menu-item">
               <a href="#" id="menu-ventas-ceo" style="padding-left: 24px;">Ventas CEO</a>
+            </div>
+            <div class="menu-item">
+              <a href="#" id="menu-resumen-comercial" style="padding-left: 24px;">Resumen Comercial</a>
             </div>
           </div>
 
@@ -2535,6 +2552,48 @@
                 Conectar Office 365
               </button>
 
+              <!-- Office 365 Active Session controls -->
+              <div id="m365ActiveSession" style="display: none; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 16px; width: 100%; text-align: left; margin-bottom: 8px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                  <span style="font-size: 0.85rem; color: #166534; font-weight: 700; display: flex; align-items: center; gap: 6px;">
+                    <span style="width: 8px; height: 8px; background: #16a34a; border-radius: 50%; display: inline-block;"></span>
+                    Sesión de Office 365 Activa
+                  </span>
+                  <button id="logoutM365Btn" type="button" style="background: none; border: none; color: #dc2626; font-size: 0.8rem; cursor: pointer; text-decoration: underline; font-weight: 600;">
+                    Cerrar Sesión
+                  </button>
+                </div>
+                <p id="m365AccountEmail" style="font-size: 0.8rem; color: #15803d; margin-bottom: 12px; font-weight: 500;"></p>
+                
+                <details style="margin-top: 12px; border-top: 1px dashed #bbf7d0; padding-top: 12px;">
+                  <summary style="font-size: 0.8rem; color: #166534; cursor: pointer; font-weight: 600; outline: none; user-select: none;">
+                    Configurar Enlaces de OneDrive / SharePoint
+                  </summary>
+                  <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
+                    <div>
+                      <label style="font-size: 0.72rem; color: #15803d; font-weight: 600; display: block; margin-bottom: 2px;">1. Archivo Financiero Principal (Sharing URL):</label>
+                      <input type="text" id="m365UrlMaster" style="width: 100%; padding: 6px 8px; border: 1px solid #bbf7d0; border-radius: 6px; font-size: 0.75rem; background: white; color: #1f2937;" placeholder="Predeterminado del Servidor">
+                    </div>
+                    <div>
+                      <label style="font-size: 0.72rem; color: #15803d; font-weight: 600; display: block; margin-bottom: 2px;">2. Archivo Ventas CEO (Sharing URL):</label>
+                      <input type="text" id="m365UrlVentas" style="width: 100%; padding: 6px 8px; border: 1px solid #bbf7d0; border-radius: 6px; font-size: 0.75rem; background: white; color: #1f2937;" placeholder="Predeterminado del Servidor">
+                    </div>
+                    <div>
+                      <label style="font-size: 0.72rem; color: #15803d; font-weight: 600; display: block; margin-bottom: 2px;">3. Archivo Resumen Comercial (Sharing URL):</label>
+                      <input type="text" id="m365UrlComercial" style="width: 100%; padding: 6px 8px; border: 1px solid #bbf7d0; border-radius: 6px; font-size: 0.75rem; background: white; color: #1f2937;" placeholder="Predeterminado del Servidor">
+                    </div>
+                    <button id="saveM365UrlsBtn" type="button" style="background: #16a34a; color: white; border: none; border-radius: 6px; padding: 6px 12px; font-size: 0.75rem; font-weight: bold; cursor: pointer; width: 100%; margin-top: 6px;">
+                      Guardar Enlaces OneDrive
+                    </button>
+                  </div>
+                </details>
+                
+                <button id="syncNowM365Btn" type="button" class="upload-btn" style="background: #16a34a; margin-top: 12px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                  <i data-lucide="refresh-cw" style="width: 16px; height: 16px;"></i>
+                  Descargar y Sincronizar desde OneDrive
+                </button>
+              </div>
+
               <span style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">o</span>
 
               <div style="display: flex; gap: 12px; justify-content: center; width: 100%; flex-wrap: wrap;">
@@ -2548,6 +2607,12 @@
                   <label for="upload-ventas-ceo-home" class="btn-primary" style="margin-top: 0; width: fit-content; padding: 10px 24px; cursor: pointer; background: #eef2f5; color: var(--primary); border: 1px solid var(--border); border-radius: 8px; font-weight: 500;">2. Archivo Ventas CEO</label>
                   <input type="file" id="upload-ventas-ceo-home" accept=".xlsx, .xls, .csv" style="display: none;" />
                   <span id="ventasCeoFileName" style="font-size: 0.75rem; color: var(--text-secondary);">Ningún archivo seleccionado</span>
+                </div>
+
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+                  <label for="upload-resumen-comercial-home" class="btn-primary" style="margin-top: 0; width: fit-content; padding: 10px 24px; cursor: pointer; background: #eef2f5; color: var(--primary); border: 1px solid var(--border); border-radius: 8px; font-weight: 500;">3. Resumen Comercial</label>
+                  <input type="file" id="upload-resumen-comercial-home" accept=".xlsx, .xls, .csv" style="display: none;" />
+                  <span id="resumenComercialFileName" style="font-size: 0.75rem; color: var(--text-secondary);">Ningún archivo seleccionado</span>
                 </div>
               </div>
               
@@ -3419,6 +3484,66 @@
             <h4 id="ventas-ceo-chart-title" style="color: #034694; font-size: 1.1rem; font-weight: bold; margin: 0;">Volumen (k) de Unidades</h4>
           </div>
           <div id="ventas-ceo-chart" style="width: 100%; height: calc(100% - 60px);"></div>
+        </div>
+      </div>
+
+      <!-- VIEW: Resumen Comercial -->
+      <div id="view-resumen-comercial" class="view-container">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding: 0; border: none;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <h3 style="margin: 0; font-size: 1.25rem; font-weight: 800; color: var(--sidebar); text-transform: uppercase; letter-spacing: 0.5px;">Análisis de Ventas, Volumen y Precios</h3>
+            <span
+              id="resumenComercialPeriodLabel"
+              style="font-size: 0.95rem; font-weight: 600; color: var(--text-secondary);"
+            ></span>
+          </div>
+        </div>
+
+        <!-- Buttons to change perspectives of Commercial Analysis -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <span style="font-size: 0.85rem; font-weight: 600; color: var(--sidebar);">Perspectiva:</span>
+            <div style="display: flex; gap: 4px; background: #f1f5f9; padding: 4px; border-radius: 8px;">
+               <button id="btn-comercial-resumen" class="comercial-view-btn" data-view="resumen" style="padding: 6px 14px; background: white; color: var(--primary); border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.05); transition: 0.2s;">Resumen de Ventas</button>
+               <button id="btn-comercial-mom" class="comercial-view-btn" data-view="mom" style="padding: 6px 14px; background: transparent; color: var(--text-secondary); border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 600; box-shadow: none; transition: 0.2s;">MoM</button>
+               <button id="btn-comercial-variacion" class="comercial-view-btn" data-view="variacion" style="padding: 6px 14px; background: transparent; color: var(--text-secondary); border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 600; box-shadow: none; transition: 0.2s;">Análisis de Variación</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="pnl-detail-table" style="position: relative;">
+          <table id="resumen-comercial-table" class="desktop-only-table">
+            <thead id="resumen-comercial-thead">
+              <tr>
+                <th rowspan="2" style="background:#0f172a; color:white; border:none; padding: 16px; min-width: 200px;">Categoría</th>
+                <th colspan="3" style="text-align:center; background:#1e293b; color:white; border-bottom: 2px solid #38bdf8; padding: 12px; text-transform: uppercase;">Volumen (Unidades)<br><span id="span-cf-vol" style="font-size: 0.8em; color: #94a3b8; text-transform: uppercase;">Mes</span></th>
+                <th colspan="3" style="text-align:center; background:#0f172a; color:white; border-bottom: 2px solid #38bdf8; padding: 12px; text-transform: uppercase;">Precio (DOP)<br><span id="span-cf-px" style="font-size: 0.8em; color: #94a3b8; text-transform: uppercase;">Mes</span></th>
+                <th colspan="3" style="text-align:center; background:#1e293b; color:white; border-bottom: 2px solid #38bdf8; padding: 12px; text-transform: uppercase;">Ventas Netas (mDOP)<br><span id="span-cf-vn" style="font-size: 0.8em; color: #94a3b8; text-transform: uppercase;">Mes</span></th>
+                <th colspan="2" style="text-align:center; background:#0f172a; color:white; border-bottom: 2px solid #38bdf8; padding: 12px; text-transform: uppercase;">Var %<br><span id="span-cf-var" style="font-size: 0.8em; color: #94a3b8; text-transform: uppercase;">Mes</span></th>
+              </tr>
+              <tr>
+                <th id="th-vol-ant" style="background:#334155; color:white; text-align:right; border-right: 1px solid rgba(255,255,255,0.1); text-transform: uppercase;">2025</th>
+                <th id="th-vol-act" style="background:#334155; color:white; text-align:right; border-right: 1px solid rgba(255,255,255,0.1); text-transform: uppercase;">2026</th>
+                <th style="background:#334155; color:white; text-align:right; text-transform: uppercase;">PPTO</th>
+                <th id="th-px-ant" style="background:#1e293b; color:white; text-align:right; border-right: 1px solid rgba(255,255,255,0.1); text-transform: uppercase;">2025</th>
+                <th id="th-px-act" style="background:#1e293b; color:white; text-align:right; border-right: 1px solid rgba(255,255,255,0.1); text-transform: uppercase;">2026</th>
+                <th style="background:#1e293b; color:white; text-align:right; text-transform: uppercase;">PPTO</th>
+                <th id="th-vn-ant" style="background:#334155; color:white; text-align:right; border-right: 1px solid rgba(255,255,255,0.1); text-transform: uppercase;">2025</th>
+                <th id="th-vn-act" style="background:#334155; color:white; text-align:right; border-right: 1px solid rgba(255,255,255,0.1); text-transform: uppercase;">2026</th>
+                <th style="background:#334155; color:white; text-align:right; text-transform: uppercase;">PPTO</th>
+                <th id="th-vs-ant" style="background:#1e293b; color:white; text-align:right; border-right: 1px solid rgba(255,255,255,0.1); text-transform: uppercase;">vs 2025</th>
+                <th style="background:#1e293b; color:white; text-align:right; text-transform: uppercase;">Vs PPTO</th>
+              </tr>
+            </thead>
+            <tbody id="resumen-comercial-tbody">
+              <tr>
+                <td colspan="12" style="text-align: center; padding: 40px; color: var(--text-secondary); font-style: italic;">
+                  Por favor, suba el archivo de Resumen Comercial para ver los datos.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div id="resumenComercialMobileContainer" style="display: none;"></div>
         </div>
       </div>
     </main>

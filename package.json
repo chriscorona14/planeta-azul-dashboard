@@ -27,6 +27,9 @@
     "vite": "^6.2.0",
     "xlsx": "^0.18.5"
   },
+  "overrides": {
+    "node-domexception": "file:./node-domexception-mock"
+  },
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/multer": "^2.1.0",

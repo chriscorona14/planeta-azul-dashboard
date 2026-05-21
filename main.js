@@ -330,8 +330,45 @@ if (window.msal) {
     msalInstance = new window.msal.PublicClientApplication(msalConfig);
 }
 
-const SHARPOINT_FILE_URL = import.meta.env.VITE_ONEDRIVE_FILE_URL || import.meta.env.VITE_ONEDRIVE_ITEM_ID;
-const SHARPOINT_VENTAS_FILE_URL = import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID;
+let SHARPOINT_FILE_URL = localStorage.getItem('CUSTOM_ONEDRIVE_FILE_URL') || import.meta.env.VITE_ONEDRIVE_FILE_URL || import.meta.env.VITE_ONEDRIVE_ITEM_ID;
+let SHARPOINT_VENTAS_FILE_URL = localStorage.getItem('CUSTOM_ONEDRIVE_VENTAS_URL') || import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID;
+
+const encodeUrlM365 = (url) => {
+    if (!url || typeof url !== 'string' || url.trim().length === 0) return null;
+    try {
+        return btoa(url.trim()).replace(/=/g, '').replace(/\//g, '_').replace(/\+/g, '-');
+    } catch(e) {
+        console.error("Error base64 encoding url:", url, e);
+        return null;
+    }
+};
+
+window.updateM365UI = function(account) {
+    const loginM365Btn = document.getElementById('loginM365Btn');
+    const m365ActiveSession = document.getElementById('m365ActiveSession');
+    const m365AccountEmail = document.getElementById('m365AccountEmail');
+    
+    const m365UrlMaster = document.getElementById('m365UrlMaster');
+    const m365UrlVentas = document.getElementById('m365UrlVentas');
+    const m365UrlComercial = document.getElementById('m365UrlComercial');
+
+    if (account) {
+        if (loginM365Btn) loginM365Btn.style.display = 'none';
+        if (m365ActiveSession) m365ActiveSession.style.display = 'block';
+        if (m365AccountEmail) m365AccountEmail.textContent = `Usuario: ${account.username || account.name || 'Conectado'}`;
+        
+        if (m365UrlMaster) m365UrlMaster.value = localStorage.getItem('CUSTOM_ONEDRIVE_FILE_URL') || '';
+        if (m365UrlVentas) m365UrlVentas.value = localStorage.getItem('CUSTOM_ONEDRIVE_VENTAS_URL') || '';
+        if (m365UrlComercial) m365UrlComercial.value = localStorage.getItem('CUSTOM_RESUMEN_COMERCIAL_URL') || '';
+    } else {
+        if (loginM365Btn) loginM365Btn.style.display = 'flex';
+        if (m365ActiveSession) m365ActiveSession.style.display = 'none';
+        
+        if (m365UrlMaster) m365UrlMaster.value = '';
+        if (m365UrlVentas) m365UrlVentas.value = '';
+        if (m365UrlComercial) m365UrlComercial.value = '';
+    }
+};
 
 async function connectM365() {
     if (!msalInstance) {
@@ -340,7 +377,6 @@ async function connectM365() {
     }
 
     try {
-        // En versiones recientes, debemos asegurarnos del estado local si usamos msal
         await msalInstance.initialize?.(); 
         await msalInstance.handleRedirectPromise?.();
 
@@ -348,8 +384,11 @@ async function connectM365() {
             scopes: ["User.Read", "Files.Read", "Files.Read.All"],
             prompt: "select_account"
         });
+        
         const token = loginResponse.accessToken;
+        msalInstance.setActiveAccount(loginResponse.account);
         window.m365LoggedIn = true;
+        window.updateM365UI(loginResponse.account);
         
         await fetchMasterData(token);
     } catch (error) {
@@ -392,8 +431,9 @@ function showErrorUI(mensaje) {
 
 window.hasMasterAccess = false;
 window.hasVentasAccess = false;
+window.hasComercialAccess = false;
 
-window.applyRoleBasedUI = function(hasMaster, hasVentas) {
+window.applyRoleBasedUI = function(hasMaster, hasVentas, hasComercial = false) {
     const mainContainer = document.querySelector('.main-container');
     const sidebarItems = document.querySelectorAll('.sidebar .menu-item');
     const monthSelector = document.getElementById('monthSelector');
@@ -410,28 +450,16 @@ window.applyRoleBasedUI = function(hasMaster, hasVentas) {
     const groupVentas = document.getElementById('grupo-ventas');
     const headerVentas = groupVentas ? groupVentas.previousElementSibling : null;
 
+    const menuVentasCeo = document.getElementById('menu-ventas-ceo');
+    const menuResumenComercial = document.getElementById('menu-resumen-comercial');
+
     // Limpiar banner previo si existe
     let deniedBanner = document.getElementById('access-denied-banner');
     if (deniedBanner) deniedBanner.remove();
 
-    if (hasMaster && hasVentas) {
-        // Escenario 1: Ambos true (Admin)
-        if (mainContainer) mainContainer.style.display = '';
-        if (sidebar) sidebar.style.display = '';
-        if (contentHeader) contentHeader.style.display = '';
-        if (headerActions) headerActions.style.display = 'flex';
-        if (headerInfo) headerInfo.style.display = '';
-        if (monthSelector) monthSelector.style.display = 'block';
-        if (viewModeToggle) viewModeToggle.style.display = 'flex';
-        if (dropZone) dropZone.style.display = 'none';
-        
-        if (groupSeguimiento) groupSeguimiento.style.display = '';
-        if (headerSeguimiento) headerSeguimiento.style.display = 'flex';
-        if (groupVentas) groupVentas.style.display = '';
-        if (headerVentas) headerVentas.style.display = 'flex';
+    const anyAccess = hasMaster || hasVentas || hasComercial;
 
-    } else if (!hasMaster && hasVentas) {
-        // Escenario 2: Sólo Ventas CEO
+    if (anyAccess) {
         if (mainContainer) mainContainer.style.display = '';
         if (sidebar) sidebar.style.display = '';
         if (contentHeader) contentHeader.style.display = '';
@@ -441,60 +469,41 @@ window.applyRoleBasedUI = function(hasMaster, hasVentas) {
         if (viewModeToggle) viewModeToggle.style.display = 'flex';
         if (dropZone) dropZone.style.display = 'none';
 
-        if (groupSeguimiento) groupSeguimiento.style.display = 'none';
-        if (headerSeguimiento) headerSeguimiento.style.display = 'none';
-        if (groupVentas) groupVentas.style.display = '';
-        if (headerVentas) headerVentas.style.display = 'flex';
+        // Grupo Seguimiento
+        if (groupSeguimiento) groupSeguimiento.style.display = hasMaster ? '' : 'none';
+        if (headerSeguimiento) headerSeguimiento.style.display = hasMaster ? 'flex' : 'none';
 
-        // Ocultar todas las vistas excepto Ventas CEO y activarla
-        viewContainers.forEach(v => {
-            if (v.id === 'view-ventas-ceo') {
-                v.classList.add('active');
-                v.style.display = 'block';
-            } else {
-                v.classList.remove('active');
-                v.style.display = 'none';
+        // Grupo Ventas
+        const showVentasGroup = hasVentas || hasComercial;
+        if (groupVentas) groupVentas.style.display = showVentasGroup ? '' : 'none';
+        if (headerVentas) headerVentas.style.display = showVentasGroup ? 'flex' : 'none';
+
+        // Items individuales dentro de Ventas
+        if (menuVentasCeo) menuVentasCeo.parentElement.style.display = hasVentas ? '' : 'none';
+        if (menuResumenComercial) menuResumenComercial.parentElement.style.display = hasComercial ? '' : 'none';
+
+        // Redirección si la vista activa ya no es accesible
+        const activeView = Array.from(viewContainers).find(v => v.classList.contains('active'));
+        if (activeView) {
+            const isSeguimientoView = activeView.id.startsWith('view-') && activeView.id !== 'view-ventas-ceo' && activeView.id !== 'view-resumen-comercial';
+            if (isSeguimientoView && !hasMaster) {
+                 if (hasVentas) document.getElementById('menu-ventas-ceo')?.click();
+                 else if (hasComercial) document.getElementById('menu-resumen-comercial')?.click();
+            } else if (activeView.id === 'view-ventas-ceo' && !hasVentas) {
+                 if (hasMaster) document.getElementById('menu-kpi')?.click();
+                 else if (hasComercial) document.getElementById('menu-resumen-comercial')?.click();
+            } else if (activeView.id === 'view-resumen-comercial' && !hasComercial) {
+                 if (hasMaster) document.getElementById('menu-kpi')?.click();
+                 else if (hasVentas) document.getElementById('menu-ventas-ceo')?.click();
             }
-        });
-        
-        // Render Ventas
-        if (typeof window.renderVentasCEO === 'function') {
-            window.renderVentasCEO();
         }
 
-    } else if (hasMaster && !hasVentas) {
-        // Escenario 3: Sólo Master Financiero
-        if (mainContainer) mainContainer.style.display = '';
-        if (sidebar) sidebar.style.display = '';
-        if (contentHeader) contentHeader.style.display = '';
-        if (headerActions) headerActions.style.display = 'flex';
-        if (headerInfo) headerInfo.style.display = '';
-        if (monthSelector) monthSelector.style.display = 'block';
-        if (viewModeToggle) viewModeToggle.style.display = 'flex';
-        if (dropZone) dropZone.style.display = 'none';
-
-        if (groupSeguimiento) groupSeguimiento.style.display = '';
-        if (headerSeguimiento) headerSeguimiento.style.display = 'flex';
-        if (groupVentas) groupVentas.style.display = 'none';
-        if (headerVentas) headerVentas.style.display = 'none';
-
-        // Si Ventas CEO estaba activo, mover al KPI
-        const vv = document.getElementById('view-ventas-ceo');
-        if (vv && vv.classList.contains('active')) {
-            vv.classList.remove('active');
-            vv.style.display = 'none';
-            document.getElementById('menu-kpi')?.click();
-        }
-
-    } else if (!hasMaster && !hasVentas) {
-        // Escenario 4: Ambos false
+    } else {
+        // Escenario: Sin acceso
         if (mainContainer) mainContainer.style.display = 'none';
         if (sidebar) sidebar.style.display = 'none';
         if (contentHeader) contentHeader.style.display = 'none';
         
-        // Evitaremos mostrar la pantalla de bloqueo "por un segundo" 
-        // revisando si genuinamente hubo un login denegado validando el estado de MSAL.
-        // Si no está registrado en window.m365LoggedIn = true, no mostramos el banner.
         if (window.m365LoggedIn) {
             deniedBanner = document.createElement('div');
             deniedBanner.id = 'access-denied-banner';
@@ -609,33 +618,41 @@ async function fetchMasterData(token = null) {
 
         try {
             if (token) {
+                // Sincronizar variables activas en memoria con localStorage
+                SHARPOINT_FILE_URL = localStorage.getItem('CUSTOM_ONEDRIVE_FILE_URL') || import.meta.env.VITE_ONEDRIVE_FILE_URL || import.meta.env.VITE_ONEDRIVE_ITEM_ID;
+                SHARPOINT_VENTAS_FILE_URL = localStorage.getItem('CUSTOM_ONEDRIVE_VENTAS_URL') || import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID;
+
                 // Descarga Master Financiero
-                const encodedUrl = btoa(SHARPOINT_FILE_URL).replace(/=/g, '').replace(/\//g, '_').replace(/\+/g, '-');
-                const graphUrl = `https://graph.microsoft.com/v1.0/shares/u!${encodedUrl}/driveItem/content`;
-                const req = await fetch(graphUrl, { headers: { "Authorization": `Bearer ${token}` }, signal: controller.signal });
-                if (req.ok) {
-                    arrayBuffer = await req.arrayBuffer();
-                    window.hasMasterAccess = true;
-                } else {
-                    window.hasMasterAccess = false;
-                    globalFinancialData = null;
-                    try {
-                        const db = await new Promise(r => { const req = indexedDB.open('PlanetaAzulDB', 3); req.onsuccess = () => r(req.result); });
-                        const tx = db.transaction('finance_cache', 'readwrite');
-                        tx.objectStore('finance_cache').delete('MASTER_FINANCE_KEY');
-                    } catch(e) {}
+                const encodedUrl = encodeUrlM365(SHARPOINT_FILE_URL);
+                if (encodedUrl) {
+                    const graphUrl = `https://graph.microsoft.com/v1.0/shares/u!${encodedUrl}/driveItem/content`;
+                    const req = await fetch(graphUrl, { headers: { "Authorization": `Bearer ${token}` }, signal: controller.signal });
+                    if (req.ok) {
+                        arrayBuffer = await req.arrayBuffer();
+                        window.hasMasterAccess = true;
+                    } else {
+                        console.warn("Graph API rejected Master sync. Status:", req.status, req.statusText);
+                        window.hasMasterAccess = false;
+                        globalFinancialData = null;
+                        try {
+                            const db = await new Promise(r => { const req = indexedDB.open('PlanetaAzulDB', 3); req.onsuccess = () => r(req.result); });
+                            const tx = db.transaction('finance_cache', 'readwrite');
+                            tx.objectStore('finance_cache').delete('MASTER_FINANCE_KEY');
+                        } catch(e) {}
+                    }
                 }
 
                 // Descarga Ventas CEO inmediata
-                const CEO_FILE_URL = import.meta.env.VITE_CEO_FILE_URL || import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID;
-                if (CEO_FILE_URL) {
-                    const encodedCeoUrl = btoa(CEO_FILE_URL).replace(/=/g, '').replace(/\//g, '_').replace(/\+/g, '-');
+                const CEO_FILE_URL = SHARPOINT_VENTAS_FILE_URL || import.meta.env.VITE_CEO_FILE_URL || import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID;
+                const encodedCeoUrl = encodeUrlM365(CEO_FILE_URL);
+                if (encodedCeoUrl) {
                     const graphUrlCeo = `https://graph.microsoft.com/v1.0/shares/u!${encodedCeoUrl}/driveItem/content`;
                     const reqCeo = await fetch(graphUrlCeo, { headers: { "Authorization": `Bearer ${token}` }, signal: controller.signal });
                     if (reqCeo.ok) {
                         arrayBufferCeo = await reqCeo.arrayBuffer();
                         window.hasVentasAccess = true;
                     } else {
+                        console.warn("Graph API rejected Ventas sync. Status:", reqCeo.status, reqCeo.statusText);
                         window.hasVentasAccess = false;
                         ceoData = null;
                         try {
@@ -645,11 +662,62 @@ async function fetchMasterData(token = null) {
                         } catch(e) {}
                     }
                 }
+
+                // Descarga Resumen Comercial
+                const RESUMEN_COMERCIAL_URL = localStorage.getItem('CUSTOM_RESUMEN_COMERCIAL_URL') || import.meta.env.VITE_RESUMEN_COMERCIAL_URL;
+                const encodedComercialUrl = encodeUrlM365(RESUMEN_COMERCIAL_URL);
+                if (encodedComercialUrl) {
+                    const graphUrlComercial = `https://graph.microsoft.com/v1.0/shares/u!${encodedComercialUrl}/driveItem/content`;
+                    const reqComercial = await fetch(graphUrlComercial, { headers: { "Authorization": `Bearer ${token}` }, signal: controller.signal });
+                    if (reqComercial.ok) {
+                        const arrayBufferComercial = await reqComercial.arrayBuffer();
+                        if (window.resumenComercialEngine) {
+                            try {
+                                const result = await window.resumenComercialEngine.processManualFile(arrayBufferComercial);
+                                if (result) {
+                                    window.hasComercialAccess = true;
+                                }
+                            } catch (e) {
+                                console.error("Error processing comercial sync:", e);
+                            }
+                        }
+                    } else {
+                        console.warn("Graph API rejected Resumen Comercial sync. Status:", reqComercial.status, reqComercial.statusText);
+                        window.hasComercialAccess = false;
+                        try {
+                            const db = await new Promise(r => { const req = indexedDB.open('PlanetaAzulDB', 3); req.onsuccess = () => r(req.result); });
+                            const tx = db.transaction('finance_cache', 'readwrite');
+                            tx.objectStore('finance_cache').delete('COMERCIAL_KEY');
+                        } catch(e) {}
+                    }
+                }
             } else {
                 const response = await fetch("/api/downloadSync", { signal: controller.signal });
                 if (response.ok) {
                     arrayBuffer = await response.arrayBuffer();
                     window.hasMasterAccess = true;
+                }
+
+                const responseVentas = await fetch("/api/downloadSyncVentas", { signal: controller.signal });
+                if (responseVentas.ok) {
+                    arrayBufferCeo = await responseVentas.arrayBuffer();
+                    window.hasVentasAccess = true;
+                }
+
+                const responseComercial = await fetch("/api/downloadSyncComercial", { signal: controller.signal });
+                if (responseComercial.ok) {
+                    const arrayBufferComercial = await responseComercial.arrayBuffer();
+                    // Enviar al motor para procesar y cachear
+                    if (window.resumenComercialEngine) {
+                        try {
+                            const result = await window.resumenComercialEngine.processManualFile(arrayBufferComercial);
+                            if (result) {
+                                window.hasComercialAccess = true;
+                            }
+                        } catch (e) {
+                            console.error("Error processing comercial sync:", e);
+                        }
+                    }
                 }
             }
             clearTimeout(timeoutId);
@@ -659,9 +727,8 @@ async function fetchMasterData(token = null) {
 
         // Aplicamos el RBAC después de las peticiones, pero si operamos con caché, mantenemos permisos
         if (typeof window.applyRoleBasedUI === 'function') {
-            const finalMaster = window.hasMasterAccess || (window.isMagicLoaded && globalFinancialData && globalFinancialData.length > 0) ? true : false;
-            const finalVentas = window.hasVentasAccess || (window.isMagicLoaded && typeof ceoData !== 'undefined' && ceoData && ceoData.length > 0) ? true : false;
-            window.applyRoleBasedUI(finalMaster, finalVentas);
+            const hasCom = window.hasComercialAccess || false;
+            window.applyRoleBasedUI(window.hasMasterAccess, window.hasVentasAccess, hasCom);
         }
 
         if (window._m365Interval) clearInterval(window._m365Interval);
@@ -813,6 +880,7 @@ window.syncNavigationUI = function(menuId) {
         'menu-estados': "Estados Financieros y KPIs (RD$)",
         'menu-simulador': "Simulador Estratégico (What-If)",
         'menu-ventas-ceo': "Ventas CEO",
+        'menu-resumen-comercial': "Resumen Comercial",
         'menu-config': "Configuración y Auditoría",
         'menu-glosario': "Glosario de Términos y Metodologías Financieras"
     };
@@ -867,7 +935,8 @@ window.handleZeroState = function() {
         if(typeof window.applyRoleBasedUI === 'function') {
            const inferredMaster = window.hasMasterAccess || (globalFinancialData && globalFinancialData.length > 0) ? true : false;
            const inferredVentas = window.hasVentasAccess || (typeof ceoData !== 'undefined' && ceoData && ceoData.length > 0) ? true : false;
-           window.applyRoleBasedUI(inferredMaster, inferredVentas);
+           const inferredComercial = window.hasComercialAccess || false;
+           window.applyRoleBasedUI(inferredMaster, inferredVentas, inferredComercial);
         }
     }
 };
@@ -968,6 +1037,19 @@ async function loadCacheInstant() {
             window.isMagicLoaded = true;
         }
 
+        // Try load Resumen Comercial as well
+        try {
+            const engine = await import('./resumenComercialEngine.js');
+            window.resumenComercialEngine = engine;
+            const hasComm = await engine.loadComercialCache();
+            if (hasComm) {
+                window.hasComercialAccess = true;
+                if (document.getElementById("view-resumen-comercial") && document.getElementById("view-resumen-comercial").classList.contains("active")) {
+                    window.renderResumenComercial();
+                }
+            }
+        } catch(e) {}
+
         if (cachedRecord && cachedRecord.data && cachedRecord.data.length > 0) {
             console.log("🚀 Magic Load F5: Renderizando UI alzada instantáneamente.");
             window.isMagicLoaded = true; // 🔥 AÑADE ESTA LÍNEA AQUÍ
@@ -982,7 +1064,8 @@ async function loadCacheInstant() {
             if (typeof window.applyRoleBasedUI === 'function') {
                 const inferredMaster = window.hasMasterAccess || (globalFinancialData && globalFinancialData.length > 0) ? true : false;
                 const inferredVentas = window.hasVentasAccess || (typeof ceoData !== 'undefined' && ceoData && ceoData.length > 0) ? true : false;
-                window.applyRoleBasedUI(inferredMaster, inferredVentas);
+                const inferredComercial = window.hasComercialAccess || false;
+                window.applyRoleBasedUI(inferredMaster, inferredVentas, inferredComercial);
             }
             const loaderEl = document.getElementById('loader');
             if (loaderEl) loaderEl.style.display = 'none';
@@ -1067,6 +1150,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Mandatory Silent Flow
             const accounts = msalInstance.getAllAccounts();
             if (accounts.length > 0) {
+                msalInstance.setActiveAccount(accounts[0]);
+                window.updateM365UI(accounts[0]);
                 try {
                     const response = await msalInstance.acquireTokenSilent({
                         scopes: ["User.Read", "Files.Read", "Files.Read.All"],
@@ -1074,7 +1159,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     });
                     
                     // Background Update
-                    // We assume fetchMasterData internally manages UI non-intrusiveness.
                     window.m365LoggedIn = true;
                     fetchMasterData(response.accessToken);
                 } catch (error) {
@@ -1120,9 +1204,66 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.handleMSALLoginFailure();
     }
     
+    // Wire up Office 365 Sync and Settings UI actions
     const loginM365Btn = document.getElementById('loginM365Btn');
     if (loginM365Btn) {
         loginM365Btn.addEventListener('click', connectM365);
+    }
+
+    const logoutM365Btn = document.getElementById('logoutM365Btn');
+    if (logoutM365Btn) {
+        logoutM365Btn.addEventListener('click', async () => {
+            if (msalInstance) {
+                const activeAcc = msalInstance.getActiveAccount();
+                if (activeAcc) {
+                    await msalInstance.logoutPopup({ account: activeAcc }).catch(console.error);
+                }
+            }
+            window.m365LoggedIn = false;
+            window.updateM365UI(null);
+            window.handleZeroState();
+        });
+    }
+
+    const saveM365UrlsBtn = document.getElementById('saveM365UrlsBtn');
+    if (saveM365UrlsBtn) {
+        saveM365UrlsBtn.addEventListener('click', () => {
+            const masterUrl = document.getElementById('m365UrlMaster')?.value || '';
+            const ventasUrl = document.getElementById('m365UrlVentas')?.value || '';
+            const comercialUrl = document.getElementById('m365UrlComercial')?.value || '';
+            
+            localStorage.setItem('CUSTOM_ONEDRIVE_FILE_URL', masterUrl);
+            localStorage.setItem('CUSTOM_ONEDRIVE_VENTAS_URL', ventasUrl);
+            localStorage.setItem('CUSTOM_RESUMEN_COMERCIAL_URL', comercialUrl);
+            
+            SHARPOINT_FILE_URL = masterUrl || import.meta.env.VITE_ONEDRIVE_FILE_URL || import.meta.env.VITE_ONEDRIVE_ITEM_ID;
+            SHARPOINT_VENTAS_FILE_URL = ventasUrl || import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID;
+            
+            alert("Enlaces de OneDrive guardados exitosamente.");
+        });
+    }
+
+    const syncNowM365Btn = document.getElementById('syncNowM365Btn');
+    if (syncNowM365Btn) {
+        syncNowM365Btn.addEventListener('click', async () => {
+            if (!msalInstance) return;
+            const accounts = msalInstance.getAllAccounts();
+            if (accounts.length > 0) {
+                try {
+                    const response = await msalInstance.acquireTokenSilent({
+                        scopes: ["User.Read", "Files.Read", "Files.Read.All"],
+                        account: accounts[0]
+                    });
+                    await fetchMasterData(response.accessToken);
+                    alert("Datos sincronizados exitosamente desde OneDrive.");
+                } catch (e) {
+                    console.error("Manual sync failed, attempting interactive login:", e);
+                    await connectM365();
+                }
+            } else {
+                await connectM365();
+            }
+        });
     }
     const fileInput = document.getElementById('fileInput');
     const dropZone = document.getElementById('dropZone');
@@ -1212,11 +1353,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     let pendingMainFile = null;
     let pendingVentasCeoFile = null;
+    let pendingResumenComercialFile = null;
 
     function updateProcessButton() {
         const btn = document.getElementById('processManualFilesBtn');
         if (btn) {
-            if (pendingMainFile || pendingVentasCeoFile) {
+            if (pendingMainFile || pendingVentasCeoFile || pendingResumenComercialFile) {
                 btn.disabled = false;
                 btn.style.opacity = '1';
                 btn.style.cursor = 'pointer';
@@ -1253,16 +1395,32 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    const uploadResumenComercialHomeInput = document.getElementById('upload-resumen-comercial-home');
+    if (uploadResumenComercialHomeInput) {
+        uploadResumenComercialHomeInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                pendingResumenComercialFile = file;
+                const nameEl = document.getElementById('resumenComercialFileName');
+                if (nameEl) nameEl.textContent = file.name;
+                updateProcessButton();
+            }
+        });
+    }
+
     const processManualFilesBtn = document.getElementById('processManualFilesBtn');
     if (processManualFilesBtn) {
         processManualFilesBtn.addEventListener('click', async () => {
             if (pendingVentasCeoFile) {
                 await window.processVentasCeoFile(pendingVentasCeoFile);
             }
+            if (pendingResumenComercialFile) {
+                await window.processResumenComercialFile(pendingResumenComercialFile);
+            }
             if (pendingMainFile) {
                 handleFileUpload({ target: { files: [pendingMainFile] } });
-            } else if (pendingVentasCeoFile) {
-                alert("Archivo Ventas CEO procesado exitosamente.");
+            } else if (pendingVentasCeoFile || pendingResumenComercialFile) {
+                alert("Archivos secundarios procesados exitosamente.");
             }
         });
     }
@@ -1288,11 +1446,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const file = files[0];
                 const name = file.name.toLowerCase();
                 
-                // Intento heurístico: si se llama ventasceo lo ponemos en el otro
+                // Intento heurístico:
                 if (name.includes('ventas') && name.includes('ceo')) {
                     if (uploadVentasCeoHomeInput) uploadVentasCeoHomeInput.files = files;
                     pendingVentasCeoFile = file;
                     const nameEl = document.getElementById('ventasCeoFileName');
+                    if (nameEl) nameEl.textContent = file.name;
+                } else if (name.includes('resumen') || name.includes('comercial')) {
+                    const uploadResumenBtn = document.getElementById('upload-resumen-comercial-home');
+                    if (uploadResumenBtn) uploadResumenBtn.files = files;
+                    pendingResumenComercialFile = file;
+                    const nameEl = document.getElementById('resumenComercialFileName');
                     if (nameEl) nameEl.textContent = file.name;
                 } else {
                     if (fileInput) fileInput.files = files;
@@ -1400,7 +1564,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             
             if (viewModeToggle) {
-                const viewsWithYTD = ['menu-kpi', 'menu-resumen', 'menu-preliminar'];
+                const viewsWithYTD = ['menu-kpi', 'menu-resumen', 'menu-preliminar', 'menu-resumen-comercial'];
                 if (viewsWithYTD.includes(id)) {
                     viewModeToggle.style.display = 'flex';
                 } else {
@@ -1426,6 +1590,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             if (id === 'menu-ventas-ceo' && typeof window.renderVentasCEO === 'function' && typeof ceoData !== 'undefined' && ceoData) {
                 window.renderVentasCEO();
+            }
+            if (id === 'menu-resumen-comercial' && typeof window.renderResumenComercial === 'function') {
+                window.renderResumenComercial();
             }
         });
     });
@@ -1674,9 +1841,7 @@ function downloadCSV(data, filename) {
 
 // File Processing Logic Separated from Rendering
 async function processFile(file, progressCallback) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        
+    return new Promise(async (resolve, reject) => {
         // Simular progreso para dar feedback visual
         let simulatedProgress = 0;
         const progressInterval = setInterval(() => {
@@ -1686,58 +1851,49 @@ async function processFile(file, progressCallback) {
             }
         }, 100);
 
-        reader.onload = async (event) => {
-            try {
-                if (progressCallback) progressCallback(30, "Enviando al procesador en segundo plano...");
-                
-                const bufferData = event.target.result;
+        try {
+            if (progressCallback) progressCallback(30, "Enviando al procesador en segundo plano...");
+            
+            const bufferData = await file.arrayBuffer();
 
-                const engineResult = await new Promise((resolve, reject) => {
-                    const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
-                    worker.onmessage = (e) => {
-                        const data = e.data;
-                        if (data.type === 'progress') {
-                            if (progressCallback) progressCallback(data.progress, data.message);
-                        } else if (data.type === 'error') {
-                            reject(new Error(data.error));
-                            worker.terminate();
-                        } else if (data.type === 'done') {
-                            resolve(data.engineResult);
-                            worker.terminate();
-                        }
-                    };
-                    worker.onerror = (err) => {
-                        console.error("Worker error details:", err);
-                        reject(new Error("Worker error: " + (err.message || (err.error && err.error.message) || JSON.stringify(err) || "Unknown error")));
+            const engineResult = await new Promise((workerResolve, workerReject) => {
+                const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+                worker.onmessage = (e) => {
+                    const data = e.data;
+                    if (data.type === 'progress') {
+                        if (progressCallback) progressCallback(data.progress, data.message);
+                    } else if (data.type === 'error') {
+                        workerReject(new Error(data.error));
                         worker.terminate();
-                    };
-                    worker.postMessage({ buffer: bufferData }, [bufferData]);
-                });
-                
-                if (progressCallback) progressCallback(80, "Validando estructura de datos...");
-                
-                const lastData = engineResult.data[engineResult.data.length - 1];
-                if (!lastData || !lastData.balance) {
-                    clearInterval(progressInterval);
-                    return reject(new Error("Estructura de datos incompleta en el archivo."));
-                }
-
+                    } else if (data.type === 'done') {
+                        workerResolve(data.engineResult);
+                        worker.terminate();
+                    }
+                };
+                worker.onerror = (err) => {
+                    console.error("Worker error details:", err);
+                    workerReject(new Error("Worker error: " + (err.message || (err.error && err.error.message) || JSON.stringify(err) || "Unknown error")));
+                    worker.terminate();
+                };
+                worker.postMessage({ buffer: bufferData }, [bufferData]);
+            });
+            
+            if (progressCallback) progressCallback(80, "Validando estructura de datos...");
+            
+            const lastData = engineResult.data[engineResult.data.length - 1];
+            if (!lastData || !lastData.balance) {
                 clearInterval(progressInterval);
-                if (progressCallback) progressCallback(100, "Carga Completada");
-                resolve(engineResult);
-
-            } catch (err) {
-                clearInterval(progressInterval);
-                reject(err);
+                return reject(new Error("Estructura de datos incompleta en el archivo."));
             }
-        };
 
-        reader.onerror = () => {
             clearInterval(progressInterval);
-            reject(new Error("Error leyendo el archivo."));
-        };
-        
-        reader.readAsArrayBuffer(file);
+            if (progressCallback) progressCallback(100, "Carga Completada");
+            resolve(engineResult);
+
+        } catch (err) {
+            clearInterval(progressInterval);
+            reject(new Error("Error procesando o leyendo el archivo: " + err.message));
+        }
     });
 }
 
@@ -2358,6 +2514,13 @@ function renderActiveViewLazy(data, index) {
         let viewKpi = document.getElementById("view-kpi");
         if (viewKpi && viewKpi.classList.contains("active")) {
             renderKPIDashboard(data, index);
+        }
+
+        let viewResumenComercial = document.getElementById("view-resumen-comercial");
+        if (viewResumenComercial && viewResumenComercial.classList.contains("active")) {
+            if (typeof window.renderResumenComercial === 'function') {
+                window.renderResumenComercial();
+            }
         }
 
         let viewEstados = document.getElementById("view-estados");
@@ -6454,6 +6617,10 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             } catch (err) {
                 console.warn("⚠️ Error saving Ventas CEO to IndexedDB:", err);
             }
+            window.hasVentasAccess = true;
+            if (typeof window.applyRoleBasedUI === 'function') {
+                window.applyRoleBasedUI(window.hasMasterAccess, true, window.hasComercialAccess);
+            }
             let viewVentasCeo = document.getElementById("view-ventas-ceo");
             if (viewVentasCeo && viewVentasCeo.classList.contains("active")) {
                 window.renderVentasCEO();
@@ -6795,6 +6962,11 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 console.warn("⚠️ Error saving Ventas CEO to IndexedDB:", err);
             }
             
+            window.hasVentasAccess = true;
+            if (typeof window.applyRoleBasedUI === 'function') {
+                window.applyRoleBasedUI(window.hasMasterAccess, true, window.hasComercialAccess);
+            }
+
             let viewVentasCeo = document.getElementById("view-ventas-ceo");
             if (viewVentasCeo && viewVentasCeo.classList.contains("active")) {
                 window.renderVentasCEO();
@@ -7347,44 +7519,168 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
     }
     
     window.processVentasCeoFile = async function(file) {
-        return new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onload = (ev) => {
-                try {
-                    const data = new Uint8Array(ev.target.result);
-                    const workbook = XLSX.read(data, { type: 'array' });
-                    let bestSheetName = workbook.SheetNames[0];
-                    const consejoSheet = workbook.SheetNames.find(n => n.toLowerCase().includes('consejo'));
-                    if (consejoSheet) {
-                        bestSheetName = consejoSheet;
-                    } else {
-                        for (let name of workbook.SheetNames) {
-                            const sheetTmp = workbook.Sheets[name];
-                            const rowsTmp = XLSX.utils.sheet_to_json(sheetTmp, { header: 1 });
-                            const hasProducto = rowsTmp.some(r => r && r.some(c => String(c).toLowerCase().trim() === 'producto' || String(c).toLowerCase().trim() === 'descripción'));
-                            if (hasProducto) {
-                                bestSheetName = name;
-                                break;
-                            }
+        return new Promise(async (resolve) => {
+            try {
+                const buffer = await file.arrayBuffer();
+                const data = new Uint8Array(buffer);
+                const workbook = XLSX.read(data, { type: 'array' });
+                let bestSheetName = workbook.SheetNames[0];
+                const consejoSheet = workbook.SheetNames.find(n => n.toLowerCase().includes('consejo'));
+                if (consejoSheet) {
+                    bestSheetName = consejoSheet;
+                } else {
+                    for (let name of workbook.SheetNames) {
+                        const sheetTmp = workbook.Sheets[name];
+                        const rowsTmp = XLSX.utils.sheet_to_json(sheetTmp, { header: 1 });
+                        const hasProducto = rowsTmp.some(r => r && r.some(c => String(c).toLowerCase().trim() === 'producto' || String(c).toLowerCase().trim() === 'descripción'));
+                        if (hasProducto) {
+                            bestSheetName = name;
+                            break;
                         }
                     }
-                    window.processVentasCeoWorkbook(workbook);
-                    resolve();
-                } catch(e) {
-                    console.warn("No es un Excel válido, intentando como texto (CSV)...", e);
-                    const textReader = new FileReader();
-                    textReader.onload = (e2) => {
-                        const lines = e2.target.result.split(/\r?\n/).map(l => l.split(','));
-                        window.processVentasCeoWorkbook(null, lines);
-                        resolve();
-                    };
-                    textReader.readAsText(file);
                 }
-            };
-            reader.readAsArrayBuffer(file);
+                window.processVentasCeoWorkbook(workbook);
+                resolve();
+            } catch(e) {
+                console.warn("No es un Excel válido, intentando como texto (CSV)...", e);
+                try {
+                    const text = await file.text();
+                    const lines = text.split(/\r?\n/).map(l => l.split(','));
+                    window.processVentasCeoWorkbook(null, lines);
+                } catch (textError) {
+                    console.error("No se pudo leer como CSV", textError);
+                }
+                resolve();
+            }
         });
     };
     
+    window.processResumenComercialFile = async function(file) {
+        return new Promise(async (resolve) => {
+            try {
+                const buffer = await file.arrayBuffer();
+                const data = new Uint8Array(buffer);
+                const workbook = XLSX.read(data, { type: 'array' });
+                
+                // Dynamically import to avoid top-level issues if any
+                const engine = await import('./resumenComercialEngine.js');
+                window.resumenComercialEngine = engine;
+                
+                const monthSelector = document.getElementById('monthSelector');
+                const m = monthSelector ? parseInt(monthSelector.value) : 3;
+
+                // Process data using the new motor financiero
+                await engine.processComercialWorkbook(workbook);
+                
+                window.hasComercialAccess = true;
+                if (typeof window.applyRoleBasedUI === 'function') {
+                    window.applyRoleBasedUI(window.hasMasterAccess, window.hasVentasAccess, true);
+                }
+
+                window.renderResumenComercial();
+                resolve();
+            } catch(e) {
+                console.error("Error procesando Excel de Resumen Comercial", e);
+                resolve();
+            }
+        });
+    };
+
+    window.comercialCurrentView = 'resumen';
+
+    function updateComercialButtonsVisuals() {
+        const resetBtn = (id) => {
+            const btn = document.getElementById(id);
+            if (btn) {
+                btn.style.background = 'transparent';
+                btn.style.color = 'var(--text-secondary)';
+                btn.style.boxShadow = 'none';
+            }
+        };
+        resetBtn('btn-comercial-resumen');
+        resetBtn('btn-comercial-mom');
+        resetBtn('btn-comercial-variacion');
+
+        let activeId = 'btn-comercial-resumen';
+        if (window.comercialCurrentView === 'mom') {
+            activeId = 'btn-comercial-mom';
+        } else if (window.comercialCurrentView === 'variacion') {
+            activeId = 'btn-comercial-variacion';
+        }
+
+        const activeBtn = document.getElementById(activeId);
+        if (activeBtn) {
+            activeBtn.style.background = 'white';
+            activeBtn.style.color = 'var(--primary)';
+            activeBtn.style.boxShadow = '0 1px 2px rgba(0,0,0,0.05)';
+        }
+    }
+
+    // Attach click events on load/execution
+    setTimeout(() => {
+        document.getElementById('btn-comercial-resumen')?.addEventListener('click', () => {
+            window.comercialCurrentView = 'resumen';
+            updateComercialButtonsVisuals();
+            window.renderResumenComercial();
+        });
+        document.getElementById('btn-comercial-mom')?.addEventListener('click', () => {
+            window.comercialCurrentView = 'mom';
+            updateComercialButtonsVisuals();
+            window.renderResumenComercial();
+        });
+        document.getElementById('btn-comercial-variacion')?.addEventListener('click', () => {
+            window.comercialCurrentView = 'variacion';
+            updateComercialButtonsVisuals();
+            window.renderResumenComercial();
+        });
+    }, 500);
+
+    window.renderResumenComercial = function() {
+        if (!window.resumenComercialEngine) return;
+        const selector = document.getElementById('monthSelector');
+        let m = 3;
+        let periodText = 'Periodo Actual';
+        if (selector && globalFinancialData) {
+            const idx = parseInt(selector.value);
+            const item = globalFinancialData[idx];
+            if (item) {
+                periodText = item.date || 'Periodo';
+                let dateObj = item.sortDate;
+                if (dateObj) {
+                    const d = new Date(dateObj);
+                    if (!isNaN(d.getTime())) {
+                        m = d.getMonth() + 1;
+                    }
+                } else if (item.date) {
+                    const MESES_SEARCH = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+                    const lower = item.date.toLowerCase();
+                    const found = MESES_SEARCH.findIndex(mes => lower.includes(mes));
+                    if (found !== -1) m = found + 1;
+                }
+            }
+        }
+        
+        const isYTD = (typeof isYTDMode !== 'undefined') ? isYTDMode : false;
+        if (isYTD) periodText = "YTD " + periodText;
+        
+        const label = document.getElementById('resumenComercialPeriodLabel');
+        if (label) {
+            let viewLabel = "Resumen de Ventas";
+            if (window.comercialCurrentView === 'mom') viewLabel = "MoM";
+            if (window.comercialCurrentView === 'variacion') viewLabel = "Análisis de Variación";
+            label.textContent = `| ${viewLabel} | ${periodText}`;
+        }
+
+        window.resumenComercialEngine.renderResumenComercial(m, isYTD, window.comercialCurrentView);
+
+        // Sync Mobile Accordions
+        setTimeout(() => {
+            if (typeof buildMobileAccordionsFromTable === 'function') {
+                buildMobileAccordionsFromTable('resumen-comercial-table', 'resumenComercialMobileContainer');
+            }
+        }, 100);
+    };
+
     // Setup file upload listener for Ventas CEO (from detailed view if any)
     const handleVentasCeoUpload = async (e) => {
         const file = e.target.files[0];
