@@ -54,7 +54,11 @@ Data: ${JSON.stringify(financialData)}`;
 
   app.get("/api/downloadSync", async (req, res) => {
     try {
-      const url = process.env.VITE_ONEDRIVE_ITEM_ID || process.env.VITE_ONEDRIVE_FILE_URL || "https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc={cfe13828-c964-447a-8147-feb8de79816c}&download=1";
+      const customUrl = typeof req.query.url === "string" ? req.query.url : undefined;
+      const url = customUrl || process.env.VITE_ONEDRIVE_ITEM_ID || process.env.VITE_ONEDRIVE_FILE_URL || "https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc={cfe13828-c964-447a-8147-feb8de79816c}&download=1";
+      if (!url.includes("sharepoint.com") && !url.includes("onedrive.live.com")) {
+        return res.status(400).json({ error: "Invalid Microsoft 365 file URL." });
+      }
       const response = await fetch(url, {
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -77,7 +81,11 @@ Data: ${JSON.stringify(financialData)}`;
 
   app.get("/api/downloadSyncVentas", async (req, res) => {
     try {
-      const url = process.env.VITE_CEO_FILE_URL || process.env.VITE_ONEDRIVE_VENTAS_ITEM_ID || "https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc={654321-URL-PLACEHOLDER}&download=1";
+      const customUrl = typeof req.query.url === "string" ? req.query.url : undefined;
+      const url = customUrl || process.env.VITE_CEO_FILE_URL || process.env.VITE_ONEDRIVE_VENTAS_ITEM_ID || "https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc={654321-URL-PLACEHOLDER}&download=1";
+      if (!url.includes("sharepoint.com") && !url.includes("onedrive.live.com")) {
+        return res.status(400).json({ error: "Invalid Microsoft 365 file URL." });
+      }
       const response = await fetch(url, {
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -100,7 +108,11 @@ Data: ${JSON.stringify(financialData)}`;
 
   app.get("/api/downloadSyncComercial", async (req, res) => {
     try {
-      const url = process.env.VITE_RESUMEN_COMERCIAL_URL || "https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc={PLACEHOLDER-COMERCIAL}&download=1";
+      const customUrl = typeof req.query.url === "string" ? req.query.url : undefined;
+      const url = customUrl || process.env.VITE_RESUMEN_COMERCIAL_URL || "https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc={PLACEHOLDER-COMERCIAL}&download=1";
+      if (!url.includes("sharepoint.com") && !url.includes("onedrive.live.com")) {
+        return res.status(400).json({ error: "Invalid Microsoft 365 file URL." });
+      }
       const response = await fetch(url, {
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -122,6 +134,14 @@ Data: ${JSON.stringify(financialData)}`;
   });
 
   // Vite middleware for development
+  app.get("/api/config", (req, res) => {
+    res.json({
+      VITE_ONEDRIVE_FILE_URL: process.env.VITE_ONEDRIVE_ITEM_ID || process.env.VITE_ONEDRIVE_FILE_URL,
+      VITE_CEO_FILE_URL: process.env.VITE_CEO_FILE_URL || process.env.VITE_ONEDRIVE_VENTAS_ITEM_ID,
+      VITE_RESUMEN_COMERCIAL_URL: process.env.VITE_RESUMEN_COMERCIAL_URL
+    });
+  });
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },

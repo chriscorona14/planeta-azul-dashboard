@@ -621,9 +621,20 @@ async function fetchMasterData(token = null) {
 
         try {
             if (token) {
-                // Sincronizar variables activas en memoria con localStorage
-                SHARPOINT_FILE_URL = localStorage.getItem('CUSTOM_ONEDRIVE_FILE_URL') || import.meta.env.VITE_ONEDRIVE_FILE_URL || import.meta.env.VITE_ONEDRIVE_ITEM_ID;
-                SHARPOINT_VENTAS_FILE_URL = localStorage.getItem('CUSTOM_ONEDRIVE_VENTAS_URL') || import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID;
+                // Get runtime config from the server to bypass build-time env var freezing
+                let runtimeConfig = {};
+                try {
+                    const configRes = await fetch("/api/config");
+                    if (configRes.ok) {
+                        runtimeConfig = await configRes.json();
+                    }
+                } catch (e) {
+                    console.warn("Could not fetch /api/config", e);
+                }
+
+                // Sincronizar variables activas en memoria con localStorage y config
+                SHARPOINT_FILE_URL = localStorage.getItem('CUSTOM_ONEDRIVE_FILE_URL') || import.meta.env.VITE_ONEDRIVE_FILE_URL || import.meta.env.VITE_ONEDRIVE_ITEM_ID || runtimeConfig.VITE_ONEDRIVE_FILE_URL;
+                SHARPOINT_VENTAS_FILE_URL = localStorage.getItem('CUSTOM_ONEDRIVE_VENTAS_URL') || import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID || runtimeConfig.VITE_CEO_FILE_URL;
 
                 // Descarga Master Financiero
                 const encodedUrl = encodeUrlM365(SHARPOINT_FILE_URL);
@@ -646,7 +657,7 @@ async function fetchMasterData(token = null) {
                 }
 
                 // Descarga Ventas CEO inmediata
-                const CEO_FILE_URL = SHARPOINT_VENTAS_FILE_URL || import.meta.env.VITE_CEO_FILE_URL || import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID;
+                const CEO_FILE_URL = SHARPOINT_VENTAS_FILE_URL || import.meta.env.VITE_CEO_FILE_URL || import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID || runtimeConfig.VITE_CEO_FILE_URL;
                 const encodedCeoUrl = encodeUrlM365(CEO_FILE_URL);
                 if (encodedCeoUrl) {
                     const graphUrlCeo = `https://graph.microsoft.com/v1.0/shares/u!${encodedCeoUrl}/driveItem/content`;
@@ -667,7 +678,7 @@ async function fetchMasterData(token = null) {
                 }
 
                 // Descarga Resumen Comercial
-                const RESUMEN_COMERCIAL_URL = localStorage.getItem('CUSTOM_RESUMEN_COMERCIAL_URL') || import.meta.env.VITE_RESUMEN_COMERCIAL_URL;
+                const RESUMEN_COMERCIAL_URL = localStorage.getItem('CUSTOM_RESUMEN_COMERCIAL_URL') || import.meta.env.VITE_RESUMEN_COMERCIAL_URL || runtimeConfig.VITE_RESUMEN_COMERCIAL_URL;
                 const encodedComercialUrl = encodeUrlM365(RESUMEN_COMERCIAL_URL);
                 if (encodedComercialUrl) {
                     const graphUrlComercial = `https://graph.microsoft.com/v1.0/shares/u!${encodedComercialUrl}/driveItem/content`;
@@ -703,19 +714,22 @@ async function fetchMasterData(token = null) {
                     }
                 }
             } else {
-                const response = await fetch("/api/downloadSync", { signal: controller.signal });
+                let paramsMaster = SHARPOINT_FILE_URL ? `?url=${encodeURIComponent(SHARPOINT_FILE_URL)}` : '';
+                const response = await fetch(`/api/downloadSync${paramsMaster}`, { signal: controller.signal });
                 if (response.ok) {
                     arrayBuffer = await response.arrayBuffer();
                     window.hasMasterAccess = true;
                 }
 
-                const responseVentas = await fetch("/api/downloadSyncVentas", { signal: controller.signal });
+                let paramsVentas = SHARPOINT_VENTAS_FILE_URL ? `?url=${encodeURIComponent(SHARPOINT_VENTAS_FILE_URL)}` : '';
+                const responseVentas = await fetch(`/api/downloadSyncVentas${paramsVentas}`, { signal: controller.signal });
                 if (responseVentas.ok) {
                     arrayBufferCeo = await responseVentas.arrayBuffer();
                     window.hasVentasAccess = true;
                 }
 
-                const responseComercial = await fetch("/api/downloadSyncComercial", { signal: controller.signal });
+                let paramsComercial = RESUMEN_COMERCIAL_URL ? `?url=${encodeURIComponent(RESUMEN_COMERCIAL_URL)}` : '';
+                const responseComercial = await fetch(`/api/downloadSyncComercial${paramsComercial}`, { signal: controller.signal });
                 if (responseComercial.ok) {
                     const arrayBufferComercial = await responseComercial.arrayBuffer();
                     // Enviar al motor para procesar y cachear
