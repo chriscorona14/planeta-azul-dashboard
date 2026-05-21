@@ -52,10 +52,19 @@ Data: ${JSON.stringify(financialData)}`;
     }
   });
 
+  function resolveSharepointUrl(inputUrl: string | undefined, defaultUrl: string): string {
+    if (!inputUrl) return defaultUrl;
+    // If it's a GUID, format it into the full SharePoint URL
+    if (/^[0-9a-fA-F\-]{36}$/.test(inputUrl) || /^\{[0-9a-fA-F\-]{36}\}$/.test(inputUrl)) {
+      return `https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc=${inputUrl.startsWith('{') ? inputUrl : '{' + inputUrl + '}'}&download=1`;
+    }
+    return inputUrl;
+  }
+
   app.get("/api/downloadSync", async (req, res) => {
     try {
       const customUrl = typeof req.query.url === "string" ? req.query.url : undefined;
-      const url = customUrl || process.env.VITE_ONEDRIVE_ITEM_ID || process.env.VITE_ONEDRIVE_FILE_URL || "https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc={cfe13828-c964-447a-8147-feb8de79816c}&download=1";
+      const url = resolveSharepointUrl(customUrl || process.env.VITE_ONEDRIVE_ITEM_ID || process.env.VITE_ONEDRIVE_FILE_URL, "https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc={cfe13828-c964-447a-8147-feb8de79816c}&download=1");
       if (!url.includes("sharepoint.com") && !url.includes("onedrive.live.com")) {
         return res.status(400).json({ error: "Invalid Microsoft 365 file URL." });
       }
@@ -82,7 +91,7 @@ Data: ${JSON.stringify(financialData)}`;
   app.get("/api/downloadSyncVentas", async (req, res) => {
     try {
       const customUrl = typeof req.query.url === "string" ? req.query.url : undefined;
-      const url = customUrl || process.env.VITE_CEO_FILE_URL || process.env.VITE_ONEDRIVE_VENTAS_ITEM_ID || "https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc={654321-URL-PLACEHOLDER}&download=1";
+      const url = resolveSharepointUrl(customUrl || process.env.VITE_CEO_FILE_URL || process.env.VITE_ONEDRIVE_VENTAS_ITEM_ID, "https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc={654321-URL-PLACEHOLDER}&download=1");
       if (!url.includes("sharepoint.com") && !url.includes("onedrive.live.com")) {
         return res.status(400).json({ error: "Invalid Microsoft 365 file URL." });
       }
@@ -109,7 +118,7 @@ Data: ${JSON.stringify(financialData)}`;
   app.get("/api/downloadSyncComercial", async (req, res) => {
     try {
       const customUrl = typeof req.query.url === "string" ? req.query.url : undefined;
-      const url = customUrl || process.env.VITE_RESUMEN_COMERCIAL_URL || "https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc={PLACEHOLDER-COMERCIAL}&download=1";
+      const url = resolveSharepointUrl(customUrl || process.env.VITE_RESUMEN_COMERCIAL_URL, "https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc={PLACEHOLDER-COMERCIAL}&download=1");
       if (!url.includes("sharepoint.com") && !url.includes("onedrive.live.com")) {
         return res.status(400).json({ error: "Invalid Microsoft 365 file URL." });
       }
