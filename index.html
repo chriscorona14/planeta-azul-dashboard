@@ -700,8 +700,11 @@
         
         .pnl-detail-table th:first-child,
         .pnl-detail-table td:first-child {
-          width: 120px !important;
-          min-width: 120px !important;
+          width: 150px !important;
+          min-width: 150px !important;
+          max-width: 150px !important;
+          white-space: normal !important;
+          word-wrap: break-word !important;
           box-shadow: inset -4px 0 6px -4px rgba(0,0,0,0.15) !important;
         }
         
@@ -720,6 +723,67 @@
           100% { opacity: 0.6; transform: translateX(0); }
         }
         
+        .mobile-only-btn-container {
+          display: block !important;
+        }
+
+        .card-view-tbl {
+          display: block !important;
+        }
+        .card-view-tbl thead {
+          display: none !important;
+        }
+        .card-view-tbl tbody {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
+        .card-view-tbl tr {
+          display: flex;
+          flex-direction: column;
+          border: 1px solid #cbd5e1;
+          border-radius: 8px;
+          background: white;
+          overflow: hidden;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        .card-view-tbl td {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 8px 12px !important;
+          text-align: right;
+          border-bottom: 1px solid #f1f5f9;
+          font-size: 0.85rem !important;
+          width: 100% !important;
+          max-width: 100% !important;
+          box-shadow: none !important;
+          position: static !important;
+          white-space: normal !important;
+        }
+        .card-view-tbl td:first-child {
+          background: #0f172a !important;
+          color: white !important;
+          font-weight: 700;
+          text-align: left;
+          justify-content: flex-start;
+          width: 100% !important;
+          max-width: 100% !important;
+        }
+        .card-view-tbl td:last-child {
+          border-bottom: none !important;
+        }
+        .card-view-tbl td::before {
+          content: attr(data-label);
+          font-weight: 600;
+          color: var(--text-secondary);
+          text-align: left;
+          margin-right: 16px;
+        }
+        .card-view-tbl td:empty, .card-view-tbl td:has(> *:empty:only-child) {
+          /* Fallback for empty pseudo elements or explicitly empty */
+        }
+
         table {
            font-size: 10.5px !important;
         }
@@ -850,6 +914,18 @@
       
       .pnl-detail-table th:first-child {
         z-index: 15;
+      }
+      
+      #resumen-comercial-thead tr:nth-child(2) th:first-child {
+        position: static !important;
+        left: auto !important;
+        background: #334155 !important;
+        min-width: auto !important;
+        width: auto !important;
+        box-shadow: none !important;
+        z-index: 5 !important;
+        text-align: right !important;
+        border-right: 1px solid rgba(255,255,255,0.1) !important;
       }
 
       .row-total {
@@ -1434,7 +1510,7 @@
             <div class="menu-item">
               <a href="#" id="menu-estados" style="padding-left: 24px;">Estados Financieros</a>
             </div>
-            <div class="menu-item" id="sim-menu-item" style="display: none;">
+            <div class="menu-item" id="sim-menu-item">
               <a href="#" id="menu-simulador" style="padding-left: 24px;">Simulador What-If</a>
             </div>
           </div>
@@ -1443,7 +1519,7 @@
             <span>Ventas</span>
             <i data-lucide="chevron-up" id="icon-ventas" style="width: 14px; height: 14px; transition: transform 0.2s;"></i>
           </div>
-          <div id="grupo-ventas" style="overflow: hidden; transition: max-height 0.3s ease; max-height: 200px;">
+          <div id="grupo-ventas" style="overflow: hidden; transition: max-height 0.3s ease; max-height: 500px;">
             <div class="menu-item">
               <a href="#" id="menu-pg-horizontal" style="padding-left: 24px;">P&G Horizontal</a>
             </div>
@@ -3069,6 +3145,42 @@
                 </div>
               </div>
               <div class="glosario-card">
+                <div class="glosario-card-title">Prueba Ácida (Acid-Test)</div>
+                <div class="glosario-card-def">
+                  Determina la capacidad de la empresa para enfrentar sus deudas a corto plazo, con una medición más exacta ya que resta los elementos menos líquidos de los activos corrientes.
+                </div>
+                <div class="glosario-card-formula">
+                  <i data-lucide="flask-conical" width="16" height="16"></i> (Activos Corrientes - Inventarios) / Pasivos Corrientes
+                </div>
+              </div>
+              <div class="glosario-card">
+                <div class="glosario-card-title">Liquidez</div>
+                <div class="glosario-card-def">
+                  Determina la capacidad de la empresa para cumplir con sus deudas a corto plazo.
+                </div>
+                <div class="glosario-card-formula">
+                  <i data-lucide="droplet" width="16" height="16"></i> Activos Líquidos y Disponibles
+                </div>
+              </div>
+              <div class="glosario-card">
+                <div class="glosario-card-title">Deuda a Patrimonio / Deuda</div>
+                <div class="glosario-card-def">
+                  Da una idea de qué porcentaje de las inversiones totales ha sido financiado por deudas de terceros. Cuanto mayor sea la financiación con terceros, mayor será el apalancamiento financiero y menor la autonomía financiera.
+                </div>
+                <div class="glosario-card-formula">
+                  <i data-lucide="scale" width="16" height="16"></i> Pasivos Totales / Patrimonio Total
+                </div>
+              </div>
+              <div class="glosario-card">
+                <div class="glosario-card-title">Cobertura de Intereses</div>
+                <div class="glosario-card-def">
+                  Mide la capacidad de una empresa para cumplir con los pagos de intereses utilizando los flujos de efectivo provenientes de la actividad principal.
+                </div>
+                <div class="glosario-card-formula">
+                  <i data-lucide="shield" width="16" height="16"></i> EBIT / Gastos por Intereses
+                </div>
+              </div>
+              <div class="glosario-card">
                 <div class="glosario-card-title">
                   LTM EBITDA (Last 12 Months)
                 </div>
@@ -3402,13 +3514,213 @@
               </div>
             </div>
           </details>
+
+          <!-- Categoría 5: Análisis Comercial y Unitario -->
+          <details class="glosario-cat">
+            <summary>
+              <span style="display: flex; align-items: center"
+                ><i data-lucide="tags" class="card-icon"></i> Análisis Comercial y Unitario</span
+              >
+              <i data-lucide="chevron-down"></i>
+            </summary>
+            <div class="glosario-grid">
+              <div class="glosario-card">
+                <div class="glosario-card-title">Volumen (Unidades)</div>
+                <div class="glosario-card-def">
+                  La cantidad física total de productos comercializados o facturados (cajas, botellones, fundas). Constituye el principal motor volumétrico para la generación de ingresos y el cálculo de la dilución de costos fijos.
+                </div>
+                <div class="glosario-card-formula">
+                  <i data-lucide="package" width="16" height="16"></i> Sumatoria de unidades netas entregadas
+                </div>
+              </div>
+              <div class="glosario-card">
+                <div class="glosario-card-title">Precio Promedio Unitario</div>
+                <div class="glosario-card-def">
+                  Representa el ingreso neto que la empresa percibe por cada unidad individual vendida de su mercancía. Permite monitorear el poder de fijación de precios, la salud del mercado y el impacto de los descuentos otorgados.
+                </div>
+                <div class="glosario-card-formula">
+                  <i data-lucide="calculator" width="16" height="16"></i> Ventas Netas Totales / Volumen (Unidades)
+                </div>
+              </div>
+              <div class="glosario-card">
+                <div class="glosario-card-title">Costo Unitario</div>
+                <div class="glosario-card-def">
+                  El gasto directo vinculado estrictamente a la producción o adquisición de una única unidad. Evaluar la evolución diaria de esta métrica es clave para detectar ineficiencias de insumos o alzas en precios de materia prima.
+                </div>
+                <div class="glosario-card-formula">
+                  <i data-lucide="calculator" width="16" height="16"></i> Costo de Ventas Total / Volumen (Unidades)
+                </div>
+              </div>
+              <div class="glosario-card">
+                <div class="glosario-card-title">Ventas Netas (mDOP)</div>
+                <div class="glosario-card-def">
+                  Constituyen los ingresos validados de facturación. Se diferencian de las ventas brutas al estar despojadas del lastre que suponen todos los descuentos, bonificaciones y devoluciones de mercancía que castigan la factura original.
+                </div>
+                <div class="glosario-card-formula">
+                  <i data-lucide="minus" width="16" height="16"></i> Ventas Brutas - Descuentos - Devoluciones
+                </div>
+              </div>
+              <div class="glosario-card">
+                <div class="glosario-card-title">Margen Bruto Unitario (MB x Und)</div>
+                <div class="glosario-card-def">
+                  La rentabilidad primaria, expresada monetariamente, obtenida por la sola concepción de haber fabricado y vendido un artículo, antes de pasar por el peaje corporativo de los gastos administrativos y de ventas.
+                </div>
+                <div class="glosario-card-formula">
+                  <i data-lucide="calculator" width="16" height="16"></i> Precio Promedio Unitario - Costo Unitario
+                </div>
+              </div>
+              <div class="glosario-card">
+                <div class="glosario-card-title">Mix de Ventas (%)</div>
+                <div class="glosario-card-def">
+                  El grado de concentración en ingresos de un producto, marca o división en función del abanico íntegro del portafolio. Monitorear esta cuota señala la dependencia estructural u oportunidad de cross-selling de ciertas categorías.
+                </div>
+                <div class="glosario-card-formula">
+                  <i data-lucide="pie-chart" width="16" height="16"></i> (Ventas de Categoría / Ventas Totales) * 100
+                </div>
+              </div>
+              <div class="glosario-card">
+                <div class="glosario-card-title">Variación vs. PPTO</div>
+                <div class="glosario-card-def">
+                  El análisis de desviación con respecto a la aspiración o presupuesto maestro aprobado. Dicta a las áreas comerciales si al ritmo actual de cierre se logrará completar o quedarse por debajo del volumen exigido por el negocio.
+                </div>
+                <div class="glosario-card-formula">
+                  <i data-lucide="trending-up" width="16" height="16"></i> (Real Período / Presupuesto Acordado) - 1
+                </div>
+              </div>
+              <div class="glosario-card">
+                <div class="glosario-card-title">Variación MoM (Unitario / Precios)</div>
+                <div class="glosario-card-def">
+                  Month-over-Month. El diferencial entre la facturación del período de observación en contraste con el mes rigurosamente anterior a este. Brinda luz rápida sobre los efectos inmediatos de promociones o estacionalidades emergentes.
+                </div>
+                <div class="glosario-card-formula">
+                  <i data-lucide="calculator" width="16" height="16"></i> (Valor Mes Actual / Valor Mes Pasado) - 1
+                </div>
+              </div>
+              <div class="glosario-card">
+                <div class="glosario-card-title">Perspectiva YTD (Year-to-Date)</div>
+                <div class="glosario-card-def">
+                  El acumulado progresivo de los indicadores comerciales (volumen, facturación, márgenes) transcurridos desde el 1 de enero hasta el cierre del mes consultado. Atenúa volatilidades atípicas de un solo mes.
+                </div>
+                <div class="glosario-card-formula">
+                  <i data-lucide="sigma" width="16" height="16"></i> Suma de Resultados Acumulados (Ene - Mes Actual)
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <!-- Categoría 6: Segmentación, Proyecciones y Análisis de Sensibilidad -->
+          <details class="glosario-cat">
+            <summary>
+              <span style="display: flex; align-items: center"
+                ><i data-lucide="layers" class="card-icon"></i> Segmentación, Proyecciones y Simulaciones</span
+              >
+              <i data-lucide="chevron-down"></i>
+            </summary>
+            <div class="glosario-grid">
+              <div class="glosario-card">
+                <div class="glosario-card-title">Rentabilidad por Segmento (Canal / Marca)</div>
+                <div class="glosario-card-def">
+                  El desglose de los márgenes y ventas atribuidos específicamente a una porción del negocio (ej. un canal de distribución, un formato de empaque o una marca). Sirve para identificar las áreas exactas del portafolio que destruyen o maximizan valor.
+                </div>
+                <div class="glosario-card-formula">
+                  <i data-lucide="pie-chart" width="16" height="16"></i> Ventas del Segmento - Costos Directos del Segmento
+                </div>
+              </div>
+              <div class="glosario-card">
+                <div class="glosario-card-title">Análisis Year-over-Year (YoY)</div>
+                <div class="glosario-card-def">
+                  Comparación del desempeño financiero actual con el mismo lapso del año previo. Ideal para abstraer y depurar los efectos por estacionalidades, obteniendo la cifra exacta del grado de expansión o compresión real orgánica de la compañía.
+                </div>
+                <div class="glosario-card-formula">
+                  <i data-lucide="line-chart" width="16" height="16"></i> (Métrica Actual / Métrica Mismo Período Año Anterior) - 1
+                </div>
+              </div>
+              <div class="glosario-card">
+                <div class="glosario-card-title">Análisis de Sensibilidad (What-If)</div>
+                <div class="glosario-card-def">
+                  La deconstrucción analítica aplicada a las proyecciones presupuestales, donde se somete a estrés factores clave como el precio del volumen o el costo operativo, cuantificando inmediatamente el impacto aislado o acumulado sobre el margen EBITDA.
+                </div>
+                <div class="glosario-card-formula">
+                  <i data-lucide="sliders" width="16" height="16"></i> ∆ EBITDA = f(∆ Precio, ∆ Volumen, ∆ Costos, ∆ Gastos)
+                </div>
+              </div>
+              <div class="glosario-card">
+                <div class="glosario-card-title">Presupuesto (PPTO / Budget)</div>
+                <div class="glosario-card-def">
+                  La línea base planificada o cuota objetivo que fue aprobada estratégicamente. Se utiliza como punto de anclaje para dictaminar qué tan saludables van los indicadores reales. Si el 'Real' está por debajo, se cataloga como desfavorable o brecha presupuestal.
+                </div>
+                <div class="glosario-card-formula">
+                  <i data-lucide="target" width="16" height="16"></i> Escenario Teórico Esperado
+                </div>
+              </div>
+              <div class="glosario-card">
+                <div class="glosario-card-title">Escenario / Plataforma de Inflexión</div>
+                <div class="glosario-card-def">
+                  Los momentos clave o periodos estratégicos de comparación que representan un quiebre en tendencias (por ejemplo: la introducción de nuevas infraestructuras, incrementos fijos de tarifas). Permite observar el rendimiento de "antes vs después" de un cambio radical.
+                </div>
+                <div class="glosario-card-formula">
+                  <i data-lucide="git-branch" width="16" height="16"></i> Rendimiento Inicial vs. Rendimiento Post-Inflexión
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <!-- Categoría 7: Unidades y Nomenclatura Operativa -->
+          <details class="glosario-cat">
+            <summary>
+              <span style="display: flex; align-items: center"
+                ><i data-lucide="hash" class="card-icon"></i> Unidades y Nomenclatura Operativa</span
+              >
+              <i data-lucide="chevron-down"></i>
+            </summary>
+            <div class="glosario-grid">
+              <div class="glosario-card">
+                <div class="glosario-card-title">EVP</div>
+                <div class="glosario-card-def">
+                  Cantidad de fardos de envases pequeños o botellitas. Se utiliza para cuantificar el volumen de producción o ventas en formatos menores.
+                </div>
+                <div class="glosario-card-formula">
+                  <i data-lucide="package" width="16" height="16"></i> Unidad de Medida (Cajas / Fardos)
+                </div>
+              </div>
+              <div class="glosario-card">
+                <div class="glosario-card-title">BT5</div>
+                <div class="glosario-card-def">
+                  Botellón de 5 galones. El formato principal de gran volumen de agua purificada, clave para el análisis de rentabilidad unitaria e ingresos recurrentes.
+                </div>
+                <div class="glosario-card-formula">
+                  <i data-lucide="droplet" width="16" height="16"></i> Unidad de Medida (Botellones)
+                </div>
+              </div>
+              <div class="glosario-card">
+                <div class="glosario-card-title">mDOP y kDOP</div>
+                <div class="glosario-card-def">
+                  Abreviaturas utilizadas para representar cifras monetarias en Pesos Dominicanos (RD$). <strong>mDOP</strong> se refiere a Millones de RD$, mientras que <strong>kDOP</strong> se refiere a Miles de RD$.
+                </div>
+                <div class="glosario-card-formula">
+                  <i data-lucide="coins" width="16" height="16"></i> RD$ x 1,000,000 | RD$ x 1,000
+                </div>
+              </div>
+              <div class="glosario-card">
+                <div class="glosario-card-title">mUSD y kUSD</div>
+                <div class="glosario-card-def">
+                  Abreviaturas utilizadas para representar cifras monetarias en Dólares Estadounidenses (USD$). <strong>mUSD</strong> se refiere a Millones de USD$, y <strong>kUSD</strong> representa Miles de USD$.
+                </div>
+                <div class="glosario-card-formula">
+                  <i data-lucide="dollar-sign" width="16" height="16"></i> USD$ x 1,000,000 | USD$ x 1,000
+                </div>
+              </div>
+            </div>
+          </details>
+
         </div>
       </div>
       <!-- VIEW: Simulador What-If -->
       <div id="view-simulador" class="view-container">
         <div class="header-info" style="margin-bottom: 24px;">
           <p style="color: var(--text-secondary); font-size: 0.9rem;">
-            Proyecta el impacto de decisiones operativas en el EBITDA y la liquidez (Caja) basados en el mes actual.
+            Proyecta el impacto de decisiones operativas en el EBITDA y la liquidez (Caja) basados en el mes actual. <br/>
+            <span style="font-size: 0.8rem; color: var(--primary);"><strong>Nota del Motor:</strong> El simulador ahora diferencia precio y volumen. El volumen impacta proporcionalmente los COGS y el 40% del OPEX. Los incrementos de precio fluyen directo al EBITDA. Los factores de eficiencia/inflación impactan independientemente a COGS y OPEX.</span>
           </p>
         </div>
 
@@ -3417,18 +3729,34 @@
           <div class="sim-controls">
             <div class="sim-control-group">
               <label>
-                Crecimiento de Ventas
-                <span id="label-sim-ventas" style="color: var(--sidebar-accent);">0%</span>
+                Crecimiento de Ventas (Volumen)
+                <span id="label-sim-ventas-vol" style="color: var(--sidebar-accent);">0%</span>
               </label>
-              <input type="range" id="sim-ventas" class="sim-range" min="-30" max="50" step="1" value="0">
+              <input type="range" id="sim-ventas-vol" class="sim-range" min="-30" max="50" step="1" value="0">
             </div>
 
             <div class="sim-control-group">
               <label>
-                Variación en Costos (COGS/OPEX)
-                <span id="label-sim-costos" style="color: var(--sidebar-accent);">0%</span>
+                Incremento de Precios
+                <span id="label-sim-precios" style="color: var(--sidebar-accent);">0%</span>
               </label>
-              <input type="range" id="sim-costos" class="sim-range" min="-30" max="50" step="1" value="0">
+              <input type="range" id="sim-precios" class="sim-range" min="-10" max="30" step="1" value="0">
+            </div>
+
+            <div class="sim-control-group">
+              <label>
+                Eficiencia/Inflación COGS
+                <span id="label-sim-cogs" style="color: var(--sidebar-accent);">0%</span>
+              </label>
+              <input type="range" id="sim-cogs" class="sim-range" min="-30" max="50" step="1" value="0">
+            </div>
+
+            <div class="sim-control-group">
+              <label>
+                Eficiencia/Inflación OPEX
+                <span id="label-sim-opex" style="color: var(--sidebar-accent);">0%</span>
+              </label>
+              <input type="range" id="sim-opex" class="sim-range" min="-30" max="50" step="1" value="0">
             </div>
 
             <div class="sim-control-group" style="margin-bottom: 0;">
@@ -3439,9 +3767,14 @@
               <input type="range" id="sim-dso" class="sim-range" min="-30" max="60" step="1" value="0">
             </div>
             
-            <button id="btn-run-simulation" style="margin-top: 24px; width: 100%; padding: 12px; border-radius: 12px; border: none; background: var(--sidebar); color: white; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
-              <i data-lucide="play" style="width: 16px; height: 16px;"></i> Ejecutar Simulación
-            </button>
+            <div style="display: flex; gap: 12px; margin-top: 24px;">
+              <button id="btn-reset-simulation" style="flex: 1; padding: 12px; border-radius: 12px; border: 1px solid var(--border); background: white; color: var(--text-primary); font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                <i data-lucide="rotate-ccw" style="width: 16px; height: 16px;"></i> Limpiar
+              </button>
+              <button id="btn-run-simulation" style="flex: 2; padding: 12px; border-radius: 12px; border: none; background: var(--sidebar); color: white; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; display: none;">
+                <i data-lucide="sparkles" style="width: 16px; height: 16px;"></i> Generar AI Insight
+              </button>
+            </div>
           </div>
 
           <!-- Results -->
@@ -3459,6 +3792,25 @@
               </div>
             </div>
 
+            <!-- Tabla Comparativa de Resultados -->
+            <div class="pnl-detail-table" style="margin-top: 8px; border-radius: 12px; overflow: hidden; border: 1px solid var(--border);">
+              <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                <thead>
+                  <tr>
+                    <th style="background:#0f172a; color:white; padding:12px; text-align:left; font-weight: 600;">Estado de Resultados Simulado</th>
+                    <th style="background:#0f172a; color:white; padding:12px; text-align:right; font-weight: 600;">Base Actual</th>
+                    <th style="background:#0f172a; color:white; padding:12px; text-align:right; font-weight: 600;">Proyección</th>
+                    <th style="background:#0f172a; color:white; padding:12px; text-align:right; font-weight: 600;">Impacto ($)</th>
+                  </tr>
+                </thead>
+                <tbody id="sim-comparison-tbody">
+                  <tr>
+                     <td colspan="4" style="padding:16px; text-align:center; color:var(--text-secondary);">Ejecuta la simulación para ver la comparativa.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
             <!-- AI Insight -->
             <div class="sim-insight" id="sim-ai-insight">
               <em><i data-lucide="sparkles" style="display: inline; width: 16px; height: 16px; vertical-align: text-bottom; margin-right: 4px;"></i> Ejecuta la simulación para recibir un análisis sobre el impacto estratégico.</em>
@@ -3469,7 +3821,7 @@
       
       <!-- VIEW: P&G Horizontal -->
       <div id="view-pg-horizontal" class="view-container">
-        <div class="table-header" style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px;">
+        <div class="table-header" style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px; flex-wrap: wrap; gap: 12px;">
           <div style="display: flex; flex-direction: column; gap: 12px;">
             <div style="display: flex; gap: 8px; align-items: center;">
               <span style="font-size: 0.85rem; font-weight: 600; color: var(--sidebar);">Perspectiva:</span>
@@ -3479,10 +3831,16 @@
               </div>
             </div>
           </div>
-          <div style="display: flex; flex-direction: column; gap: 8px;">
-            <div style="background: #bdd7ee; padding: 4px 8px; border: 1px solid #9cc2e5;">
-              <select id="pg-dropdown-scenario" style="background: transparent; border: none; outline: none; font-weight: bold; color: #000; font-size: 0.85rem; width: 220px; font-family: 'Inter', sans-serif;">
-                <option value="Real 2022">Real 2022</option>
+          <div style="display: flex; align-items: flex-end; gap: 12px;">
+            <div class="mobile-only-btn-container" style="display: none;">
+              <button id="btn-toggle-pg-view" style="padding: 6px 14px; background: var(--sidebar); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+                <i data-lucide="layout-grid" style="width: 16px; height: 16px;"></i> <span id="text-toggle-pg-view">Card View</span>
+              </button>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <div style="background: #bdd7ee; padding: 4px 8px; border: 1px solid #9cc2e5;">
+                <select id="pg-dropdown-scenario" style="background: transparent; border: none; outline: none; font-weight: bold; color: #000; font-size: 0.85rem; width: 220px; font-family: 'Inter', sans-serif;">
+                  <option value="Real 2022">Real 2022</option>
                 <option value="PLATAFORMA DE INFLEXIÓN 1">PLATAFORMA DE INFLEXIÓN 1</option>
                 <option value="PLATAFORMA DE INFLEXIÓN 2">PLATAFORMA DE INFLEXIÓN 2</option>
                 <option value="Real 2023">Real 2023</option>
@@ -3497,6 +3855,7 @@
               </select>
             </div>
           </div>
+        </div>
         </div>
 
         <div class="pnl-detail-table" style="position: relative; overflow-x: auto;">
@@ -3595,7 +3954,7 @@
         </div>
 
         <!-- Buttons to change perspectives of Commercial Analysis -->
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
           <div style="display: flex; gap: 8px; align-items: center;">
             <span style="font-size: 0.85rem; font-weight: 600; color: var(--sidebar);">Perspectiva:</span>
             <div style="display: flex; gap: 4px; background: #f1f5f9; padding: 4px; border-radius: 8px;">
@@ -3603,6 +3962,11 @@
                <button id="btn-comercial-mom" class="comercial-view-btn" data-view="mom" style="padding: 6px 14px; background: transparent; color: var(--text-secondary); border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 600; box-shadow: none; transition: 0.2s;">MoM</button>
                <button id="btn-comercial-variacion" class="comercial-view-btn" data-view="variacion" style="padding: 6px 14px; background: transparent; color: var(--text-secondary); border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 600; box-shadow: none; transition: 0.2s;">Análisis de Variación</button>
             </div>
+          </div>
+          <div class="mobile-only-btn-container" style="display: none;">
+            <button id="btn-toggle-comercial-view" style="padding: 6px 14px; background: var(--sidebar); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+              <i data-lucide="layout-grid" style="width: 16px; height: 16px;"></i> <span id="text-toggle-comercial-view">Card View</span>
+            </button>
           </div>
         </div>
 

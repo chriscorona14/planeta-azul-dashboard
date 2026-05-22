@@ -97,17 +97,14 @@ function applyAiUIState() {
         insightsSection.style.display = window.aiEnabled ? 'block' : 'none';
     }
     
+    const btnRunSim = document.getElementById('btn-run-simulation');
+    if (btnRunSim) {
+        btnRunSim.style.display = window.aiEnabled ? 'flex' : 'none';
+    }
+    
     const simMenuItem = document.getElementById('sim-menu-item');
     if (simMenuItem) {
-        simMenuItem.style.display = window.aiEnabled ? 'block' : 'none';
-        
-        // Hide simulador view if AI is disabled
-        if (!window.aiEnabled) {
-            const simuladorView = document.getElementById('view-simulador');
-            if (simuladorView && simuladorView.classList.contains('active')) {
-                document.getElementById('menu-preliminar')?.click();
-            }
-        }
+        simMenuItem.style.display = 'block';
     }
 }
 
@@ -2674,6 +2671,13 @@ function renderActiveViewLazy(data, index) {
                     buildMobileAccordionsFromTable('table-estados', 'estadosMobileContainer');
                 }
             }, 10);
+        }
+
+        let viewSimulador = document.getElementById("view-simulador");
+        if (viewSimulador && viewSimulador.classList.contains("active")) {
+            if (typeof window.runSimulationMath === 'function') {
+                window.runSimulationMath();
+            }
         }
 
         let viewResumen = document.getElementById("view-resumen");
@@ -6539,23 +6543,190 @@ Pregunta: ${question}`;
     }
 
     // 2. Lógica del Simulador What-If
-    const simVentasInp = document.getElementById('sim-ventas');
-    const simCostosInp = document.getElementById('sim-costos');
+    const simVentasVolInp = document.getElementById('sim-ventas-vol');
+    const simPreciosInp = document.getElementById('sim-precios');
+    const simCogsInp = document.getElementById('sim-cogs');
+    const simOpexInp = document.getElementById('sim-opex');
     const simDsoInp = document.getElementById('sim-dso');
     
-    const labelVentas = document.getElementById('label-sim-ventas');
-    const labelCostos = document.getElementById('label-sim-costos');
+    const labelVentasVol = document.getElementById('label-sim-ventas-vol');
+    const labelPrecios = document.getElementById('label-sim-precios');
+    const labelCogs = document.getElementById('label-sim-cogs');
+    const labelOpex = document.getElementById('label-sim-opex');
     const labelDso = document.getElementById('label-sim-dso');
 
-    const updateLabels = () => {
-        if(labelVentas) labelVentas.textContent = simVentasInp.value + '%';
-        if(labelCostos) labelCostos.textContent = simCostosInp.value + '%';
-        if(labelDso) labelDso.textContent = simDsoInp.value + ' Días';
+    window.runSimulationMath = () => {
+        if (!globalFinancialData || globalFinancialData.length === 0) return null;
+        
+        const monthSelector = document.getElementById('monthSelector');
+        const idx = monthSelector ? parseInt(monthSelector.value, 10) : globalFinancialData.length - 1;
+        const curr = globalFinancialData[idx || globalFinancialData.length - 1];
+
+        // Setup Real values (Base Actual)
+        const realIngresos = curr.kpis?.ingresos || 0;
+        const realEbitda = curr.kpis?.ebitda || 0;
+        const realCaja = curr.cashflowDetail?.ending || 0;
+
+        let cogs = curr.pnl?.categorias?.["Costo de Ventas"] || 0;
+        let opex = 0;
+        if (curr.pnl?.categorias?.OPEX) {
+            opex = curr.pnl.categorias.OPEX;
+        } else if (curr.pnl?.opexDetalle) {
+            opex = -Math.abs(Object.values(curr.pnl.opexDetalle).reduce((acc, val) => acc + val, 0));
+        } else {
+            opex = realEbitda - realIngresos - cogs;
+        }
+
+        // Fallbacks in case everything is zero
+        if (cogs === 0 && opex === 0 && realEbitda > 0) {
+             cogs = -Math.abs(realIngresos * 0.4);
+             opex = (realEbitda - realIngresos - cogs);
+        }
+
+        // Obtener porcentajes seleccionados por el usuario
+        const pctVentasVol = parseInt(simVentasVolInp.value, 10) / 100;
+        const pctPrecios = parseInt(simPreciosInp.value, 10) / 100;
+        const pctCogs = parseInt(simCogsInp.value, 10) / 100;
+        const pctOpex = parseInt(simOpexInp.value, 10) / 100;
+        const extraDso = parseInt(simDsoInp.value, 10);
+
+        // -------------- MOTOR MATEMÁTICO --------------
+        // 1. Efecto en Ingresos: (Volumen * Precio)
+        const simIngresosVolumen = realIngresos * (1 + pctVentasVol);
+        const simIngresos = simIngresosVolumen * (1 + pctPrecios);
+        
+        // Lógica Mejorada: COGS es 100% variable con el VOLUMEN de ventas, no con el precio.
+        // Para el OPEX, asumimos que un 40% es variable (logística, comisiones, etc.) y 60% es fijo.
+        const variableOpexRatio = 0.4;
+        
+        // 1. Efecto Volumen (Crecen por las ventas - volumen)
+        const cogsPorVolumen = cogs * (1 + pctVentasVol);
+        const opexFijo = opex * (1 - variableOpexRatio);
+        const opexVariablePorVolumen = opex * variableOpexRatio * (1 + pctVentasVol);
+        
+        // 2. Efecto Inflación/Eficiencia independiente para COGS y OPEX
+        const simCogs = cogsPorVolumen * (1 + pctCogs);
+        const simOpex = (opexFijo + opexVariablePorVolumen) * (1 + pctOpex);
+        
+        // varCostos será negativo si los costos suben (los costos ya son valores negativos)
+        const varCostos = (simCogs - cogs) + (simOpex - opex); 
+        
+        // Nuevo EBITDA = Real Ebitda + Delta Ingresos + Delta Costos
+        const simEbitda = realEbitda + (simIngresos - realIngresos) + varCostos;
+
+        // 2. Simulación Caja (Impacto de Cuentas por Cobrar + delta EBITDA)
+        // Cada día de DSO atrapa: (Ingresos Anualizados / 365) en capital de trabajo. (Aprox mensual: Ingresos Mensuales / 30)
+        const dailySales = simIngresos / 30;
+        const cashTrappedByDso = extraDso * dailySales;
+
+        const deltaEbitda = simEbitda - realEbitda;
+        
+        // Nuevo Saldo de Caja = Caja Actual + (Aumento Ebitda) - (Efectivo retenido por más días de Cuentas por Cobrar)
+        const simCaja = realCaja + deltaEbitda - cashTrappedByDso;
+        // ----------------------------------------------
+
+        // Renderizar Resultados
+        document.getElementById('sim-base-ebitda').textContent = `Base Actual: RD$ ${realEbitda.toFixed(1)}M`;
+        document.getElementById('sim-base-caja').textContent = `Base Actual: RD$ ${realCaja.toFixed(1)}M`;
+
+        const resEbitdaEl = document.getElementById('sim-result-ebitda');
+        const resCajaEl = document.getElementById('sim-result-caja');
+
+        resEbitdaEl.textContent = `RD$ ${simEbitda.toFixed(1)}M`;
+        resCajaEl.textContent = `RD$ ${simCaja.toFixed(1)}M`;
+
+        resEbitdaEl.style.color = simEbitda >= realEbitda ? 'var(--success)' : 'var(--danger)';
+        resCajaEl.style.color = simCaja >= realCaja ? 'var(--success)' : 'var(--danger)';
+
+        // Render Comparative Table
+        const tbody = document.getElementById('sim-comparison-tbody');
+        if (tbody) {
+            const getRowHTML = (label, isBold, baseVal, simVal, prefix = '') => {
+                const diff = simVal - baseVal;
+                // Format diff properly
+                const diffColor = diff >= 0 ? 'var(--success)' : 'var(--danger)';
+                  
+                const diffText = diff === 0 ? '-' : `${diff > 0 ? '+' : ''}${formatCurrency(diff)}`;
+                
+                return `
+                <tr style="${isBold ? 'font-weight: 700; background-color: #f8fafc;' : ''}">
+                  <td style="padding:10px 12px; border-bottom: 1px solid #e2e8f0; color: #334155;">${prefix}${label}</td>
+                  <td style="padding:10px 12px; text-align:right; border-bottom: 1px solid #e2e8f0; color: #475569;">${formatCurrency(baseVal)}</td>
+                  <td style="padding:10px 12px; text-align:right; border-bottom: 1px solid #e2e8f0; color: #0f172a;">${formatCurrency(simVal)}</td>
+                  <td style="padding:10px 12px; text-align:right; border-bottom: 1px solid #e2e8f0; color: ${diffColor}; font-weight: 600;">${diffText}</td>
+                </tr>
+                `;
+            };
+
+            const realUtilidadBruta = realIngresos + cogs;
+            const simUtilidadBruta = simIngresos + simCogs;
+
+            // Margins
+            const mbReal = realIngresos > 0 ? (realUtilidadBruta/realIngresos)*100 : 0;
+            const mbSim = simIngresos > 0 ? (simUtilidadBruta/simIngresos)*100 : 0;
+
+            const mebReal = realIngresos > 0 ? (realEbitda/realIngresos)*100 : 0;
+            const mebSim = simIngresos > 0 ? (simEbitda/simIngresos)*100 : 0;
+
+            let html = `
+                ${getRowHTML('Ingresos Brutos', true, realIngresos, simIngresos)}
+                ${getRowHTML('Costos Directos (COGS)', false, cogs, simCogs, '&nbsp;&nbsp;')}
+                ${getRowHTML(`Margen Bruto`, true, realUtilidadBruta, simUtilidadBruta)}
+                <tr style="font-size: 0.75rem; background-color: #f1f5f9;">
+                  <td colspan="4" style="padding:6px 12px; text-align:right; color: #64748b;">
+                    % Margen Base: <strong>${mbReal.toFixed(1)}%</strong> &nbsp;&nbsp;|&nbsp;&nbsp; % Simulado: <strong>${mbSim.toFixed(1)}%</strong>
+                  </td>
+                </tr>
+                ${getRowHTML('OPEX (Fijo + Variable)', false, opex, simOpex, '&nbsp;&nbsp;')}
+                ${getRowHTML('EBITDA', true, realEbitda, simEbitda)}
+                <tr style="font-size: 0.75rem; background-color: #f1f5f9;">
+                  <td colspan="4" style="padding:6px 12px; text-align:right; color: #64748b;">
+                    % Margen Base: <strong>${mebReal.toFixed(1)}%</strong> &nbsp;&nbsp;|&nbsp;&nbsp; % Simulado: <strong>${mebSim.toFixed(1)}%</strong>
+                  </td>
+                </tr>
+                ${getRowHTML('Efectivo Total (Caja)', true, realCaja, simCaja)}
+            `;
+            tbody.innerHTML = html;
+        }
+        
+        return { pctVentasVol, pctPrecios, pctCogs, pctOpex, extraDso, realEbitda, simEbitda, realCaja, simCaja };
     };
 
-    if (simVentasInp) simVentasInp.addEventListener('input', updateLabels);
-    if (simCostosInp) simCostosInp.addEventListener('input', updateLabels);
+    const updateLabels = () => {
+        if(labelVentasVol) labelVentasVol.textContent = simVentasVolInp.value + '%';
+        if(labelPrecios) labelPrecios.textContent = simPreciosInp.value + '%';
+        if(labelCogs) labelCogs.textContent = simCogsInp.value + '%';
+        if(labelOpex) labelOpex.textContent = simOpexInp.value + '%';
+        if(labelDso) labelDso.textContent = simDsoInp.value + ' Días';
+        window.runSimulationMath();
+    };
+
+    if (simVentasVolInp) simVentasVolInp.addEventListener('input', updateLabels);
+    if (simPreciosInp) simPreciosInp.addEventListener('input', updateLabels);
+    if (simCogsInp) simCogsInp.addEventListener('input', updateLabels);
+    if (simOpexInp) simOpexInp.addEventListener('input', updateLabels);
     if (simDsoInp) simDsoInp.addEventListener('input', updateLabels);
+
+    const btnResetSim = document.getElementById('btn-reset-simulation');
+    if (btnResetSim) {
+        btnResetSim.addEventListener('click', () => {
+            if (simVentasVolInp) simVentasVolInp.value = 0;
+            if (simPreciosInp) simPreciosInp.value = 0;
+            if (simCogsInp) simCogsInp.value = 0;
+            if (simOpexInp) simOpexInp.value = 0;
+            if (simDsoInp) simDsoInp.value = 0;
+            
+            const aiInsightEl = document.getElementById('sim-ai-insight');
+            if (aiInsightEl) {
+                if (!window.aiEnabled) {
+                     aiInsightEl.innerHTML = '<em>Funciones avanzadas deshabilitadas. Habilítelas en Configuración para ver insights estratégicos.</em>';
+                } else {
+                     aiInsightEl.innerHTML = '<em>Genera un insight de IA ejecutando una simulación.</em>';
+                }
+            }
+            updateLabels();
+        });
+    }
 
     const btnRunSim = document.getElementById('btn-run-simulation');
     window.simSummaryCache = {};
@@ -6571,52 +6742,9 @@ Pregunta: ${question}`;
             const idx = monthSelector ? parseInt(monthSelector.value, 10) : globalFinancialData.length - 1;
             const curr = globalFinancialData[idx || globalFinancialData.length - 1];
 
-            // Setup Real values (Base Actual)
-            const realIngresos = curr.kpis?.ingresos || 0;
-            const realEbitda = curr.kpis?.ebitda || 0;
-            const realCaja = curr.cashflowDetail?.ending || 0;
-            const cogs = (curr.pnl?.cogs || 0); 
-            const opex = (curr.pnl?.opex || 0);
-
-            // Obtener porcentajes seleccionados por el usuario
-            const pctVentas = parseInt(simVentasInp.value, 10) / 100;
-            const pctCostos = parseInt(simCostosInp.value, 10) / 100;
-            const extraDso = parseInt(simDsoInp.value, 10);
-
-            // -------------- MOTOR MATEMÁTICO --------------
-            // 1. Simulación P&L (EBITDA)
-            const simIngresos = realIngresos * (1 + pctVentas);
-            // Reducir utilidades si los costos AUMENTAN (el slider de costo en + significa impacto negativo)
-            const simCogs = cogs * (1 + pctCostos);
-            const simOpex = opex * (1 + pctCostos);
-            const varCostos = (simCogs + simOpex) - (cogs + opex); // Positivo si subieron costos
-            
-            // Nuevo EBITDA = Real Ebitda + Delta Ingresos - Delta Costos
-            const simEbitda = realEbitda + (simIngresos - realIngresos) - varCostos;
-
-            // 2. Simulación Caja (Impacto de Cuentas por Cobrar + delta EBITDA)
-            // Cada día de DSO atrapa: (Ingresos Anualizados / 365) en capital de trabajo. (Aprox mensual: Ingresos Mensuales / 30)
-            const dailySales = simIngresos / 30;
-            const cashTrappedByDso = extraDso * dailySales;
-
-            const deltaEbitda = simEbitda - realEbitda;
-            
-            // Nuevo Saldo de Caja = Caja Actual + (Aumento Ebitda) - (Efectivo retenido por más días de Cuentas por Cobrar)
-            const simCaja = realCaja + deltaEbitda - cashTrappedByDso;
-            // ----------------------------------------------
-
-            // Renderizar Resultados
-            document.getElementById('sim-base-ebitda').textContent = `Base Actual: RD$ ${realEbitda.toFixed(1)}M`;
-            document.getElementById('sim-base-caja').textContent = `Base Actual: RD$ ${realCaja.toFixed(1)}M`;
-
-            const resEbitdaEl = document.getElementById('sim-result-ebitda');
-            const resCajaEl = document.getElementById('sim-result-caja');
-
-            resEbitdaEl.textContent = `RD$ ${simEbitda.toFixed(1)}M`;
-            resCajaEl.textContent = `RD$ ${simCaja.toFixed(1)}M`;
-
-            resEbitdaEl.style.color = simEbitda >= realEbitda ? 'var(--success)' : 'var(--danger)';
-            resCajaEl.style.color = simCaja >= realCaja ? 'var(--success)' : 'var(--danger)';
+            const simData = window.runSimulationMath();
+            if (!simData) return;
+            const { pctVentasVol, pctPrecios, pctCogs, pctOpex, extraDso, realEbitda, simEbitda, realCaja, simCaja } = simData;
 
             // Generar Insight IA
             const simInsightEl = document.getElementById('sim-ai-insight');
@@ -6630,7 +6758,7 @@ Pregunta: ${question}`;
             lucide.createIcons();
 
             // Cache check
-            const cacheKey = `v${pctVentas}_c${pctCostos}_d${extraDso}_m${curr.date || 'base'}`;
+            const cacheKey = `vv${pctVentasVol}_vp${pctPrecios}_cc${pctCogs}_co${pctOpex}_d${extraDso}_m${curr.date || 'base'}`;
             if (window.simSummaryCache[cacheKey]) {
                 simInsightEl.innerHTML = window.simSummaryCache[cacheKey];
                 lucide.createIcons();
@@ -6640,8 +6768,10 @@ Pregunta: ${question}`;
             try {
                 const simContext = `
 El usuario simuló las siguientes variaciones en el mes actual (${curr.date}):
-- Crecimiento de Ventas: ${(pctVentas * 100).toFixed(0)}%
-- Variación en Costos (COGS/OPEX): ${(pctCostos * 100).toFixed(0)}%
+- Crecimiento de Ventas (Volumen): ${(pctVentasVol * 100).toFixed(0)}%
+- Incremento de Precios: ${(pctPrecios * 100).toFixed(0)}%
+- Eficiencia/Inflación COGS: ${(pctCogs * 100).toFixed(0)}%
+- Eficiencia/Inflación OPEX: ${(pctOpex * 100).toFixed(0)}%
 - Aumento de Días de Cobro (DSO): ${extraDso} días
 
 Resultados calculados matemáticamente:
@@ -7804,7 +7934,99 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             updateComercialButtonsVisuals();
             window.renderResumenComercial();
         });
+
+        const btnToggleComercial = document.getElementById('btn-toggle-comercial-view');
+        if (btnToggleComercial) {
+            btnToggleComercial.addEventListener('click', () => {
+                const table = document.getElementById('resumen-comercial-table');
+                if (!table) return;
+                table.classList.toggle('card-view-tbl');
+                const isCard = table.classList.contains('card-view-tbl');
+                const lbl = document.getElementById('text-toggle-comercial-view');
+                if (lbl) lbl.textContent = isCard ? 'Table View' : 'Card View';
+                const icon = btnToggleComercial.querySelector('i');
+                if (icon) {
+                    icon.setAttribute('data-lucide', isCard ? 'table' : 'layout-grid');
+                    if (window.lucide) window.lucide.createIcons();
+                }
+            });
+        }
+
+        const btnTogglePg = document.getElementById('btn-toggle-pg-view');
+        if (btnTogglePg) {
+            btnTogglePg.addEventListener('click', () => {
+                const table1 = document.getElementById('pg-horizontal-table');
+                const table2 = document.getElementById('pg-horizontal-unitarios-table');
+                if (table1) table1.classList.toggle('card-view-tbl');
+                if (table2) table2.classList.toggle('card-view-tbl');
+                const isCard = (table1 && table1.classList.contains('card-view-tbl')) || (table2 && table2.classList.contains('card-view-tbl'));
+                const lbl = document.getElementById('text-toggle-pg-view');
+                if (lbl) lbl.textContent = isCard ? 'Table View' : 'Card View';
+                const icon = btnTogglePg.querySelector('i');
+                if (icon) {
+                    icon.setAttribute('data-lucide', isCard ? 'table' : 'layout-grid');
+                    if (window.lucide) window.lucide.createIcons();
+                }
+            });
+        }
     }, 500);
+
+    function applyMobileDataLabels(tableId, theadId) {
+        const thead = document.getElementById(theadId);
+        const table = document.getElementById(tableId);
+        if (!thead || !table) return;
+        
+        const tbody = table.querySelector('tbody');
+        if (!tbody) return;
+
+        const trs = thead.querySelectorAll('tr');
+        if (!trs.length) return;
+        
+        let matrix = [];
+        for(let i=0; i<trs.length; i++) matrix.push([]);
+        
+        trs.forEach((tr, rowIndex) => {
+            const cells = tr.querySelectorAll('th, td');
+            let colIndex = 0;
+            
+            cells.forEach(cell => {
+                while(matrix[rowIndex][colIndex] !== undefined) colIndex++;
+                
+                const rowSpan = parseInt(cell.getAttribute('rowspan') || 1);
+                const colSpan = parseInt(cell.getAttribute('colspan') || 1);
+                const txt = cell.innerText.split('\n')[0].replace(' (DOP)','').replace(' (UNIDADES)','').replace(' (mDOP)','').replace(' (MDOP)','').trim();
+                
+                for(let r=0; r<rowSpan; r++) {
+                   for(let c=0; c<colSpan; c++) {
+                       if(matrix[rowIndex + r]) {
+                           matrix[rowIndex + r][colIndex + c] = txt;
+                       }
+                   }
+                }
+            });
+        });
+        
+        let labels = [];
+        let cols = matrix[0] ? matrix[0].length : 0;
+        for(let c=0; c<cols; c++) {
+           let parts = [];
+           for(let r=0; r<matrix.length; r++) {
+               let p = matrix[r][c];
+               if (p && !parts.includes(p)) parts.push(p);
+           }
+           labels.push(parts.join(" - "));
+        }
+        
+        const bodyTrs = tbody.querySelectorAll('tr');
+        bodyTrs.forEach(tr => {
+            const tds = tr.querySelectorAll('td');
+            tds.forEach((td, idx) => {
+                if (labels[idx]) {
+                    td.setAttribute('data-label', labels[idx]);
+                }
+            });
+        });
+    }
 
     window.renderPgHorizontal = function() {
         if (!window.resumenComercialEngine) return;
@@ -7826,6 +8048,10 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         }
         
         window.resumenComercialEngine.renderPgHorizontal();
+        setTimeout(() => {
+            applyMobileDataLabels('pg-horizontal-table', 'pg-horizontal-thead');
+            applyMobileDataLabels('pg-horizontal-unitarios-table', 'pg-horizontal-unitarios-thead');
+        }, 10);
     };
 
     window.renderResumenComercial = function() {
@@ -7865,6 +8091,9 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         }
 
         window.resumenComercialEngine.renderResumenComercial(m, isYTD, window.comercialCurrentView);
+        setTimeout(() => {
+            applyMobileDataLabels('resumen-comercial-table', 'resumen-comercial-thead');
+        }, 10);
 
         // Sync Mobile Accordions
         // Hemos deshabilitado esto a peticion del usuario dado a que los
