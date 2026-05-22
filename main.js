@@ -359,6 +359,7 @@ window.updateM365UI = function(account) {
     const m365UrlMaster = document.getElementById('m365UrlMaster');
     const m365UrlVentas = document.getElementById('m365UrlVentas');
     const m365UrlComercial = document.getElementById('m365UrlComercial');
+    const m365UrlPgHorizontal = document.getElementById('m365UrlPgHorizontal');
 
     if (account) {
         if (loginM365Btn) loginM365Btn.style.display = 'none';
@@ -368,6 +369,7 @@ window.updateM365UI = function(account) {
         if (m365UrlMaster) m365UrlMaster.value = localStorage.getItem('CUSTOM_ONEDRIVE_FILE_URL') || '';
         if (m365UrlVentas) m365UrlVentas.value = localStorage.getItem('CUSTOM_ONEDRIVE_VENTAS_URL') || '';
         if (m365UrlComercial) m365UrlComercial.value = localStorage.getItem('CUSTOM_RESUMEN_COMERCIAL_URL') || '';
+        if (m365UrlPgHorizontal) m365UrlPgHorizontal.value = localStorage.getItem('CUSTOM_PG_HORIZONTAL_URL') || '';
     } else {
         if (loginM365Btn) loginM365Btn.style.display = 'flex';
         if (m365ActiveSession) m365ActiveSession.style.display = 'none';
@@ -375,6 +377,7 @@ window.updateM365UI = function(account) {
         if (m365UrlMaster) m365UrlMaster.value = '';
         if (m365UrlVentas) m365UrlVentas.value = '';
         if (m365UrlComercial) m365UrlComercial.value = '';
+        if (m365UrlPgHorizontal) m365UrlPgHorizontal.value = '';
     }
 };
 
@@ -460,6 +463,7 @@ window.applyRoleBasedUI = function(hasMaster, hasVentas, hasComercial = false) {
 
     const menuVentasCeo = document.getElementById('menu-ventas-ceo');
     const menuResumenComercial = document.getElementById('menu-resumen-comercial');
+    const menuPgHorizontal = document.getElementById('menu-pg-horizontal');
 
     // Limpiar banner previo si existe
     let deniedBanner = document.getElementById('access-denied-banner');
@@ -492,6 +496,7 @@ window.applyRoleBasedUI = function(hasMaster, hasVentas, hasComercial = false) {
         // Items individuales dentro de Ventas
         if (menuVentasCeo) menuVentasCeo.parentElement.style.display = hasVentas ? '' : 'none';
         if (menuResumenComercial) menuResumenComercial.parentElement.style.display = hasComercial ? '' : 'none';
+        if (menuPgHorizontal) menuPgHorizontal.parentElement.style.display = hasComercial ? '' : 'none';
 
         // Redirección si la vista activa ya no es accesible
         const activeView = Array.from(viewContainers).find(v => v.classList.contains('active'));
@@ -724,6 +729,38 @@ async function fetchMasterData(token = null) {
                         } catch(e) {}
                     }
                 }
+
+                // Descarga P&G Horizontal
+                const PG_HORIZONTAL_URL = localStorage.getItem('CUSTOM_PG_HORIZONTAL_URL') || import.meta.env.VITE_PG_HORIZONTAL_URL || runtimeConfig.VITE_PG_HORIZONTAL_URL;
+                const resolvedPgUrl = resolveSharepointUrlClient(PG_HORIZONTAL_URL);
+                const encodedPgUrl = encodeUrlM365(resolvedPgUrl);
+                if (encodedPgUrl) {
+                    const graphUrlPg = `https://graph.microsoft.com/v1.0/shares/u!${encodedPgUrl}/driveItem/content`;
+                    const reqPg = await fetch(graphUrlPg, { headers: { "Authorization": `Bearer ${token}` }, signal: controller.signal });
+                    if (reqPg.ok) {
+                        const arrayBufferPg = await reqPg.arrayBuffer();
+                        if (!window.resumenComercialEngine) {
+                            try {
+                                const engine = await import('./resumenComercialEngine.js');
+                                window.resumenComercialEngine = engine;
+                            } catch (e) {
+                                console.error("Error importing resumenComercialEngine on demand:", e);
+                            }
+                        }
+                        if (window.resumenComercialEngine) {
+                            try {
+                                const dataPg = new Uint8Array(arrayBufferPg);
+                                const workbookPg = XLSX.read(dataPg, { type: 'array' });
+                                await window.resumenComercialEngine.processPgHorizontalWorkbook(workbookPg);
+                                window.hasComercialAccess = true;
+                            } catch (e) {
+                                console.error("Error processing pg horizontal sync:", e);
+                            }
+                        }
+                    } else {
+                        console.warn("Graph API rejected PG Horizontal sync. Status:", reqPg.status, reqPg.statusText);
+                    }
+                }
             } else {
                 let paramsMaster = SHARPOINT_FILE_URL ? `?url=${encodeURIComponent(SHARPOINT_FILE_URL)}` : '';
                 const response = await fetch(`/api/downloadSync${paramsMaster}`, { signal: controller.signal });
@@ -923,6 +960,7 @@ window.syncNavigationUI = function(menuId) {
         'menu-wc': "Capital de Trabajo (RD$)",
         'menu-estados': "Estados Financieros y KPIs (RD$)",
         'menu-simulador': "Simulador Estratégico (What-If)",
+        'menu-pg-horizontal': "P&G Horizontal por Producto",
         'menu-ventas-ceo': "Ventas CEO",
         'menu-resumen-comercial': "Resumen Comercial",
         'menu-config': "Configuración y Auditoría",
@@ -1090,6 +1128,9 @@ async function loadCacheInstant() {
                 window.hasComercialAccess = true;
                 if (document.getElementById("view-resumen-comercial") && document.getElementById("view-resumen-comercial").classList.contains("active")) {
                     window.renderResumenComercial();
+                }
+                if (document.getElementById("view-pg-horizontal") && document.getElementById("view-pg-horizontal").classList.contains("active")) {
+                    window.renderPgHorizontal();
                 }
             }
         } catch(e) {}
@@ -1275,10 +1316,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             const masterUrl = document.getElementById('m365UrlMaster')?.value || '';
             const ventasUrl = document.getElementById('m365UrlVentas')?.value || '';
             const comercialUrl = document.getElementById('m365UrlComercial')?.value || '';
+            const pgHorizontalUrl = document.getElementById('m365UrlPgHorizontal')?.value || '';
             
             localStorage.setItem('CUSTOM_ONEDRIVE_FILE_URL', masterUrl);
             localStorage.setItem('CUSTOM_ONEDRIVE_VENTAS_URL', ventasUrl);
             localStorage.setItem('CUSTOM_RESUMEN_COMERCIAL_URL', comercialUrl);
+            localStorage.setItem('CUSTOM_PG_HORIZONTAL_URL', pgHorizontalUrl);
             
             SHARPOINT_FILE_URL = masterUrl || import.meta.env.VITE_ONEDRIVE_FILE_URL || import.meta.env.VITE_ONEDRIVE_ITEM_ID;
             SHARPOINT_VENTAS_FILE_URL = ventasUrl || import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID;
@@ -1398,11 +1441,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     let pendingMainFile = null;
     let pendingVentasCeoFile = null;
     let pendingResumenComercialFile = null;
+    let pendingPgHorizontalFile = null;
 
     function updateProcessButton() {
         const btn = document.getElementById('processManualFilesBtn');
         if (btn) {
-            if (pendingMainFile || pendingVentasCeoFile || pendingResumenComercialFile) {
+            if (pendingMainFile || pendingVentasCeoFile || pendingResumenComercialFile || pendingPgHorizontalFile) {
                 btn.disabled = false;
                 btn.style.opacity = '1';
                 btn.style.cursor = 'pointer';
@@ -1452,6 +1496,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    const uploadPgHorizontalHomeInput = document.getElementById('upload-pg-horizontal-home');
+    if (uploadPgHorizontalHomeInput) {
+        uploadPgHorizontalHomeInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                pendingPgHorizontalFile = file;
+                const nameEl = document.getElementById('pgHorizontalFileName');
+                if (nameEl) nameEl.textContent = file.name;
+                updateProcessButton();
+            }
+        });
+    }
+
     const processManualFilesBtn = document.getElementById('processManualFilesBtn');
     if (processManualFilesBtn) {
         processManualFilesBtn.addEventListener('click', async () => {
@@ -1461,9 +1518,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (pendingResumenComercialFile) {
                 await window.processResumenComercialFile(pendingResumenComercialFile);
             }
+            if (pendingPgHorizontalFile) {
+                await window.processPgHorizontalFile(pendingPgHorizontalFile);
+            }
             if (pendingMainFile) {
                 handleFileUpload({ target: { files: [pendingMainFile] } });
-            } else if (pendingVentasCeoFile || pendingResumenComercialFile) {
+            } else if (pendingVentasCeoFile || pendingResumenComercialFile || pendingPgHorizontalFile) {
                 alert("Archivos secundarios procesados exitosamente.");
             }
         });
@@ -1502,6 +1562,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                     pendingResumenComercialFile = file;
                     const nameEl = document.getElementById('resumenComercialFileName');
                     if (nameEl) nameEl.textContent = file.name;
+                } else if (name.includes('p&g') || name.includes('horizontal') || name.includes('p_g') || (name.includes('p') && name.includes('g') && name.includes('horizontal'))) {
+                    const uploadPgHorizontalBtn = document.getElementById('upload-pg-horizontal-home');
+                    if (uploadPgHorizontalBtn) uploadPgHorizontalBtn.files = files;
+                    pendingPgHorizontalFile = file;
+                    const nameEl = document.getElementById('pgHorizontalFileName');
+                    if (nameEl) nameEl.textContent = file.name;
                 } else {
                     if (fileInput) fileInput.files = files;
                     pendingMainFile = file;
@@ -1527,6 +1593,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         monthSelector.addEventListener('change', (e) => {
             const index = parseInt(e.target.value);
             if (!isNaN(index)) updateUI(globalFinancialData, index);
+        });
+    }
+
+    const pgDropdownScenario = document.getElementById('pg-dropdown-scenario');
+    if (pgDropdownScenario) {
+        pgDropdownScenario.addEventListener('change', (e) => {
+            if (window.renderPgHorizontal) {
+                window.renderPgHorizontal();
+            } else if (window.resumenComercialEngine && window.resumenComercialEngine.renderPgHorizontal) {
+                window.resumenComercialEngine.renderPgHorizontal();
+            }
         });
     }
 
@@ -1600,7 +1677,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const searchWrapper = document.getElementById('searchContainerWrapper');
             const viewModeToggle = document.querySelector('.view-mode-toggle');
             if (monthSelector) {
-                if (id === 'menu-config' || id === 'menu-glosario') {
+                if (id === 'menu-config' || id === 'menu-glosario' || id === 'menu-pg-horizontal') {
                     monthSelector.style.display = 'none';
                 } else if (globalFinancialData && globalFinancialData.length > 0) {
                     monthSelector.style.display = 'block';
@@ -1649,6 +1726,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             if (id === 'menu-resumen-comercial' && typeof window.renderResumenComercial === 'function') {
                 window.renderResumenComercial();
+            }
+            if (id === 'menu-pg-horizontal' && typeof window.renderPgHorizontal === 'function') {
+                window.renderPgHorizontal();
             }
         });
     });
@@ -2576,6 +2656,13 @@ function renderActiveViewLazy(data, index) {
         if (viewResumenComercial && viewResumenComercial.classList.contains("active")) {
             if (typeof window.renderResumenComercial === 'function') {
                 window.renderResumenComercial();
+            }
+        }
+
+        let viewPgHorizontal = document.getElementById("view-pg-horizontal");
+        if (viewPgHorizontal && viewPgHorizontal.classList.contains("active")) {
+            if (typeof window.renderPgHorizontal === 'function') {
+                window.renderPgHorizontal();
             }
         }
 
@@ -4236,6 +4323,7 @@ function renderKPIDashboard(data, selectedIndex) {
                     break;
                 }
             }
+            if (!startItem.date || typeof startItem.date !== 'string' || !item.date || typeof item.date !== 'string') return item.date;
             const startMonth = startItem.date.split(' ')[0];
             const endMonth = item.date.split(' ')[0];
             if (startMonth === endMonth) return item.date;
@@ -7672,6 +7760,33 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         }
     }
 
+    window.processPgHorizontalFile = async function(file) {
+        return new Promise(async (resolve) => {
+            try {
+                const buffer = await file.arrayBuffer();
+                const data = new Uint8Array(buffer);
+                const workbook = XLSX.read(data, { type: 'array' });
+                if (!window.resumenComercialEngine) {
+                     const engine = await import('./resumenComercialEngine.js');
+                     window.resumenComercialEngine = engine;
+                }
+                const engine = window.resumenComercialEngine;
+                await engine.processPgHorizontalWorkbook(workbook);
+
+                window.hasComercialAccess = true;
+                if (typeof window.applyRoleBasedUI === 'function') {
+                    window.applyRoleBasedUI(window.hasMasterAccess, window.hasVentasAccess, true);
+                }
+
+                window.renderPgHorizontal();
+                resolve();
+            } catch(e) {
+                console.error("Error procesando Excel de P&G Horizontal", e);
+                resolve();
+            }
+        });
+    };
+
     // Attach click events on load/execution
     setTimeout(() => {
         document.getElementById('btn-comercial-resumen')?.addEventListener('click', () => {
@@ -7690,6 +7805,28 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             window.renderResumenComercial();
         });
     }, 500);
+
+    window.renderPgHorizontal = function() {
+        if (!window.resumenComercialEngine) return;
+        const selector = document.getElementById('monthSelector');
+        let periodText = 'Periodo Actual';
+        if (selector && globalFinancialData) {
+            const idx = parseInt(selector.value);
+            if (!isNaN(idx) && globalFinancialData[idx]) {
+                const periodoInfo = globalFinancialData[idx].Periodo;
+                if (periodoInfo && typeof periodoInfo === 'string') {
+                    const parts = periodoInfo.split('-');
+                    if (parts.length === 2) {
+                        periodText = `${parts[0]} ${parts[1]}`;
+                    } else {
+                        periodText = periodoInfo;
+                    }
+                }
+            }
+        }
+        
+        window.resumenComercialEngine.renderPgHorizontal();
+    };
 
     window.renderResumenComercial = function() {
         if (!window.resumenComercialEngine) return;
@@ -7730,11 +7867,13 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         window.resumenComercialEngine.renderResumenComercial(m, isYTD, window.comercialCurrentView);
 
         // Sync Mobile Accordions
-        setTimeout(() => {
-            if (typeof buildMobileAccordionsFromTable === 'function') {
-                buildMobileAccordionsFromTable('resumen-comercial-table', 'resumenComercialMobileContainer');
-            }
-        }, 100);
+        // Hemos deshabilitado esto a peticion del usuario dado a que los
+        // grandes volumenes de datos crashean movil por problemas de memoria.
+        // setTimeout(() => {
+        //     if (typeof buildMobileAccordionsFromTable === 'function') {
+        //         buildMobileAccordionsFromTable('resumen-comercial-table', 'resumenComercialMobileContainer');
+        //     }
+        // }, 100);
     };
 
     // Setup file upload listener for Ventas CEO (from detailed view if any)
@@ -7853,7 +7992,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                     });
                 }
             });
-            if (maxKey) {
+            if (maxKey && typeof maxKey === 'string') {
                 const [y, m] = maxKey.split('-');
                 if (y && m) {
                     const tempDate = new Date(parseInt(y), parseInt(m) - 1, 1);
@@ -8073,7 +8212,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                         <span class="ceo-card-metric-value">${formatVal(currMonthVal)}</span>
                     </div>
                     <div class="ceo-card-metric">
-                        <span class="ceo-card-metric-label">Promedio (${currMonths[0].label.split('-')[0]} - ${currMonths[currMonths.length-1].label.split('-')[0]})</span>
+                        <span class="ceo-card-metric-label">Promedio (${currMonths && currMonths.length > 0 && currMonths[0].label ? currMonths[0].label.split('-')[0] : ''} - ${currMonths && currMonths.length > 0 && currMonths[currMonths.length-1].label ? currMonths[currMonths.length-1].label.split('-')[0] : ''})</span>
                         <span class="ceo-card-metric-value">${formatVal(avgVal)}</span>
                     </div>
                     <div class="ceo-card-metric" style="margin-bottom: 0;">
@@ -8569,6 +8708,40 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         }
     }
     
+    // PG Horizontal Perspective Toggles
+    const btnPgTotales = document.getElementById('btn-pg-totales');
+    const btnPgUnitarios = document.getElementById('btn-pg-unitarios');
+    const pgTableTotales = document.getElementById('pg-horizontal-table');
+    const pgTableUnitarios = document.getElementById('pg-horizontal-unitarios-table');
+
+    if (btnPgTotales && btnPgUnitarios && pgTableTotales && pgTableUnitarios) {
+        btnPgTotales.addEventListener('click', () => {
+            btnPgTotales.style.background = 'white';
+            btnPgTotales.style.color = 'var(--primary)';
+            btnPgTotales.style.boxShadow = '0 1px 2px rgba(0,0,0,0.05)';
+            
+            btnPgUnitarios.style.background = 'transparent';
+            btnPgUnitarios.style.color = 'var(--text-secondary)';
+            btnPgUnitarios.style.boxShadow = 'none';
+
+            pgTableTotales.style.display = 'table';
+            pgTableUnitarios.style.display = 'none';
+        });
+
+        btnPgUnitarios.addEventListener('click', () => {
+            btnPgUnitarios.style.background = 'white';
+            btnPgUnitarios.style.color = 'var(--primary)';
+            btnPgUnitarios.style.boxShadow = '0 1px 2px rgba(0,0,0,0.05)';
+            
+            btnPgTotales.style.background = 'transparent';
+            btnPgTotales.style.color = 'var(--text-secondary)';
+            btnPgTotales.style.boxShadow = 'none';
+
+            pgTableTotales.style.display = 'none';
+            pgTableUnitarios.style.display = 'table';
+        });
+    }
+
     document.getElementById('btn-ventas-vol')?.addEventListener('click', () => {
         ventasCeoCurrentMetric = 'Volumen';
         updateVentasButtons();

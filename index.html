@@ -1445,6 +1445,9 @@
           </div>
           <div id="grupo-ventas" style="overflow: hidden; transition: max-height 0.3s ease; max-height: 200px;">
             <div class="menu-item">
+              <a href="#" id="menu-pg-horizontal" style="padding-left: 24px;">P&G Horizontal</a>
+            </div>
+            <div class="menu-item">
               <a href="#" id="menu-ventas-ceo" style="padding-left: 24px;">Ventas CEO</a>
             </div>
             <div class="menu-item">
@@ -2582,6 +2585,10 @@
                       <label style="font-size: 0.72rem; color: #15803d; font-weight: 600; display: block; margin-bottom: 2px;">3. Archivo Resumen Comercial (Sharing URL):</label>
                       <input type="text" id="m365UrlComercial" style="width: 100%; padding: 6px 8px; border: 1px solid #bbf7d0; border-radius: 6px; font-size: 0.75rem; background: white; color: #1f2937;" placeholder="Predeterminado del Servidor">
                     </div>
+                    <div>
+                      <label style="font-size: 0.72rem; color: #15803d; font-weight: 600; display: block; margin-bottom: 2px;">4. Archivo P&G Horizontal (Sharing URL):</label>
+                      <input type="text" id="m365UrlPgHorizontal" style="width: 100%; padding: 6px 8px; border: 1px solid #bbf7d0; border-radius: 6px; font-size: 0.75rem; background: white; color: #1f2937;" placeholder="Predeterminado del Servidor">
+                    </div>
                     <button id="saveM365UrlsBtn" type="button" style="background: #16a34a; color: white; border: none; border-radius: 6px; padding: 6px 12px; font-size: 0.75rem; font-weight: bold; cursor: pointer; width: 100%; margin-top: 6px;">
                       Guardar Enlaces OneDrive
                     </button>
@@ -2613,6 +2620,12 @@
                   <label for="upload-resumen-comercial-home" class="btn-primary" style="margin-top: 0; width: fit-content; padding: 10px 24px; cursor: pointer; background: #eef2f5; color: var(--primary); border: 1px solid var(--border); border-radius: 8px; font-weight: 500;">3. Resumen Comercial</label>
                   <input type="file" id="upload-resumen-comercial-home" accept=".xlsx, .xls, .csv" style="display: none;" />
                   <span id="resumenComercialFileName" style="font-size: 0.75rem; color: var(--text-secondary);">Ningún archivo seleccionado</span>
+                </div>
+
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+                  <label for="upload-pg-horizontal-home" class="btn-primary" style="margin-top: 0; width: fit-content; padding: 10px 24px; cursor: pointer; background: #eef2f5; color: var(--primary); border: 1px solid var(--border); border-radius: 8px; font-weight: 500;">4. P&G Horizontal</label>
+                  <input type="file" id="upload-pg-horizontal-home" accept=".xlsx, .xls, .csv" style="display: none;" />
+                  <span id="pgHorizontalFileName" style="font-size: 0.75rem; color: var(--text-secondary);">Ningún archivo seleccionado</span>
                 </div>
               </div>
               
@@ -3454,6 +3467,88 @@
         </div>
       </div>
       
+      <!-- VIEW: P&G Horizontal -->
+      <div id="view-pg-horizontal" class="view-container">
+        <div class="table-header" style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px;">
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <span style="font-size: 0.85rem; font-weight: 600; color: var(--sidebar);">Perspectiva:</span>
+              <div style="display: flex; gap: 4px; background: #f1f5f9; padding: 4px; border-radius: 8px;">
+                 <button id="btn-pg-totales" style="padding: 6px 12px; background: white; color: var(--primary); border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.05); transition: 0.2s;">Totales</button>
+                 <button id="btn-pg-unitarios" style="padding: 6px 12px; background: transparent; color: var(--text-secondary); border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 600; box-shadow: none; transition: 0.2s;">Unitarios</button>
+              </div>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="background: #bdd7ee; padding: 4px 8px; border: 1px solid #9cc2e5;">
+              <select id="pg-dropdown-scenario" style="background: transparent; border: none; outline: none; font-weight: bold; color: #000; font-size: 0.85rem; width: 220px; font-family: 'Inter', sans-serif;">
+                <option value="Real 2022">Real 2022</option>
+                <option value="PLATAFORMA DE INFLEXIÓN 1">PLATAFORMA DE INFLEXIÓN 1</option>
+                <option value="PLATAFORMA DE INFLEXIÓN 2">PLATAFORMA DE INFLEXIÓN 2</option>
+                <option value="Real 2023">Real 2023</option>
+                <option value="Real 2024">Real 2024</option>
+                <option value="PLATAFORMA ANTERIOR">PLATAFORMA ANTERIOR</option>
+                <option value="PLATAFORMA ACTUAL">PLATAFORMA ACTUAL</option>
+                <option value="PLATAFORMA CIERRE">PLATAFORMA CIERRE</option>
+                <option value="REAL AÑO ANTERIOR" selected>REAL AÑO ANTERIOR</option>
+                <option value="PO26">PO26</option>
+                <option value="ME ACTUAL">ME ACTUAL</option>
+                <option value="ME ↑↓">ME ↑↓</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="pnl-detail-table" style="position: relative; overflow-x: auto;">
+          <table id="pg-horizontal-table" style="font-size: 0.75rem; white-space: nowrap; border-collapse: collapse; width: 100%;">
+            <thead id="pg-horizontal-thead">
+              <tr>
+                <th style="background:#0f172a; color:white; border:none; padding: 12px; min-width: 200px;">MARCAS</th>
+                <th style="background:#1e293b; color:white; padding: 12px; text-align: right;">UNIDADES<br>TOTALES MES</th>
+                <th style="background:#1e293b; color:white; padding: 12px; text-align: right;">VENTAS<br>NETAS</th>
+                <th style="background:#1e293b; color:white; padding: 12px; text-align: right;">COSTO DE<br>VENTAS</th>
+                <th style="background:#334155; color:white; padding: 12px; text-align: right;">UTILIDAD<br>BRUTA</th>
+                <th style="background:#e2e8f0; color:#0f172a; padding: 12px; text-align: right; border-right: 2px solid #cbd5e1;">% MB</th>
+                <th style="background:#1e293b; color:white; padding: 12px; text-align: right;">GASTOS LOGISTICOS<br>EXTERNOS</th>
+                <th style="background:#e2e8f0; color:#0f172a; padding: 12px; text-align: right; border-right: 2px solid #cbd5e1;">% GTO<br>LOG</th>
+                <th style="background:#334155; color:white; padding: 12px; text-align: right;">UTILIDAD POST<br>LOGISTICOS</th>
+                <th style="background:#e2e8f0; color:#0f172a; padding: 12px; text-align: right; border-right: 2px solid #cbd5e1;">% POSTLOG</th>
+                <th style="background:#1e293b; color:white; padding: 12px; text-align: right;">APOYO<br>COMERCIAL</th>
+                <th style="background:#e2e8f0; color:#0f172a; padding: 12px; text-align: right; border-right: 2px solid #cbd5e1;">% APOYO<br>COMERCIAL</th>
+                <th style="background:#334155; color:white; padding: 12px; text-align: right; border-right: 2px solid #cbd5e1;">CONTRIBUCIÓN<br>POR NEGOCIO</th>
+              </tr>
+            </thead>
+            <tbody id="pg-horizontal-tbody">
+              <tr>
+                <td colspan="13" style="text-align: center; padding: 40px; color: var(--text-secondary); font-style: italic;">
+                  Por favor, suba el archivo P&G Horizontal para ver los datos.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <table id="pg-horizontal-unitarios-table" style="font-size: 0.75rem; white-space: nowrap; border-collapse: collapse; width: 100%; display: none;">
+            <thead id="pg-horizontal-unitarios-thead">
+              <tr>
+                <th style="background:#0f172a; color:white; border:none; padding: 12px; min-width: 200px;">MARCAS</th>
+                <th style="background:#1e293b; color:white; padding: 12px; text-align: right; border-left: 2px solid #cbd5e1; border-right: 1px dashed #475569;">PRECIO x<br>UNIDAD</th>
+                <th style="background:#1e293b; color:white; padding: 12px; text-align: right; border-right: 1px dashed #475569;">COSTO x<br>UNIDAD</th>
+                <th style="background:#334155; color:white; padding: 12px; text-align: right; border-right: 1px dashed #475569;">MB x<br>UNIDAD</th>
+                <th style="background:#1e293b; color:white; padding: 12px; text-align: right; border-right: 1px dashed #475569;">LOG x<br>UNIDAD</th>
+                <th style="background:#334155; color:white; padding: 12px; text-align: right;">UPOST LOG<br>x UNIDAD</th>
+              </tr>
+            </thead>
+            <tbody id="pg-horizontal-unitarios-tbody">
+              <tr>
+                <td colspan="6" style="text-align: center; padding: 40px; color: var(--text-secondary); font-style: italic;">
+                  Por favor, suba el archivo P&G Horizontal para ver los datos.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      
       <!-- VIEW: Ventas Ceo -->
       <div id="view-ventas-ceo" class="view-container">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
@@ -3511,8 +3606,8 @@
           </div>
         </div>
 
-        <div class="pnl-detail-table" style="position: relative;">
-          <table id="resumen-comercial-table" class="desktop-only-table">
+        <div class="pnl-detail-table" style="position: relative; overflow-x: auto; max-width: 100%;">
+          <table id="resumen-comercial-table" style="width: 100%;">
             <thead id="resumen-comercial-thead">
               <tr>
                 <th rowspan="2" style="background:#0f172a; color:white; border:none; padding: 16px; min-width: 200px;">Categoría</th>

@@ -321,6 +321,7 @@ function excelDateToMonth(val) {
   
   if (val !== undefined && val !== null) {
     const textK = normalizeText(val);
+    if (typeof textK !== 'string') return null;
     
     // Si viene en formato "2026-03" o "2026/03" o "03-2026"
     const isYYYYMM = /^\d{4}[-/]\d{2}/.test(textK);
@@ -1387,6 +1388,301 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
 }
 
 // ------------------------------------------------------------------
+// RENDERER DE LA TABLA P&G HORIZONTAL (ID: pg-horizontal-tbody)
+// ------------------------------------------------------------------
+export function renderPgHorizontal() {
+  if (!comercialRawData || !comercialRawData.pgHorizontal) {
+    console.warn('[comercialEngine] No hay datos de P&G Horizontal cargados aún.');
+    return;
+  }
+
+  const tbody = document.getElementById('pg-horizontal-tbody');
+  if (!tbody) return;
+
+  const data = comercialRawData.pgHorizontal;
+  if (data.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="19" style="text-align: center; padding: 40px; color: var(--text-secondary); font-style: italic;">No se encontraron datos de P&G Horizontal en el archivo.</td></tr>`;
+    return;
+  }
+
+  const dropdown = document.getElementById('pg-dropdown-scenario');
+  const scenarioLabel = dropdown ? dropdown.value : 'REAL AÑO ANTERIOR';
+  
+  let scenarioColIdx = -1;
+  let occurrenceCount = 0;
+  let targetOccurrence = scenarioLabel.endsWith(' 2') ? 2 : 1;
+  let cleanLabel = scenarioLabel.replace(' 1', '').replace(' 2', '').trim().toUpperCase();
+  
+  // Find column index
+  for (let i = 0; i < Math.min(20, data.length); i++) {
+      const row = data[i];
+      if (!row) continue;
+      for (let j = 0; j < row.length; j++) {
+          if (row[j] && typeof row[j] === 'string') {
+              const cellVal = row[j].toUpperCase();
+              if (cellVal.includes(cleanLabel) || cleanLabel.includes(cellVal)) {
+                  occurrenceCount++;
+                  if (occurrenceCount === targetOccurrence) {
+                      scenarioColIdx = j;
+                      break;
+                  }
+              }
+          }
+      }
+      if (scenarioColIdx !== -1) break;
+  }
+
+  const brandsData = {};
+  const conceptsKeywords = {
+     'UNIDADES TOTALES': 'unidades',
+     'VENTAS NETAS': 'ventas',
+     'COSTO DE VENTAS': 'costo',
+     'UTILIDAD BRUTA': 'utilidad_bruta',
+     'GASTOS LOGISTICOS EXTERNOS': 'logistica',
+     'GASTOS LOGÍSTICOS EXTERNOS': 'logistica',
+     'UTILIDAD POST LOGISTICOS': 'utilidad_post',
+     'UTILIDAD POST LOGÍSTICOS': 'utilidad_post',
+     'APOYO COMERCIAL': 'apoyo_comercial',
+     'CONTRIBUCION DIRECTA': 'contribucion',
+     'CONTRIBUCIÓN DIRECTA': 'contribucion'
+  };
+
+  const ignoreKeywords = [
+     'HECTOLITROS', 'APOYO A MARCAS', 'REINTEGRO', 'INVESTIGACION',
+     'APOYO VENTAS', 'GASTOS DE OPERACIÓN', 'GASTOS SALARIALES', 
+     'GASTOS CENTRALES', 'UTILIDAD OPERATIVA', 'OTROS INGRESOS', 
+     'DEPRECIACION', 'PERDIDA DE VALOR', 'DIFERENCIA EN CAMBIO', 
+     'IMPUESTOS', 'UTILIDAD NETA', 'PRECIO NETO', 'COSTOS X UNIDAD', 
+     'MARGEN X UNIDAD', 'MARGEN BRUTO', 'FC', 'MIX', 'RATIOS', 'GASTOS SIN MARCA', 'GASTO LOGISTICO SIN MARCA',
+     'X UNIDAD', 'X HECTOLITRO', 'MARGEN', 'CANAL PREVENTA', 'NO ASIGNABLES', 'POR MARCA'
+  ];
+
+  let currentConceptKey = null;
+
+  if (scenarioColIdx !== -1) {
+      data.forEach(row => {
+          if (!row) return;
+          let conceptCellStr = '';
+          for (let j = 0; j <= 3; j++) {
+             if (row[j] && typeof row[j] === 'string' && isNaN(row[j])) {
+                 conceptCellStr = row[j].trim().toUpperCase();
+                 break;
+             }
+          }
+          if (!conceptCellStr) return;
+
+          let foundConcept = false;
+          for (const [kw, key] of Object.entries(conceptsKeywords)) {
+              if (conceptCellStr.includes(kw)) {
+                 currentConceptKey = key;
+                 foundConcept = true;
+                 break;
+              }
+          }
+
+          if (!foundConcept) {
+             for (const kw of ignoreKeywords) {
+                 if (conceptCellStr.includes(kw)) {
+                    currentConceptKey = null;
+                    foundConcept = true;
+                    break;
+                 }
+             }
+          }
+
+          if (foundConcept) return;
+
+          if (currentConceptKey) {
+              let normalizedBrand = conceptCellStr.replace(/[^A-Z0-9]/g, '');
+              if (!brandsData[normalizedBrand]) brandsData[normalizedBrand] = {};
+              brandsData[normalizedBrand][currentConceptKey] = safeNum(row[scenarioColIdx]);
+              console.log("Brands Data update:", currentConceptKey, normalizedBrand, row[scenarioColIdx]);
+          }
+      });
+  }
+
+  const marcasPermitidas = [
+    "APA BOTELLON 18.9 LTS (x1)",
+    "APA BOTELLA 0.5 LTS (x20)",
+    "APA BOTELLA 1.5 LTS (x12)",
+    "APA OTRAS",
+    "MAQUILA AGUA OTROS",
+    "MAQUILA AGUA 1.5 LTS (x12)",
+    "MAQUILA AGUA 0.5 LTS (x20)",
+    "BON",
+    "PA SABOR 0.5 LTS (x12)",
+    "PA H+ 0.71 LTS (x12)",
+    "Total general"
+  ];
+  
+  const safeDiv = (num, den) => (den === 0 || isNaN(den) || !den) ? 0 : (num / den);
+
+  let htmlTotales = '';
+  let htmlUnitarios = '';
+
+  const totals = {
+      unidades: 0,
+      ventas: 0,
+      costo: 0,
+      utilidad_bruta: 0,
+      logistica: 0,
+      utilidad_post: 0,
+      apoyo_comercial: 0,
+      contribucion: 0
+  };
+
+  marcasPermitidas.forEach(marca => {
+      const isTotal = String(marca).toLowerCase().includes('total');
+      const normMarca = marca.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const rowData = brandsData[normMarca] || {};
+      
+      let unidades, ventas, costo, utilidad_bruta, logistica, utilidad_post, apoyo, contribucion;
+
+      if (isTotal) {
+          unidades = totals.unidades;
+          ventas = totals.ventas;
+          costo = totals.costo;
+          utilidad_bruta = totals.utilidad_bruta;
+          logistica = totals.logistica;
+          utilidad_post = totals.utilidad_post;
+          apoyo = totals.apoyo_comercial;
+          contribucion = totals.contribucion;
+      } else {
+          unidades = rowData.unidades || 0;
+          ventas = rowData.ventas || 0;
+          costo = rowData.costo || 0;
+          utilidad_bruta = rowData.utilidad_bruta || (ventas - costo);
+          logistica = rowData.logistica || 0;
+          
+          // User specific rule:
+          utilidad_post = utilidad_bruta - logistica;
+          
+          apoyo = rowData.apoyo_comercial || 0;
+          contribucion = utilidad_post - apoyo;
+
+          totals.unidades += unidades;
+          totals.ventas += ventas;
+          totals.costo += costo;
+          totals.utilidad_bruta += utilidad_bruta;
+          totals.logistica += logistica;
+          totals.utilidad_post += utilidad_post;
+          totals.apoyo_comercial += apoyo;
+          totals.contribucion += contribucion;
+      }
+
+      const pct_mb = safeDiv(utilidad_bruta, ventas);
+      const pct_log = safeDiv(logistica, ventas);
+      const pct_postlog = safeDiv(utilidad_post, ventas);
+      const pct_apoyo = safeDiv(apoyo, ventas);
+
+      const divisor_un = unidades * 12;
+      const px_un = safeDiv(ventas * 1000, divisor_un);
+      const costo_un = safeDiv(costo * 1000, divisor_un);
+      const mb_un = safeDiv(utilidad_bruta * 1000, divisor_un);
+      const log_un = safeDiv(logistica * 1000, divisor_un);
+      const upost_un = safeDiv(utilidad_post * 1000, divisor_un);
+
+      const trStyle = isTotal 
+        ? 'background: #bdd7ee; color: black; font-weight: bold; border-top: 2px solid #9cc2e5;'
+        : 'background: white; border-bottom: 1px solid var(--border);';
+
+      const formatCell = (val, isMoney, isPercent, isUnits) => {
+         if (val === undefined || val === null || val === 0) return '-';
+         let r = safeNum(val);
+         if (isUnits) return fmtVol(r);
+         if (isPercent) return fmtPct(r);
+         return fmtPrecio(r);
+      };
+
+      const cUnidades = formatCell(unidades, false, false, true);
+      const cVentas = formatCell(ventas, true, false, false);
+      const cCosto = formatCell(costo, true, false, false);
+      const cUtilidad = formatCell(utilidad_bruta, true, false, false);
+      const cPctMB = formatCell(pct_mb, false, true, false);
+      const cLogistica = formatCell(logistica, true, false, false);
+      const cPctLog = formatCell(pct_log, false, true, false);
+      const cUtilidadPost = formatCell(utilidad_post, true, false, false);
+      const cPctPost = formatCell(pct_postlog, false, true, false);
+      const cApoyo = formatCell(apoyo, true, false, false);
+      const cPctApoyo = formatCell(pct_apoyo, false, true, false);
+      const cContrib = formatCell(contribucion, true, false, false);
+
+      const cPxUn = formatCell(px_un, true, false, false);
+      const cCostoUn = formatCell(costo_un, true, false, false);
+      const cMbUn = formatCell(mb_un, true, false, false);
+      const cLogUn = formatCell(log_un, true, false, false);
+      const cUpostUn = formatCell(upost_un, true, false, false);
+
+      htmlTotales += `
+        <tr style="${trStyle}">
+          <td style="padding: 10px 12px; border-right: 1px solid rgba(0,0,0,0.1); font-weight: ${isTotal ? 'bold' : '600'}; font-size: 0.75rem; ${isTotal ? 'color: black;' : ''}">${marca}</td>
+          <td style="padding: 10px 12px; text-align: right; font-family: var(--font-mono);">${cUnidades}</td>
+          <td style="padding: 10px 12px; text-align: right; font-family: var(--font-mono);">${cVentas}</td>
+          <td style="padding: 10px 12px; text-align: right; font-family: var(--font-mono);">${cCosto}</td>
+          <td style="padding: 10px 12px; text-align: right; font-family: var(--font-mono); font-weight: bold;">${cUtilidad}</td>
+          <td style="padding: 10px 12px; text-align: right; font-family: var(--font-mono); border-right: 2px solid #cbd5e1; background: ${isTotal ? 'transparent' : '#f1f5f9'};">${cPctMB}</td>
+          <td style="padding: 10px 12px; text-align: right; font-family: var(--font-mono);">${cLogistica}</td>
+          <td style="padding: 10px 12px; text-align: right; font-family: var(--font-mono); border-right: 2px solid #cbd5e1; background: ${isTotal ? 'transparent' : '#f1f5f9'};">${cPctLog}</td>
+          <td style="padding: 10px 12px; text-align: right; font-family: var(--font-mono); font-weight: bold;">${cUtilidadPost}</td>
+          <td style="padding: 10px 12px; text-align: right; font-family: var(--font-mono); border-right: 2px solid #cbd5e1; background: ${isTotal ? 'transparent' : '#f1f5f9'};">${cPctPost}</td>
+          <td style="padding: 10px 12px; text-align: right; font-family: var(--font-mono);">${cApoyo}</td>
+          <td style="padding: 10px 12px; text-align: right; font-family: var(--font-mono); border-right: 2px solid #cbd5e1; background: ${isTotal ? 'transparent' : '#f1f5f9'};">${cPctApoyo}</td>
+          <td style="padding: 10px 12px; text-align: right; font-family: var(--font-mono); font-weight: bold; border-right: 2px solid #cbd5e1;">${cContrib}</td>
+        </tr>
+      `;
+
+      htmlUnitarios += `
+        <tr style="${trStyle}">
+          <td style="padding: 10px 12px; border-right: 1px solid rgba(0,0,0,0.1); font-weight: ${isTotal ? 'bold' : '600'}; font-size: 0.75rem; ${isTotal ? 'color: black;' : ''}">${marca}</td>
+          <td style="padding: 10px 12px; text-align: right; font-family: var(--font-mono); border-right: 1px dashed #cbd5e1; border-left: 2px solid #cbd5e1; background: ${isTotal ? 'transparent' : '#f8fafc'};">${cPxUn}</td>
+          <td style="padding: 10px 12px; text-align: right; font-family: var(--font-mono); border-right: 1px dashed #cbd5e1; background: ${isTotal ? 'transparent' : '#f8fafc'};">${cCostoUn}</td>
+          <td style="padding: 10px 12px; text-align: right; font-family: var(--font-mono); border-right: 1px dashed #cbd5e1; background: ${isTotal ? 'transparent' : '#f8fafc'};">${cMbUn}</td>
+          <td style="padding: 10px 12px; text-align: right; font-family: var(--font-mono); border-right: 1px dashed #cbd5e1; background: ${isTotal ? 'transparent' : '#f8fafc'};">${cLogUn}</td>
+          <td style="padding: 10px 12px; text-align: right; font-family: var(--font-mono); background: ${isTotal ? 'transparent' : '#f8fafc'};">${cUpostUn}</td>
+        </tr>
+      `;
+  });
+
+  const tbodyTotales = document.getElementById('pg-horizontal-tbody');
+  const tbodyUnitarios = document.getElementById('pg-horizontal-unitarios-tbody');
+  if (tbodyTotales) tbodyTotales.innerHTML = htmlTotales;
+  if (tbodyUnitarios) tbodyUnitarios.innerHTML = htmlUnitarios;
+}
+
+export async function processPgHorizontalWorkbook(workbook) {
+  let pgSheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('analítico pyg') || n.toLowerCase().includes('analitico pyg')) || workbook.SheetNames[0];
+
+  let pgData = [];
+  if (pgSheetName) {
+     const rows = XLSX.utils.sheet_to_json(workbook.Sheets[pgSheetName], {header: 1, defval: null});
+     // Keep all rows so we can parse them based on headers
+     pgData = rows;
+  }
+
+  if (!comercialRawData) {
+      comercialRawData = {
+          dataF: [],
+          data2025: [],
+          ppto: { vol: [], vta: [] },
+          pgHorizontal: []
+      };
+  }
+
+  comercialRawData.pgHorizontal = pgData;
+
+  // Guardar en caché local
+  try {
+    const db = await openDB();
+    await dbPut(db, 'COMERCIAL_KEY', { data: comercialRawData, timestamp: Date.now() });
+    console.log("💾 [comercialEngine] Datos de P&G Horizontal persistidos con éxito en IndexedDB.");
+  } catch (e) {
+    console.warn('[comercialEngine] Fail to cache:', e);
+  }
+
+  return comercialRawData;
+}
+
+// ------------------------------------------------------------------
 // PROCESADO DE LIBRO COMMERCIAL (EXCEL)
 // ------------------------------------------------------------------
 export async function processComercialWorkbook(workbook) {
@@ -1401,14 +1697,48 @@ export async function processComercialWorkbook(workbook) {
   const nameData2025 = findSheet('data 2025') || sheetNames.find(n => n.includes('historico')) || workbook.SheetNames[1];
   const namePPTO     = findSheet('ppto') || sheetNames.find(n => n.includes('presupuesto')) || workbook.SheetNames[2];
 
+  // Try to find the P&G Horizontal sheet based on known headers or keywords
+  let pgSheetName = findSheet('analítico pyg') || findSheet('analitico pyg') || findSheet('margen bruto') || findSheet('p&g');
+  if (!pgSheetName) {
+    // Scan sheets to see if any has "UNIDADES TOTALES MES"
+    for (const sheetName of workbook.SheetNames) {
+       const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {header: 1});
+       for (let i = 0; i < Math.min(rows.length, 10); i++) {
+         if (rows[i] && rows[i].some(cell => String(cell).toUpperCase().includes('UNIDADES TOTALES'))) {
+           pgSheetName = sheetName;
+           break;
+         }
+       }
+       if (pgSheetName) break;
+    }
+  }
+  if (!pgSheetName) {
+    // Fallback: If it's single sheet or first sheet has these columns
+    pgSheetName = workbook.SheetNames[0];
+  }
+
   console.log('📌 Hoja detectada - DataF:', nameDataF);
   console.log('📌 Hoja detectada - Data 2025:', nameData2025);
   console.log('📌 Hoja detectada - PPTO:', namePPTO);
+  console.log('📌 Hoja detectada - P&G Horizontal:', pgSheetName);
+
+  let pgData = [];
+  if (pgSheetName) {
+     const rows = XLSX.utils.sheet_to_json(workbook.Sheets[pgSheetName], {header: 1, defval: null});
+     pgData = rows;
+  }
+
+  // Preserve pgHorizontal if we already have it and current upload doesn't have it (or we fallback to existing)
+  const existingPgData = (comercialRawData && comercialRawData.pgHorizontal && comercialRawData.pgHorizontal.length > 0) ? comercialRawData.pgHorizontal : [];
+  if (pgData.length === 0 && existingPgData.length > 0) {
+      pgData = existingPgData;
+  }
 
   comercialRawData = {
     dataF:   nameDataF ? parseDataF(workbook.Sheets[workbook.SheetNames[sheetNames.indexOf(nameDataF.toLowerCase())]]) : [],
     data2025: nameData2025 ? parseData2025(workbook.Sheets[workbook.SheetNames[sheetNames.indexOf(nameData2025.toLowerCase())]]) : [],
     ppto:    namePPTO ? parsePPTO(workbook.Sheets[workbook.SheetNames[sheetNames.indexOf(namePPTO.toLowerCase())]]) : { vol: [], vta: [] },
+    pgHorizontal: pgData
   };
 
   // Guardar en caché local
