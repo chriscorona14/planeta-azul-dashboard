@@ -628,6 +628,7 @@ async function fetchMasterData(token = null) {
         
         window.hasMasterAccess = false;
         window.hasVentasAccess = false;
+        window.hasComercialAccess = false;
 
         try {
             if (token) {
@@ -1057,6 +1058,7 @@ async function loadCacheInstant() {
                 const tx = db.transaction('finance_cache', 'readwrite');
                 tx.objectStore('finance_cache').delete('MASTER_FINANCE_KEY');
                 tx.objectStore('finance_cache').delete('CEO_VENTAS_KEY');
+                tx.objectStore('finance_cache').delete('COMERCIAL_KEY');
                 tx.oncomplete = resolve;
                 tx.onerror = reject;
             });
@@ -1187,6 +1189,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const tx = db.transaction('finance_cache', 'readwrite');
                     tx.objectStore('finance_cache').delete('MASTER_FINANCE_KEY');
                     tx.objectStore('finance_cache').delete('CEO_VENTAS_KEY');
+                    tx.objectStore('finance_cache').delete('COMERCIAL_KEY');
                     tx.oncomplete = resolve;
                     tx.onerror = reject;
                 });
