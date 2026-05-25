@@ -142,12 +142,40 @@ Data: ${JSON.stringify(financialData)}`;
     }
   });
 
+  app.get("/api/downloadSyncPgHorizontal", async (req, res) => {
+    try {
+      const customUrl = typeof req.query.url === "string" ? req.query.url : undefined;
+      const url = resolveSharepointUrl(customUrl || process.env.VITE_PG_HORIZONTAL_URL, "https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc={PLACEHOLDER-PG}&download=1");
+      if (!url.includes("sharepoint.com") && !url.includes("onedrive.live.com")) {
+        return res.status(400).json({ error: "Invalid Microsoft 365 file URL." });
+      }
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+      });
+      
+      if (!response.ok) {
+        return res.status(response.status).json({ error: `SharePoint rejected the request: ${response.status} ${response.statusText}. Ensure the file is shared publicly.` });
+      }
+      
+      const buffer = await response.arrayBuffer();
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.send(Buffer.from(buffer));
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+
   // Vite middleware for development
   app.get("/api/config", (req, res) => {
     res.json({
       VITE_ONEDRIVE_FILE_URL: process.env.VITE_ONEDRIVE_ITEM_ID || process.env.VITE_ONEDRIVE_FILE_URL,
       VITE_CEO_FILE_URL: process.env.VITE_CEO_FILE_URL || process.env.VITE_ONEDRIVE_VENTAS_ITEM_ID,
-      VITE_RESUMEN_COMERCIAL_URL: process.env.VITE_RESUMEN_COMERCIAL_URL
+      VITE_RESUMEN_COMERCIAL_URL: process.env.VITE_RESUMEN_COMERCIAL_URL,
+      VITE_PG_HORIZONTAL_URL: process.env.VITE_PG_HORIZONTAL_URL
     });
   });
 

@@ -329,6 +329,8 @@ if (window.msal) {
 
 let SHARPOINT_FILE_URL = localStorage.getItem('CUSTOM_ONEDRIVE_FILE_URL') || import.meta.env.VITE_ONEDRIVE_FILE_URL || import.meta.env.VITE_ONEDRIVE_ITEM_ID;
 let SHARPOINT_VENTAS_FILE_URL = localStorage.getItem('CUSTOM_ONEDRIVE_VENTAS_URL') || import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID;
+let RESUMEN_COMERCIAL_URL = localStorage.getItem('CUSTOM_RESUMEN_COMERCIAL_URL') || import.meta.env.VITE_RESUMEN_COMERCIAL_URL;
+let PG_HORIZONTAL_URL = localStorage.getItem('CUSTOM_PG_HORIZONTAL_URL') || import.meta.env.VITE_PG_HORIZONTAL_URL;
 
 const encodeUrlM365 = (url) => {
     if (!url || typeof url !== 'string' || url.trim().length === 0) return null;
@@ -691,7 +693,7 @@ async function fetchMasterData(token = null) {
                 }
 
                 // Descarga Resumen Comercial
-                const RESUMEN_COMERCIAL_URL = localStorage.getItem('CUSTOM_RESUMEN_COMERCIAL_URL') || import.meta.env.VITE_RESUMEN_COMERCIAL_URL || runtimeConfig.VITE_RESUMEN_COMERCIAL_URL;
+                RESUMEN_COMERCIAL_URL = localStorage.getItem('CUSTOM_RESUMEN_COMERCIAL_URL') || import.meta.env.VITE_RESUMEN_COMERCIAL_URL || runtimeConfig.VITE_RESUMEN_COMERCIAL_URL;
                 const resolvedComercialUrl = resolveSharepointUrlClient(RESUMEN_COMERCIAL_URL);
                 const encodedComercialUrl = encodeUrlM365(resolvedComercialUrl);
                 if (encodedComercialUrl) {
@@ -729,7 +731,7 @@ async function fetchMasterData(token = null) {
                 }
 
                 // Descarga P&G Horizontal
-                const PG_HORIZONTAL_URL = localStorage.getItem('CUSTOM_PG_HORIZONTAL_URL') || import.meta.env.VITE_PG_HORIZONTAL_URL || runtimeConfig.VITE_PG_HORIZONTAL_URL;
+                PG_HORIZONTAL_URL = localStorage.getItem('CUSTOM_PG_HORIZONTAL_URL') || import.meta.env.VITE_PG_HORIZONTAL_URL || runtimeConfig.VITE_PG_HORIZONTAL_URL;
                 const resolvedPgUrl = resolveSharepointUrlClient(PG_HORIZONTAL_URL);
                 const encodedPgUrl = encodeUrlM365(resolvedPgUrl);
                 if (encodedPgUrl) {
@@ -1325,6 +1327,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             
             SHARPOINT_FILE_URL = masterUrl || import.meta.env.VITE_ONEDRIVE_FILE_URL || import.meta.env.VITE_ONEDRIVE_ITEM_ID;
             SHARPOINT_VENTAS_FILE_URL = ventasUrl || import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID;
+            RESUMEN_COMERCIAL_URL = comercialUrl || import.meta.env.VITE_RESUMEN_COMERCIAL_URL;
+            PG_HORIZONTAL_URL = pgHorizontalUrl || import.meta.env.VITE_PG_HORIZONTAL_URL;
             
             alert("Enlaces de OneDrive guardados exitosamente.");
         });
