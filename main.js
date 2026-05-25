@@ -800,6 +800,31 @@ async function fetchMasterData(token = null) {
                         }
                     }
                 }
+
+                let paramsPg = PG_HORIZONTAL_URL ? `?url=${encodeURIComponent(PG_HORIZONTAL_URL)}` : '';
+                const responsePg = await fetch(`/api/downloadSyncPgHorizontal${paramsPg}`, { signal: controller.signal });
+                if (responsePg.ok) {
+                    const arrayBufferPg = await responsePg.arrayBuffer();
+                    if (!window.resumenComercialEngine) {
+                        try {
+                            const engine = await import('./resumenComercialEngine.js');
+                            window.resumenComercialEngine = engine;
+                        } catch (e) {
+                            console.error("Error importing resumenComercialEngine on demand:", e);
+                        }
+                    }
+                    if (window.resumenComercialEngine) {
+                        try {
+                            const dataPg = new Uint8Array(arrayBufferPg);
+                            const XLSX = window.XLSX;
+                            const workbookPg = XLSX.read(dataPg, { type: 'array' });
+                            await window.resumenComercialEngine.processPgHorizontalWorkbook(workbookPg);
+                            window.hasComercialAccess = true;
+                        } catch (e) {
+                            console.error("Error processing pg horizontal sync:", e);
+                        }
+                    }
+                }
             }
             clearTimeout(timeoutId);
         } catch (err) {

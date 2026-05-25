@@ -1413,6 +1413,9 @@ export function renderPgHorizontal() {
   let targetOccurrence = scenarioLabel.endsWith(' 2') ? 2 : 1;
   let cleanLabel = scenarioLabel.replace(' 1', '').replace(' 2', '').trim().toUpperCase();
   
+  console.log("pgData keys:", Object.keys(data[0] || {}), Object.keys(data[1] || {}));
+  console.log("pgData values:", data.slice(0, 10));
+  console.log("scenarioLabel trying to find:", scenarioLabel);
   // Find column index
   for (let i = 0; i < Math.min(20, data.length); i++) {
       const row = data[i];

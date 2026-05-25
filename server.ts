@@ -160,6 +160,21 @@ Data: ${JSON.stringify(financialData)}`;
       }
       
       const buffer = await response.arrayBuffer();
+      
+      // TEST: Logging sheet names
+      try {
+          const XLSX = require('xlsx');
+          const workbook = XLSX.read(buffer, { type: 'buffer' });
+          console.log("PG Horizontal Sheet Names:", workbook.SheetNames);
+          let pgSheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('analítico pyg') || n.toLowerCase().includes('analitico pyg')) || workbook.SheetNames[0];
+          console.log("Found PG Sheet:", pgSheetName);
+          const data = XLSX.utils.sheet_to_json(workbook.Sheets[pgSheetName], {header: 1, defval: null});
+          console.log("First 10 rows:");
+          console.dir(data.slice(0, 10), { depth: null });
+      } catch (e) {
+          console.error("XLSX test failed", e);
+      }
+
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.send(Buffer.from(buffer));
