@@ -816,7 +816,6 @@ async function fetchMasterData(token = null) {
                     if (window.resumenComercialEngine) {
                         try {
                             const dataPg = new Uint8Array(arrayBufferPg);
-                            const XLSX = window.XLSX;
                             const workbookPg = XLSX.read(dataPg, { type: 'array' });
                             await window.resumenComercialEngine.processPgHorizontalWorkbook(workbookPg);
                             window.hasComercialAccess = true;
@@ -1026,7 +1025,7 @@ window.handleZeroState = function() {
             dropZone.style.display = 'block';
             dropZone.style.margin = '40px auto';
             if (mainContainer) mainContainer.appendChild(dropZone);
-            if (loginBtn) loginBtn.style.display = 'flex';
+            if (loginBtn && !window.m365LoggedIn) loginBtn.style.display = 'flex';
         }
     } else {
         if(sidebar) sidebar.style.display = '';
@@ -1057,7 +1056,7 @@ window.handleZeroState = function() {
 
 window.handleMSALLoginFailure = function() {
     const loginBtn = document.getElementById('loginM365Btn');
-    if (loginBtn) loginBtn.style.display = 'flex';
+    if (loginBtn && !window.m365LoggedIn) loginBtn.style.display = 'flex';
     window.handleZeroState();
 };
 

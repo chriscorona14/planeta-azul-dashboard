@@ -1419,7 +1419,7 @@ export function renderPgHorizontal() {
       if (!row) continue;
       for (let j = 0; j < row.length; j++) {
           if (row[j] && typeof row[j] === 'string') {
-              const cellVal = row[j].toUpperCase().replace(/\s+/g, ' ').trim();
+              const cellVal = row[j].toUpperCase();
               if (cellVal.includes(cleanLabel) || cleanLabel.includes(cellVal)) {
                   occurrenceCount++;
                   if (occurrenceCount === targetOccurrence) {
@@ -1432,46 +1432,21 @@ export function renderPgHorizontal() {
       if (scenarioColIdx !== -1) break;
   }
 
-  // Fallback if not found precisely
-  if (scenarioColIdx === -1) {
-      console.warn("No se encontró la columna exacta para", cleanLabel, "- buscando alternativas...");
-      // Try finding something that just includes 'REAL' or 'AÑO' if looking for 'REAL AÑO ANTERIOR'
-      const fallbackKws = cleanLabel.split(' ').filter(k => k.length > 2);
-      for (let i = 0; i < Math.min(20, data.length); i++) {
-          const row = data[i];
-          if (!row) continue;
-          for (let j = 0; j < row.length; j++) {
-             if (row[j] && typeof row[j] === 'string') {
-                 const cellVal = row[j].toUpperCase();
-                 if (fallbackKws.some(kw => cellVal.includes(kw))) {
-                     scenarioColIdx = j;
-                     break;
-                 }
-             }
-          }
-          if (scenarioColIdx !== -1) break;
-      }
-  }
-  
-  // Last resort fallback
-  if (scenarioColIdx === -1 && data[0] && data[0].length > 1) {
-      scenarioColIdx = 1;
-  }
-
   console.log("-> [PG Horizontal] cleanLabel:", cleanLabel, "Found at colIdx:", scenarioColIdx);
 
   const brandsData = {};
   const conceptsKeywords = {
-     'UNIDADES': 'unidades', // Relaxed from UNIDADES TOTALES
+     'UNIDADES TOTALES': 'unidades',
      'VENTAS NETAS': 'ventas',
-     'COSTO': 'costo', // Relaxed from COSTO DE VENTAS
+     'COSTO DE VENTAS': 'costo',
      'UTILIDAD BRUTA': 'utilidad_bruta',
-     'LOGISTICO': 'logistica', // Relaxed
-     'LOGÍSTICO': 'logistica', // Relaxed
-     'UTILIDAD POST': 'utilidad_post',
+     'GASTOS LOGISTICOS EXTERNOS': 'logistica',
+     'GASTOS LOGÍSTICOS EXTERNOS': 'logistica',
+     'UTILIDAD POST LOGISTICOS': 'utilidad_post',
+     'UTILIDAD POST LOGÍSTICOS': 'utilidad_post',
      'APOYO COMERCIAL': 'apoyo_comercial',
-     'CONTRIBUCION': 'contribucion', // Relaxed from CONTRIBUCION DIRECTA
-     'CONTRIBUCIÓN': 'contribucion'
+     'CONTRIBUCION DIRECTA': 'contribucion',
+     'CONTRIBUCIÓN DIRECTA': 'contribucion'
   };
 
   const ignoreKeywords = [
@@ -1485,10 +1460,6 @@ export function renderPgHorizontal() {
   ];
 
   let currentConceptKey = null;
-
-  const sanitizeStr = (str) => {
-      return (str || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z0-9]/g, '').toUpperCase();
-  };
 
   if (scenarioColIdx !== -1) {
       data.forEach(row => {
@@ -1524,10 +1495,10 @@ export function renderPgHorizontal() {
           if (foundConcept) return;
 
           if (currentConceptKey) {
-              let normalizedBrand = sanitizeStr(conceptCellStr);
+              let normalizedBrand = conceptCellStr.replace(/[^A-Z0-9]/g, '');
               if (!brandsData[normalizedBrand]) brandsData[normalizedBrand] = {};
               brandsData[normalizedBrand][currentConceptKey] = safeNum(row[scenarioColIdx]);
-              console.log("Brands Data update:", currentConceptKey, normalizedBrand, row[scenarioColIdx]);
+              // console.log("Brands Data update:", currentConceptKey, normalizedBrand, row[scenarioColIdx]);
           }
       });
   }
@@ -1564,7 +1535,7 @@ export function renderPgHorizontal() {
 
   marcasPermitidas.forEach(marca => {
       const isTotal = String(marca).toLowerCase().includes('total');
-      const normMarca = sanitizeStr(marca);
+      const normMarca = marca.toUpperCase().replace(/[^A-Z0-9]/g, '');
       const rowData = brandsData[normMarca] || {};
       
       let unidades, ventas, costo, utilidad_bruta, logistica, utilidad_post, apoyo, contribucion;
@@ -1744,8 +1715,14 @@ export async function processComercialWorkbook(workbook) {
     }
   }
   if (!pgSheetName) {
-    // Fallback: If it's single sheet or first sheet has these columns
-    pgSheetName = workbook.SheetNames[0];
+    // Fallback: Check if first sheet actually has the keyword
+    const firstRows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], {header: 1});
+    const hasPgData = firstRows.slice(0, 10).some(r => r && r.some(c => String(c).toUpperCase().includes('UNIDADES TOTALES')));
+    if (hasPgData) {
+      pgSheetName = workbook.SheetNames[0];
+    } else {
+      pgSheetName = null;
+    }
   }
 
   console.log('📌 Hoja detectada - DataF:', nameDataF);
