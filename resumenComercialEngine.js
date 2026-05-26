@@ -1411,18 +1411,15 @@ export function renderPgHorizontal() {
   let scenarioColIdx = -1;
   let occurrenceCount = 0;
   let targetOccurrence = scenarioLabel.endsWith(' 2') ? 2 : 1;
-  let cleanLabel = scenarioLabel.replace(' 1', '').replace(' 2', '').trim().toUpperCase();
+  let cleanLabel = scenarioLabel.replace(' 1', '').replace(' 2', '').replace(/\s+/g, ' ').trim().toUpperCase();
   
-  console.log("pgData keys:", Object.keys(data[0] || {}), Object.keys(data[1] || {}));
-  console.log("pgData values:", data.slice(0, 10));
-  console.log("scenarioLabel trying to find:", scenarioLabel);
   // Find column index
   for (let i = 0; i < Math.min(20, data.length); i++) {
       const row = data[i];
       if (!row) continue;
       for (let j = 0; j < row.length; j++) {
           if (row[j] && typeof row[j] === 'string') {
-              const cellVal = row[j].toUpperCase();
+              const cellVal = row[j].toUpperCase().replace(/\s+/g, ' ').trim();
               if (cellVal.includes(cleanLabel) || cleanLabel.includes(cellVal)) {
                   occurrenceCount++;
                   if (occurrenceCount === targetOccurrence) {
@@ -1435,19 +1432,46 @@ export function renderPgHorizontal() {
       if (scenarioColIdx !== -1) break;
   }
 
+  // Fallback if not found precisely
+  if (scenarioColIdx === -1) {
+      console.warn("No se encontró la columna exacta para", cleanLabel, "- buscando alternativas...");
+      // Try finding something that just includes 'REAL' or 'AÑO' if looking for 'REAL AÑO ANTERIOR'
+      const fallbackKws = cleanLabel.split(' ').filter(k => k.length > 2);
+      for (let i = 0; i < Math.min(20, data.length); i++) {
+          const row = data[i];
+          if (!row) continue;
+          for (let j = 0; j < row.length; j++) {
+             if (row[j] && typeof row[j] === 'string') {
+                 const cellVal = row[j].toUpperCase();
+                 if (fallbackKws.some(kw => cellVal.includes(kw))) {
+                     scenarioColIdx = j;
+                     break;
+                 }
+             }
+          }
+          if (scenarioColIdx !== -1) break;
+      }
+  }
+  
+  // Last resort fallback
+  if (scenarioColIdx === -1 && data[0] && data[0].length > 1) {
+      scenarioColIdx = 1;
+  }
+
+  console.log("-> [PG Horizontal] cleanLabel:", cleanLabel, "Found at colIdx:", scenarioColIdx);
+
   const brandsData = {};
   const conceptsKeywords = {
-     'UNIDADES TOTALES': 'unidades',
+     'UNIDADES': 'unidades', // Relaxed from UNIDADES TOTALES
      'VENTAS NETAS': 'ventas',
-     'COSTO DE VENTAS': 'costo',
+     'COSTO': 'costo', // Relaxed from COSTO DE VENTAS
      'UTILIDAD BRUTA': 'utilidad_bruta',
-     'GASTOS LOGISTICOS EXTERNOS': 'logistica',
-     'GASTOS LOGÍSTICOS EXTERNOS': 'logistica',
-     'UTILIDAD POST LOGISTICOS': 'utilidad_post',
-     'UTILIDAD POST LOGÍSTICOS': 'utilidad_post',
+     'LOGISTICO': 'logistica', // Relaxed
+     'LOGÍSTICO': 'logistica', // Relaxed
+     'UTILIDAD POST': 'utilidad_post',
      'APOYO COMERCIAL': 'apoyo_comercial',
-     'CONTRIBUCION DIRECTA': 'contribucion',
-     'CONTRIBUCIÓN DIRECTA': 'contribucion'
+     'CONTRIBUCION': 'contribucion', // Relaxed from CONTRIBUCION DIRECTA
+     'CONTRIBUCIÓN': 'contribucion'
   };
 
   const ignoreKeywords = [
@@ -1461,6 +1485,10 @@ export function renderPgHorizontal() {
   ];
 
   let currentConceptKey = null;
+
+  const sanitizeStr = (str) => {
+      return (str || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z0-9]/g, '').toUpperCase();
+  };
 
   if (scenarioColIdx !== -1) {
       data.forEach(row => {
@@ -1496,7 +1524,7 @@ export function renderPgHorizontal() {
           if (foundConcept) return;
 
           if (currentConceptKey) {
-              let normalizedBrand = conceptCellStr.replace(/[^A-Z0-9]/g, '');
+              let normalizedBrand = sanitizeStr(conceptCellStr);
               if (!brandsData[normalizedBrand]) brandsData[normalizedBrand] = {};
               brandsData[normalizedBrand][currentConceptKey] = safeNum(row[scenarioColIdx]);
               console.log("Brands Data update:", currentConceptKey, normalizedBrand, row[scenarioColIdx]);
@@ -1536,7 +1564,7 @@ export function renderPgHorizontal() {
 
   marcasPermitidas.forEach(marca => {
       const isTotal = String(marca).toLowerCase().includes('total');
-      const normMarca = marca.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const normMarca = sanitizeStr(marca);
       const rowData = brandsData[normMarca] || {};
       
       let unidades, ventas, costo, utilidad_bruta, logistica, utilidad_post, apoyo, contribucion;

@@ -839,6 +839,13 @@ async function fetchMasterData(token = null) {
 
         if (window._m365Interval) clearInterval(window._m365Interval);
         
+        // Restore login button UI based on current auth state
+        if (typeof window.updateM365UI === 'function') {
+            const msalClient = window.msalInstance;
+            const accounts = msalClient ? msalClient.getAllAccounts() : [];
+            window.updateM365UI(accounts.length > 0 ? accounts[0] : null);
+        }
+        
         // Si no hay acceso a ninguno y no hay cache local, error general
         if (!arrayBuffer && !arrayBufferCeo) {
             if (window.isMagicLoaded) {
