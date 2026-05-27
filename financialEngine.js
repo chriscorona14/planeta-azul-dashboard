@@ -142,16 +142,16 @@ export function financialEngine(workbook) {
     const sheetKeys = Object.keys(sheets);
     
     // Prioritize "PA" or "Seguimiento" as per user context
-    const estadosKey = sheetKeys.find(s => /estados financieros|estado de resultados/i.test(s) && !s.includes("ppto"));
-    const pnlKey = sheetKeys.find(s => (/pa|seguimiento|gerencial|p&l|resultado|income|ganancia/i.test(s)) && !s.includes("ppto")) || sheetKeys[0];
-    const balanceKey = sheetKeys.find(s => s.includes("balance sheet mdop") && !s.includes("ppto")) || 
-                       sheetKeys.find(s => /balance|situacion|estado/i.test(s) && !/p&l|resultado/i.test(s) && !s.includes("ppto"));
-    const cashflowKey = sheetKeys.find(s => /cash|flujo/i.test(s) && !s.includes("ppto"));
-    const wcKey = sheetKeys.find(s => /working|capital|wc/i.test(s) && !s.includes("ppto"));
+    const estadosKey = sheetKeys.find(s => /estados financieros|estado de resultados/i.test(s) && !/ppto/i.test(s));
+    const pnlKey = sheetKeys.find(s => (/pa|seguimiento|gerencial|p&l|resultado|income|ganancia/i.test(s)) && !/ppto/i.test(s)) || sheetKeys[0];
+    const balanceKey = sheetKeys.find(s => s.toLowerCase().includes("balance sheet mdop") && !/ppto/i.test(s)) || 
+                       sheetKeys.find(s => /balance|situacion|estado/i.test(s) && !/p&l|resultado/i.test(s) && !/ppto/i.test(s));
+    const cashflowKey = sheetKeys.find(s => /cash|flujo/i.test(s) && !/ppto/i.test(s));
+    const wcKey = sheetKeys.find(s => /working|capital|wc/i.test(s) && !/ppto/i.test(s));
 
-    const pptoPnlKey = sheetKeys.find(s => s.includes("ppto") && s.includes("l"));
-    const pptoBalanceKey = sheetKeys.find(s => s.includes("ppto") && s.includes("balance"));
-    const pptoCashflowKey = sheetKeys.find(s => s.includes("ppto") && s.includes("cash"));
+    const pptoPnlKey = sheetKeys.find(s => /ppto/i.test(s) && /l/i.test(s));
+    const pptoBalanceKey = sheetKeys.find(s => /ppto/i.test(s) && /balance/i.test(s));
+    const pptoCashflowKey = sheetKeys.find(s => /ppto/i.test(s) && /cash/i.test(s));
 
     if (pnlKey && sheets[pnlKey]) {
         const result = processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, pptoPnlKey, pptoBalanceKey, pptoCashflowKey, wcKey, estadosKey);
@@ -235,7 +235,7 @@ function findRowByKeywords(rows, keywords, targetRowIdxHint = null) {
     let maxScore = -1;
     
     // Normalización Total requerida por el usuario
-    const normalizedKeywords = keywords.map(k => k.trim().toLowerCase());
+    const normalizedKeywords = keywords.map(k => normalizeText(k).trim().toLowerCase());
 
     rows.forEach((row, idx) => {
         if (!row || row.length < 2) return;
@@ -248,7 +248,42 @@ function findRowByKeywords(rows, keywords, targetRowIdxHint = null) {
             // pero añadimos explícitamente trim() y toLowerCase() para máxima seguridad
             const label = normalizeText(cell).trim().toLowerCase();
             
-            if (normalizedKeywords.some(k => label === k || (k.length > 3 && label.includes(k)))) {
+            // Excluir líneas que son cálculos intermedios o utilidades antes de impuestos
+            if (normalizedKeywords.includes("taxes") || normalizedKeywords.includes("impuestos")) {
+                if (label.includes("antes") || label.includes("before") || label.includes("utilidad") || label.includes("operating") || label.includes("ebit") || label.includes("proyecci") || label.includes("ppto")) {
+                    continue;
+                }
+            }
+            
+            let matchedKeyword = null;
+            let matchIndex = -1;
+            let isExact = false;
+
+            for (let kIdx = 0; kIdx < normalizedKeywords.length; kIdx++) {
+                const k = normalizedKeywords[kIdx];
+                if (label === k) {
+                    matchedKeyword = k;
+                    matchIndex = kIdx;
+                    isExact = true;
+                    break;
+                }
+            }
+
+            if (!matchedKeyword) {
+                for (let kIdx = 0; kIdx < normalizedKeywords.length; kIdx++) {
+                    const k = normalizedKeywords[kIdx];
+                    if (k.length > 3 && label.includes(k)) {
+                        // Prevent "otras cuentas por pagar" from matching just "cuentas por pagar"
+                        if (k === "cuentas por pagar" && label.includes("otras")) continue;
+                        matchedKeyword = k;
+                        matchIndex = kIdx;
+                        isExact = false;
+                        break;
+                    }
+                }
+            }
+
+            if (matchedKeyword) {
                 let numCount = 0;
                 let potentialTotal = 0;
                 for (let j = 1; j < row.length; j++) {
@@ -260,8 +295,16 @@ function findRowByKeywords(rows, keywords, targetRowIdxHint = null) {
                 }
 
                 let score = numCount;
-                // Prioridad alta a coincidencias exactas con keywords importantes
-                if (normalizedKeywords.some(k => label === k)) score += 30;
+                
+                // Prioridad según el índice del keyword en la lista (menor índice = mayor prioridad)
+                // Esto asegura que palabras clave listadas primero tengan prioridad
+                const keywordPriorityBonus = (normalizedKeywords.length - matchIndex) * 100;
+                score += keywordPriorityBonus;
+
+                // Prioridad extremadamente alta a coincidencias exactas con el keyword
+                if (isExact) {
+                    score += 500;
+                }
                 
                 if (label.includes("total") || label.includes("sum") || label.includes("consolidado")) score += 15;
                 if (label.includes("neto") || label.includes("final") || label.includes("ejercicio")) score += 20;
@@ -331,16 +374,26 @@ export const FINANCIAL_KEYWORDS = {
     cf_cxc: ["aumento)/disminucion en cuentas por cobrar", "cuentas por cobrar", "cxc", "accounts receivable"],
     cf_inv: ["aumento)/disminucion en inventario", "inventario", "inventarios", "inventory"],
     cf_cxp: ["aumento/(disminucion) en cuentas por pagar", "cuentas por pagar", "cxp", "accounts payable"],
-    cf_capex: ["capex", "inversiones de capital", "desembolsos de capital", "adquisicion de activos", "capital expenditures"],
+    cf_otros_activos: ["(aumento)/disminucion en otros activos", "otros activos"],
+    cf_otros_activos_corrientes: ["(aumento)/disminucion en otros activos corrientes", "otros activos corrientes"],
+    cf_activos_terceros: ["aumento/(disminucion) en activos en manos de terceros", "(aumento)/disminucion en activos en manos de terceros", "activos en manos de terceros", "activos terceros"],
+    cf_pasivo_laboral: ["pasivo laboral", "pasivos laborales"],
+    cf_otros_pasivos: ["(aumento)/disminucion en otros pasivos", "otros pasivos"],
+    cf_otras_cxp: ["aumento/(disminucion) en otras cuentas por pagar", "otras cuentas por pagar", "otras cxp"],
+    cf_otros_pasivos_corrientes: ["aumento/(disminucion) en otros pasivos corrientes", "otros pasivos corrientes"],
+    cf_capex: ["capex", "inversiones de capital", "adquisicion de activos", "capital expenditures"],
     cf_financing: ["financing activities", "flujo de actividades de financiamiento", "actividades de financiamiento"],
-    cf_net_debt: ["aumento deuda neta", "variacion de deuda", "financiamiento neto", "deuda bancaria", "net debt", "repayment of debt"],
+    cf_net_debt: ["desembolsos de capital", "aumento deuda neta", "variacion de deuda", "financiamiento neto", "deuda bancaria", "net debt", "repayment of debt"],
     cf_change: ["change in cash", "cambio en efectivo", "variacion neta de efectivo"],
     cf_ending: ["ending cash balance", "efectivo final", "saldo final de efectivo", "caja final"],
     cf_below_ebitda: ["below ebitda"],
-    cf_taxes: ["taxes", "impuestos", "pago impuestos", "income taxes"],
+    cf_taxes: ["taxes"],
     cf_dividends: ["dividends", "dividendos", "shareholders activities", "accionistas"],
     cf_interest: ["gastos de interes", "intereses", "interest expense", "financial expenses", "interests earned"],
-    cf_extraordinary: ["gastos extraordinarios", "ingresos extraordinarios", "extraordinarios", "extraordinary items"],
+    cf_interest_earned: ["intereses ganados", "interests earned", "ingresos financieros", "interes ganado"],
+    cf_interest_expense: ["gastos financieros", "gastos de interes", "interest expense", "financial expenses", "interes gasto"],
+    cf_extraordinary: ["ingresos (gastos) extraordinarios", "gastos extraordinarios", "ingresos extraordinarios", "extraordinarios", "extraordinary items"],
+    cf_diferencial_cambiario: ["diferencial cambiario", "diferencia en cambio"],
     cf_dso: ["dso"],
     cf_dpo: ["dpo"],
     cf_dio: ["dio"]
@@ -410,16 +463,7 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
             }
         }
 
-        // Fallback offset loop for misaligned columns (used for Balance/CashFlow)
-        if (val === 0 && !preventOffset) {
-            for (let offset of [1, -1, 2, -2]) {
-                const checkVal = cleanNumber(row[idx + offset]);
-                if (checkVal !== 0) {
-                    val = checkVal;
-                    break;
-                }
-            }
-        }
+        // No column fallback offset used here to respect native zero values and single-period entries
 
         return val;
     };
@@ -428,16 +472,7 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
         if (!row) return 0;
         let val = cleanNumber(row[idx]);
         
-        // Fallback: buscar en un rango de +/- 2 columnas
-        if (val === 0) {
-            for (let offset of [1, -1, 2, -2]) {
-                const checkVal = cleanNumber(row[idx + offset]);
-                if (checkVal !== 0) {
-                    val = checkVal;
-                    break;
-                }
-            }
-        }
+        // No column fallback offset used here to respect native zero values and single-period entries
 
         const concept = normalizeText(extractConceptName(row));
         // Detectar si es un ratio (unitless) o moneda
@@ -502,14 +537,24 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
         cxc: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_cxc) : null,
         inv: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_inv) : null,
         cxp: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_cxp) : null,
+        otrosActivos: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_otros_activos) : null,
+        otrosActivosCorrientes: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_otros_activos_corrientes) : null,
+        activosTerceros: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_activos_terceros) : null,
+        pasivoLaboral: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_pasivo_laboral) : null,
+        otrosPasivos: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_otros_pasivos) : null,
+        otrasCxp: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_otras_cxp) : null,
+        otrosPasivosCorrientes: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_otros_pasivos_corrientes) : null,
         capex: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_capex) : null,
         financing: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_financing) : null,
-        netDebt: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_net_debt) : null,
+        netDebt: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_net_debt, 47) : null,
         belowEbitda: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_below_ebitda) : null,
-        taxes: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_taxes) : null,
+        taxes: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_taxes, 44) : null,
         dividends: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_dividends) : null,
         interest: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_interest) : null,
+        interest_earned: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_interest_earned) : null,
+        interest_expense: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_interest_expense) : null,
         extraordinary: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_extraordinary) : null,
+        diferencialCambiario: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_diferencial_cambiario) : null,
         change: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_change) : null,
         ending: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_ending) : null,
         dso: cashflowSheet ? findRowByKeywords(cashflowSheet, FINANCIAL_KEYWORDS.cf_dso) : null,
@@ -552,9 +597,35 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
     } : null;
 
     const cfRowsPpto = pptoCashflowSheet ? {
+        beginning: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_beginning),
         operating: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_operating),
+        wc: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_wc),
+        cxc: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_cxc),
+        inv: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_inv),
+        cxp: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_cxp),
+        otrosActivos: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_otros_activos),
+        otrosActivosCorrientes: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_otros_activos_corrientes),
+        activosTerceros: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_activos_terceros),
+        pasivoLaboral: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_pasivo_laboral),
+        otrosPasivos: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_otros_pasivos),
+        otrasCxp: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_otras_cxp),
+        otrosPasivosCorrientes: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_otros_pasivos_corrientes),
+        capex: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_capex),
+        financing: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_financing),
+        netDebt: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_net_debt, 47),
+        belowEbitda: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_below_ebitda),
+        taxes: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_taxes, 44),
+        dividends: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_dividends),
+        interest: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_interest),
+        interest_earned: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_interest_earned),
+        interest_expense: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_interest_expense),
+        extraordinary: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_extraordinary),
+        diferencialCambiario: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_diferencial_cambiario),
         change: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_change),
-        ending: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_ending)
+        ending: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_ending),
+        dso: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_dso),
+        dpo: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_dpo),
+        dio: findRowByKeywords(pptoCashflowSheet, FINANCIAL_KEYWORDS.cf_dio)
     } : null;
 
     // Helper to find data column indices for a given sheet based on target dates
@@ -565,9 +636,20 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
         const monthNames = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
         const shortMonths = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 
+        let bestRowIdx = -1;
+        let maxDates = 0;
+        const allRowDates = [];
+
         for (let i = 0; i < Math.min(sheet.length, 50); i++) {
             const row = sheet[i];
-            if (!row) continue;
+            const currentDates = {};
+            let datesCount = 0;
+            
+            if (!row) {
+                allRowDates.push(currentDates);
+                continue;
+            }
+            
             row.forEach((cell, j) => {
                 let dateObj = null;
                 if (cell instanceof Date) dateObj = cell;
@@ -606,12 +688,35 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
                     const y = dateObj.getFullYear();
                     if (y >= 2020 && y <= 2026) {
                         const dateKey = `${dateObj.getMonth()}-${y}`;
-                        if (!indices[dateKey]) indices[dateKey] = j;
+                        if (!currentDates[dateKey]) {
+                            currentDates[dateKey] = j;
+                            datesCount++;
+                        }
                     }
                 }
             });
+            
+            allRowDates.push(currentDates);
+            if (datesCount > maxDates) {
+                maxDates = datesCount;
+                bestRowIdx = i;
+            }
         }
-        return indices;
+        
+        let finalIndices = {};
+        if (bestRowIdx !== -1) {
+            finalIndices = allRowDates[bestRowIdx];
+            
+            // Si otra fila tiene fechas que la fila principal no tiene, también las agregamos
+            for (let i = 0; i < allRowDates.length; i++) {
+                if (i === bestRowIdx) continue;
+                for (const key in allRowDates[i]) {
+                    if (!finalIndices[key]) finalIndices[key] = allRowDates[i][key];
+                }
+            }
+        }
+
+        return finalIndices;
     };
 
     const pnlIndices = findSheetIndices(pnlSheet);
@@ -670,6 +775,12 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
 
     const bSheetToUse = balanceSheet || pnlSheet;
 
+    let conceptRow20 = "";
+    const refSheetForRow20 = balanceSheet || bSheetToUse;
+    if (refSheetForRow20 && refSheetForRow20[19]) {
+        conceptRow20 = extractConceptName(refSheetForRow20[19]).trim();
+    }
+
     const fullRows = pnlSheet.filter(row => {
         const rawC = extractConceptName(row);
         if (!rawC) return false;
@@ -719,11 +830,13 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
         return { concept: renamedConcept, values: rowValues };
     }) : [];
 
-    const balanceFullRows = bSheetToUse.filter(row => {
+    const balanceFullRows = bSheetToUse.filter((row, idx_row) => {
         const rawC = extractConceptName(row);
         if (!rawC) return false;
         const conceptStr = rawC;
         const concept = normalizeText(conceptStr);
+        if (idx_row === 19) return true;
+        if (conceptRow20 && rawC.trim().toLowerCase() === conceptRow20.toLowerCase()) return true;
         if (concept.includes("formatcode") || concept.includes("unnamed") || concept.length < 2) return false;
         
         const isHeader = concept === "activos" || concept === "pasivos" || concept === "patrimonio" || 
@@ -800,6 +913,91 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
         if (isTargetNetIncome) renamedConcept = "Beneficio Neto del Periodo";
         return { concept: renamedConcept, values: rowValues };
     });
+
+    const pptoBSheetToUse = pptoBalanceSheet || pptoPnlSheet;
+    const pptoBalanceFullRows = pptoBSheetToUse ? pptoBSheetToUse.filter((row, idx_row) => {
+        const rawC = extractConceptName(row);
+        if (!rawC) return false;
+        const conceptStr = rawC;
+        const concept = normalizeText(conceptStr);
+        if (idx_row === 19) return true;
+        if (conceptRow20 && rawC.trim().toLowerCase() === conceptRow20.toLowerCase()) return true;
+        if (concept.includes("formatcode") || concept.includes("unnamed") || concept.length < 2) return false;
+        
+        const isHeader = concept === "activos" || concept === "pasivos" || concept === "patrimonio" || 
+                         concept === "capital" || concept === "pasivo y capital" || 
+                         concept === "activo" || concept === "pasivo" ||
+                         concept === "ingresos" || concept === "costos" || concept === "gastos";
+        
+        const isAccountingRule = concept.includes("ganancia acumulada") || concept.includes("utilidad acumulada") || 
+                                concept.includes("utilidades retenidas") || concept.includes("ganancia retenida") ||
+                                concept.includes("beneficio neto") || concept.includes("utilidad del ejercicio");
+
+        if (isHeader && !isAccountingRule && !concept.includes("total")) return false;
+        if (!isAccountingRule && (concept.includes("en mdop") || concept.includes("estado de situacion") || concept.includes("reporte pa"))) return false;
+        
+        const monthNamesArr = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+        const shortMonths = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+        if (monthNamesArr.some(m => concept.includes(m)) || shortMonths.some(s => concept.includes(s))) return false;
+        
+        const isTypicalBalance = concept.includes("activo") || concept.includes("pasivo") || 
+                                 concept.includes("patrimonio") || concept.includes("efectivo") || 
+                                 concept.includes("bancos") || concept.includes("cobrar") || 
+                                 concept.includes("inventario") || concept.includes("propiedad") || 
+                                 concept.includes("ppe") || concept.includes("prestamos") || 
+                                 concept.includes("capital") || concept.includes("reserva") ||
+                                 concept.includes("covenant") || concept.includes("deuda neta") ||
+                                 concept.includes("ltm ebitda") || concept.includes("ebitda r12") || 
+                                 concept.includes("deuda bruta") || concept.includes("deuda total") ||
+                                 concept.includes("deuda subordinada") || concept.includes("deuda sin subordinada") ||
+                                 concept.includes("apalancamiento") ||
+                                 concept.includes("capacidad de pago") || concept.includes("capacidad") || 
+                                 concept.includes("razon corriente") ||
+                                 concept.includes("ganancia") || concept.includes("beneficio");
+
+        const isNetIncomeInBalance = (concept.includes("utilidad") || concept.includes("ganancia") || concept.includes("beneficio") || concept.includes("ganancia")) && 
+                                     (concept.includes("ejercicio") || concept.includes("periodo") || concept.includes("neto"));
+
+        if (pptoBSheetToUse === pptoPnlSheet && !isTypicalBalance && !isNetIncomeInBalance) {
+            const pnlStrict = ["ingresos", "ventas netas", "costo de ventas", "utilidad bruta", "ebitda", "ggadm", "ebit"];
+            if (pnlStrict.some(p => concept === p || concept.includes(p))) return false;
+        }
+        
+        if (isTypicalBalance || isNetIncomeInBalance) return true;
+
+        return dataPeriods.some(p => {
+            const curBIdx = p.pptoBalanceIdx !== -1 ? p.pptoBalanceIdx : p.pptoPnlIdx;
+            if (curBIdx === -1) return false;
+            const val = getBalanceVal(row, curBIdx);
+            return val !== 0 && !isNaN(val);
+        });
+    }).map(row => {
+        const rawConcept = extractConceptName(row);
+        let renamedConcept = rawConcept;
+        const normConcept = normalizeText(rawConcept);
+        
+        const isTargetNetIncome = normConcept === "ganancia del periodo" || normConcept === "utilidad del ejercicio" || 
+            normConcept === "resultado del periodo" || normConcept.includes("beneficio neto") || 
+            normConcept.includes("utilidad neta") || normConcept.includes("ganancia neta") ||
+            normConcept.includes("resultado neta");
+
+        const rowValues = {};
+        dataPeriods.forEach(p => {
+            const curBIdx = p.pptoBalanceIdx !== -1 ? p.pptoBalanceIdx : p.pptoPnlIdx;
+            let val = curBIdx !== -1 ? getBalanceVal(row, curBIdx) : 0;
+            
+            if (isTargetNetIncome && val === 0 && curBIdx !== -1) {
+                const gAcum = balanceRowsPpto ? getBalanceVal(balanceRowsPpto.gananciaAcumulada, curBIdx) : 0;
+                const uRet = balanceRowsPpto ? getBalanceVal(balanceRowsPpto.utilidadesRetenidas, curBIdx) : 0;
+                if (gAcum !== 0 || uRet !== 0) val = uRet - gAcum;
+            }
+            
+            rowValues[p.date.toLocaleDateString('es-ES', { month: 'short', year: 'numeric' })] = val;
+        });
+
+        if (isTargetNetIncome) renamedConcept = "Beneficio Neto del Periodo";
+        return { concept: renamedConcept, values: rowValues };
+    }) : [];
 
     const wcFullRows = wcSheet ? wcSheet.filter(row => {
         const rawC = extractConceptName(row);
@@ -911,6 +1109,25 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
                 const row = cfRows[key];
                 if (row) cashflowDetail[key] = getVal(row, cfIdx, false);
             });
+            // Compound keys integration
+            cashflowDetail.otrosActivos = (cashflowDetail.otrosActivos || 0) + (cashflowDetail.otrosActivosCorrientes || 0) + (cashflowDetail.activosTerceros || 0);
+            cashflowDetail.otrosPasivos = cashflowDetail.otrasCxp || 0;
+            cashflowDetail.pasivoLaboral = (cashflowDetail.pasivoLaboral || 0) + (cashflowDetail.otrosPasivosCorrientes || 0);
+            
+            if (cashflowDetail.interest_earned !== undefined || cashflowDetail.interest_expense !== undefined) {
+                const sumInterest = (cashflowDetail.interest_earned || 0) + (cashflowDetail.interest_expense || 0);
+                if (sumInterest !== 0) {
+                    cashflowDetail.interest = sumInterest;
+                }
+            }
+            
+            // Prevent double counting if we iterate this dict anywhere else later
+            delete cashflowDetail.otrosActivosCorrientes;
+            delete cashflowDetail.activosTerceros;
+            delete cashflowDetail.otrasCxp;
+            delete cashflowDetail.otrosPasivosCorrientes;
+            delete cashflowDetail.interest_earned;
+            delete cashflowDetail.interest_expense;
         }
 
         const wcDetail = {};
@@ -930,6 +1147,33 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
         // === EXTRACT PPTO ===
         let pptoIngresos = 0, pptoCostos = 0, pptoEbitda = 0, pptoOpex = 0, pptoUtilidad = 0, pptoCashflowVal = 0;
         let pptoActivos = 0, pptoPasivos = 0, pptoPatrimonio = 0, pptoTasaCambio = 1;
+
+        const pptoCashflowDetail = {};
+        if (pptoCashflowSheet && pptoCfIdx !== -1) {
+            Object.keys(cfRowsPpto).forEach(key => {
+                const row = cfRowsPpto[key];
+                if (row) pptoCashflowDetail[key] = getVal(row, pptoCfIdx, false);
+            });
+            // Compound keys integration
+            pptoCashflowDetail.otrosActivos = (pptoCashflowDetail.otrosActivos || 0) + (pptoCashflowDetail.otrosActivosCorrientes || 0) + (pptoCashflowDetail.activosTerceros || 0);
+            pptoCashflowDetail.otrosPasivos = pptoCashflowDetail.otrasCxp || 0;
+            pptoCashflowDetail.pasivoLaboral = (pptoCashflowDetail.pasivoLaboral || 0) + (pptoCashflowDetail.otrosPasivosCorrientes || 0);
+            
+            if (pptoCashflowDetail.interest_earned !== undefined || pptoCashflowDetail.interest_expense !== undefined) {
+                const sumInterest = (pptoCashflowDetail.interest_earned || 0) + (pptoCashflowDetail.interest_expense || 0);
+                if (sumInterest !== 0) {
+                    pptoCashflowDetail.interest = sumInterest;
+                }
+            }
+            
+            // Prevent double counting if we iterate this dict anywhere else later
+            delete pptoCashflowDetail.otrosActivosCorrientes;
+            delete pptoCashflowDetail.activosTerceros;
+            delete pptoCashflowDetail.otrasCxp;
+            delete pptoCashflowDetail.otrosPasivosCorrientes;
+            delete pptoCashflowDetail.interest_earned;
+            delete pptoCashflowDetail.interest_expense;
+        }
 
         if (pnlRowsPpto) {
             pptoIngresos = pptoPnlIdx !== -1 && pnlRowsPpto.ingresos ? getVal(pnlRowsPpto.ingresos, pptoPnlIdx, true) : 0; 
@@ -1024,6 +1268,7 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
             },
             ppto: {
                 tasaCambio: pptoTasaCambio,
+                cashflowDetail: pptoCashflowDetail,
                 kpis: {
                     ingresos: pptoIngresos,
                     utilidad: pptoUtilidad,
@@ -1033,7 +1278,9 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
                 balance: {
                     activos: pptoActivos,
                     pasivos: pptoPasivos,
-                    patrimonio: pptoPatrimonio
+                    patrimonio: pptoPatrimonio,
+                    fullRows: pptoBalanceFullRows,
+                    conceptRow20: conceptRow20
                 },
                 pnl: {
                     categorias: { 
@@ -1056,7 +1303,8 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
             balance: { 
                 activos, pasivos, patrimonio, deudaTotal, ebitdaLTM,
                 cuadra: Math.abs(activos - (pasivos + patrimonio)) < 100,
-                fullRows: balanceFullRows 
+                fullRows: balanceFullRows,
+                conceptRow20: conceptRow20
             },
             cashflowDetail,
             wcFullRows,

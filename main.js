@@ -1,6 +1,8 @@
 import * as XLSX from 'xlsx';
 import { GoogleGenAI } from "@google/genai";
 import * as d3 from 'd3';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 import { financialEngine, formatCurrency, formatRawCurrency, formatPercent, normalizeText, calculateYTD, formatSegmentName } from "./financialEngine.js";
 import { buildLLMInput } from "./buildLLMInput.js";
 import { validateLLMInput } from "./validator.js";
@@ -560,6 +562,27 @@ async function fetchMasterData(token = null) {
     const sidebarSyncDot = document.getElementById('sidebarSyncDot');
     const sidebarSyncText = document.getElementById('sidebarSyncText');
 
+    // ==========================================
+    // AUTO-RECUPERACIÓN SILENCIOSA DE SESIÓN MSAL
+    // ==========================================
+    if (!token && typeof msalInstance !== 'undefined' && msalInstance) {
+        const accounts = msalInstance.getAllAccounts();
+        if (accounts.length > 0) {
+            try {
+                msalInstance.setActiveAccount(accounts[0]);
+                const silentResponse = await msalInstance.acquireTokenSilent({
+                    scopes: ["User.Read", "Files.Read", "Files.Read.All"],
+                    account: accounts[0]
+                });
+                token = silentResponse.accessToken;
+                window.m365LoggedIn = true;
+                console.log("⚡ [M365] Token refrescado y re-vinculado de manera silenciosa.");
+            } catch (err) {
+                console.warn("⚠️ No se pudo reconectar de forma silenciosa al iniciar sync:", err);
+            }
+        }
+    }
+
     if (sidebarSyncDot) sidebarSyncDot.style.backgroundColor = 'var(--warning)';
     if (sidebarSyncText) {
         sidebarSyncText.innerText = 'Sincronizando...';
@@ -575,54 +598,41 @@ async function fetchMasterData(token = null) {
     // ==========================================
     // 1. LA BARRERA SILENCIOSA (Stale-While-Revalidate)
     // ==========================================
-    // Si la magia de loadCacheInstant() ya funcionó, NO apagamos la pantalla.
     if (window.isMagicLoaded) {
         console.log("⚡ Modo Silencioso: Caché activa. Buscando actualizaciones en O365 sin bloquear la UI...");
         if (statusEl) {
             statusEl.style.background = '#e0f2fe';
             statusEl.style.color = '#0369a1';
             statusEl.style.borderColor = '#bae6fd';
-            statusEl.innerHTML = "🔄 Sincronizando actualizaciones en segundo plano...";
+            statusEl.innerHTML = "🔄 Buscando actualizaciones en Microsoft 365 en segundo plano...";
         }
     } else {
-        // Es la primera vez que el usuario entra, aquí SÍ mostramos el loader.
         console.log("No hay caché. Iniciando carga completa bloqueante...");
         viewContainers.forEach(v => v.style.display = 'none');
         if (dropZone) dropZone.style.display = 'none';
         
         if (loader) {
             loader.innerHTML = `
-                <div style="background: white; padding: 40px; border-radius: 16px; box-shadow: var(--shadow-lg); width: 320px; text-align: center; border: 1px solid var(--border);">
+                <div style="background: white; padding: 40px; border-radius: 16px; box-shadow: var(--shadow-lg); width: 340px; text-align: center; border: 1px solid var(--border);">
                     <i data-lucide="loader" class="spin-icon" style="width: 48px; height: 48px; color: var(--primary); margin: 0 auto; margin-bottom: 20px; display: block;"></i>
                     <h4 style="font-size: 1.1rem; color: var(--text-primary); margin-bottom: 12px; font-weight: 600;">Sincronizando con M365...</h4>
                     <div style="width: 100%; height: 8px; background: #eef2f5; border-radius: 4px; overflow: hidden; margin-bottom: 12px;">
-                        <div id="progressBar" style="width: 0%; height: 100%; background: var(--primary); transition: width 0.3s ease;"></div>
+                        <div id="progressBar" style="width: 5%; height: 100%; background: var(--primary); transition: width 0.3s ease;"></div>
                     </div>
-                    <p id="loadingText" style="font-size: 0.9rem; color: var(--text-secondary); margin: 0;">Conectando...</p>
+                    <p id="loadingText" style="font-size: 0.85rem; color: var(--text-secondary); margin: 0;">Conectando con Microsoft...</p>
                 </div>
             `;
             loader.style.display = 'flex';
             if (window.lucide) window.lucide.createIcons();
-
-            // Animación suave de progreso para la etapa de red
-            if (window._m365Interval) clearInterval(window._m365Interval);
-            window._m365Progress = 5;
-            window._m365Interval = setInterval(() => {
-                if (window._m365Progress < 45) {
-                    window._m365Progress += Math.random() * 4 + 1; // Crece poco a poco
-                    const pb = document.getElementById('progressBar');
-                    if (pb) pb.style.width = `${window._m365Progress}%`;
-                }
-            }, 600);
         }
-        if (statusEl) statusEl.innerHTML = "⏳ Conectando al servidor...";
+        if (statusEl) statusEl.innerHTML = "⏳ Estableciendo conexión con Microsoft Graph...";
     }
 
     // ==========================================
-    // 2. DESCARGA DEL ARCHIVO (O365 o Proxy) y VENTAS CEO
+    // 2. DESCARGA DEL ARCHIVO (O365 Directo o Intercepción)
     // ==========================================
     try {
-        const SYNC_TIMEOUT = 45000;
+        const SYNC_TIMEOUT = 65000; // Aumentado para tolerar descargas masivas
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), SYNC_TIMEOUT);
         let arrayBuffer = null;
@@ -633,6 +643,9 @@ async function fetchMasterData(token = null) {
         window.hasComercialAccess = false;
 
         try {
+            const pb = document.getElementById('progressBar');
+            const lt = document.getElementById('loadingText');
+
             if (token) {
                 // Get runtime config from the server to bypass build-time env var freezing
                 let runtimeConfig = {};
@@ -649,7 +662,9 @@ async function fetchMasterData(token = null) {
                 SHARPOINT_FILE_URL = localStorage.getItem('CUSTOM_ONEDRIVE_FILE_URL') || import.meta.env.VITE_ONEDRIVE_FILE_URL || import.meta.env.VITE_ONEDRIVE_ITEM_ID || runtimeConfig.VITE_ONEDRIVE_FILE_URL;
                 SHARPOINT_VENTAS_FILE_URL = localStorage.getItem('CUSTOM_ONEDRIVE_VENTAS_URL') || import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID || runtimeConfig.VITE_CEO_FILE_URL;
 
-                // Descarga Master Financiero
+                // Descarga Master Financiero (Directo)
+                if (lt) lt.innerText = "Descargando Finanzas Master (5.0 MB)...";
+                if (pb) pb.style.width = "20%";
                 const resolvedUrl = resolveSharepointUrlClient(SHARPOINT_FILE_URL);
                 const encodedUrl = encodeUrlM365(resolvedUrl);
                 if (encodedUrl) {
@@ -670,7 +685,9 @@ async function fetchMasterData(token = null) {
                     }
                 }
 
-                // Descarga Ventas CEO inmediata
+                // Descarga Ventas CEO inmediata (Directo)
+                if (lt) lt.innerText = "Descargando Ventas CEO (133 kB)...";
+                if (pb) pb.style.width = "40%";
                 const CEO_FILE_URL = SHARPOINT_VENTAS_FILE_URL || import.meta.env.VITE_CEO_FILE_URL || import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID || runtimeConfig.VITE_CEO_FILE_URL;
                 const resolvedCeoUrl = resolveSharepointUrlClient(CEO_FILE_URL);
                 const encodedCeoUrl = encodeUrlM365(resolvedCeoUrl);
@@ -692,7 +709,9 @@ async function fetchMasterData(token = null) {
                     }
                 }
 
-                // Descarga Resumen Comercial
+                // Descarga Resumen Comercial (Directo)
+                if (lt) lt.innerText = "Descargando Resumen Comercial (5.0 MB)...";
+                if (pb) pb.style.width = "60%";
                 RESUMEN_COMERCIAL_URL = localStorage.getItem('CUSTOM_RESUMEN_COMERCIAL_URL') || import.meta.env.VITE_RESUMEN_COMERCIAL_URL || runtimeConfig.VITE_RESUMEN_COMERCIAL_URL;
                 const resolvedComercialUrl = resolveSharepointUrlClient(RESUMEN_COMERCIAL_URL);
                 const encodedComercialUrl = encodeUrlM365(resolvedComercialUrl);
@@ -730,7 +749,9 @@ async function fetchMasterData(token = null) {
                     }
                 }
 
-                // Descarga P&G Horizontal
+                // Descarga P&G Horizontal (Directo)
+                if (lt) lt.innerText = "Descargando P&G Horizontal por Producto (29.8 MB)...";
+                if (pb) pb.style.width = "83%";
                 PG_HORIZONTAL_URL = localStorage.getItem('CUSTOM_PG_HORIZONTAL_URL') || import.meta.env.VITE_PG_HORIZONTAL_URL || runtimeConfig.VITE_PG_HORIZONTAL_URL;
                 const resolvedPgUrl = resolveSharepointUrlClient(PG_HORIZONTAL_URL);
                 const encodedPgUrl = encodeUrlM365(resolvedPgUrl);
@@ -762,6 +783,81 @@ async function fetchMasterData(token = null) {
                     }
                 }
             } else {
+                // ==========================================
+                // INTERCEPCIÓN EN VERCEL (Caché vs Bloqueo)
+                // ==========================================
+                const isVercel = window.location.hostname.includes("vercel.app");
+                if (isVercel) {
+                    console.warn("⚠️ Sincronización solicitada sin autenticación en Vercel. Interceptando para prevenir 504 Timeout.");
+
+                    if (window.isMagicLoaded) {
+                        // Si ya tenemos datos previos en caché, el usuario trabaja de forma segura sin caídas
+                        console.log("Caché activa detectada. Ignorando peticiones lentas de backend.");
+                        if (statusEl) {
+                            statusEl.innerHTML = `ℹ️ <span style="font-weight:600; cursor:pointer;" onclick="connectM365()">Conectar cuenta de Microsoft</span> para actualizar datos en tiempo real. Trabajando con caché offline segura.`;
+                            statusEl.style.background = '#eff6ff';
+                            statusEl.style.color = '#1e40af';
+                            statusEl.style.borderColor = '#bfdbfe';
+                        }
+                        if (sidebarSyncDot) sidebarSyncDot.style.backgroundColor = '#3b82f6'; // Azul Info
+                        if (sidebarSyncText) {
+                            sidebarSyncText.innerText = 'Caché Offline';
+                            sidebarSyncText.style.color = '#3b82f6';
+                            sidebarSyncText.style.cursor = 'pointer';
+                            sidebarSyncText.title = "Haz clic para conectar con Microsoft 365 y actualizar en tiempo real";
+                        }
+                        
+                        // Ocultamos loaders y restauramos vistas
+                        if (loader) loader.style.display = 'none';
+                        viewContainers.forEach(v => {
+                            if (v.id === 'view-kpi-dashboard' || v.classList.contains('active')) {
+                                v.style.display = 'block';
+                            }
+                        });
+                        return; // Fin anticipado y seguro
+                    } else {
+                        // Si es el primer ingreso del usuario y no hay caché, no podemos seguir por backend por los 504 timeouts.
+                        // Forzamos un lindo Overlay indicando la necesidad exclusiva de MSAL.
+                        if (statusEl) {
+                            statusEl.innerHTML = `⚠️ <span style="font-weight:600; cursor:pointer;" onclick="connectM365()">Inicio de sesión Microsoft Requerido</span> para descargar archivos pesados.`;
+                            statusEl.style.background = '#fef2f2';
+                            statusEl.style.color = '#991b1b';
+                            statusEl.style.borderColor = '#fecaca';
+                        }
+                        
+                        if (loader) {
+                            loader.innerHTML = `
+                                <div style="background: white; padding: 40px; border-radius: 16px; box-shadow: var(--shadow-lg); width: 440px; text-align: center; border: 1px solid var(--border); font-family: system-ui, sans-serif;">
+                                    <div style="font-size: 48px; margin-bottom: 20px;">🔒</div>
+                                    <h4 style="font-size: 1.25rem; color: #111827; margin-bottom: 12px; font-weight: 700; letter-spacing: -0.025em;">Autenticación OneDrive Requerida</h4>
+                                    <p style="font-size: 0.9rem; color: #4b5563; margin-bottom: 28px; line-height: 1.6;">
+                                        Los informes financieros para <b>Resumen Comercial (5.0 MB)</b> y <b>P&G Horizontal (29.8 MB)</b> exceden los límites máximos permitidos por el proxy interactivo del backend en Vercel.<br><br>
+                                        Inicia sesión con tu cuenta organizativa para descargarlos directamente desde los servidores CDN de Microsoft a máxima velocidad de forma 100% segura.
+                                    </p>
+                                    <button id="loginM365BtnLoader" style="background: #004a99; color: white; border: none; padding: 12px 28px; border-radius: 8px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; font-size: 0.95rem; box-shadow: 0 4px 6px -1px rgba(0, 74, 153, 0.2);">
+                                        <svg style="width: 16px; height: 16px; fill: white;" viewBox="0 0 23 23"><path d="M0 0h11v11H0zM12 0h11v11H12zM0 12h11v11H0zM12 12h11v11H12z"/></svg>
+                                        Conectar Microsoft 365
+                                    </button>
+                                </div>
+                            `;
+                            loader.style.display = 'flex';
+                            const btnLoader = document.getElementById('loginM365BtnLoader');
+                            if (btnLoader) {
+                                btnLoader.addEventListener('click', connectM365);
+                            }
+                        }
+                        
+                        if (sidebarSyncDot) sidebarSyncDot.style.backgroundColor = 'var(--danger)';
+                        if (sidebarSyncText) {
+                            sidebarSyncText.innerText = 'Iniciar Sesión M365';
+                            sidebarSyncText.style.color = 'var(--danger)';
+                            sidebarSyncText.style.cursor = 'pointer';
+                        }
+                        return; // Bloqueado tempranamente
+                    }
+                }
+
+                // Fallback clásico local (solo si no es Vercel)
                 let paramsMaster = SHARPOINT_FILE_URL ? `?url=${encodeURIComponent(SHARPOINT_FILE_URL)}` : '';
                 const response = await fetch(`/api/downloadSync${paramsMaster}`, { signal: controller.signal });
                 if (response.ok) {
@@ -780,7 +876,6 @@ async function fetchMasterData(token = null) {
                 const responseComercial = await fetch(`/api/downloadSyncComercial${paramsComercial}`, { signal: controller.signal });
                 if (responseComercial.ok) {
                     const arrayBufferComercial = await responseComercial.arrayBuffer();
-                    // Enviar al motor para procesar y cachear
                     if (!window.resumenComercialEngine) {
                         try {
                             const engine = await import('./resumenComercialEngine.js');
@@ -1295,9 +1390,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                         }
                     } else {
                         const sidebarSyncText = document.getElementById('sidebarSyncText');
+                        const sidebarSyncDot = document.getElementById('sidebarSyncDot');
                         if (sidebarSyncText) {
                             sidebarSyncText.innerText = 'Sesión expirada';
-                            sidebarSyncText.style.color = 'var(--warning)';
+                            sidebarSyncText.style.color = '#ef4444';
+                        }
+                        if (sidebarSyncDot) {
+                            sidebarSyncDot.style.backgroundColor = '#ef4444';
                         }
                     }
                 }
@@ -1322,6 +1421,35 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.handleMSALLoginFailure();
     }
     
+    // Wire up interactive clickable sidebar sync status action
+    const sidebarSyncStatus = document.getElementById('sidebarSyncStatus');
+    if (sidebarSyncStatus) {
+        sidebarSyncStatus.style.cursor = 'pointer';
+        sidebarSyncStatus.title = "Haz clic para conectar con Microsoft 365 y sincronizar en tiempo real";
+        sidebarSyncStatus.addEventListener('click', async () => {
+            if (typeof msalInstance !== 'undefined' && msalInstance) {
+                const accounts = msalInstance.getAllAccounts();
+                if (accounts.length > 0) {
+                    try {
+                        const silentResp = await msalInstance.acquireTokenSilent({
+                            scopes: ["User.Read", "Files.Read", "Files.Read.All"],
+                            account: accounts[0]
+                        });
+                        alert("Sincronizando de forma directa con Microsoft 365... (Garantiza velocidad ultra-rápida)");
+                        await fetchMasterData(silentResp.accessToken);
+                    } catch (e) {
+                        console.error("Silent sync failed, prompt interactive logon:", e);
+                        await connectM365();
+                    }
+                } else {
+                    await connectM365();
+                }
+            } else {
+                alert("Microsoft MSAL no está listo en esta sesión de navegador.");
+            }
+        });
+    }
+
     // Wire up Office 365 Sync and Settings UI actions
     const loginM365Btn = document.getElementById('loginM365Btn');
     if (loginM365Btn) {
@@ -1392,8 +1520,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Setup Export and Mobile Menu
     const btnExportCSV = document.getElementById('btn-export-csv');
-    if (btnExportCSV) {
-        btnExportCSV.addEventListener('click', () => {
+    const bindCsvExport = (btn) => {
+        if (!btn) return;
+        btn.addEventListener('click', () => {
             const mainContainer = document.querySelector('.main-container');
             const views = mainContainer.querySelectorAll('.view-container');
             let activeViewId = 'view-resumen';
@@ -1463,7 +1592,375 @@ document.addEventListener('DOMContentLoaded', async () => {
             const filename = `${prefix}_${dateStr}.csv`;
             downloadCSV(dataToExport, filename);
         });
-    }
+    };
+    
+    bindCsvExport(btnExportCSV);
+
+    const btnExportPDF = document.getElementById('btn-export-pdf');
+    const bindPdfExport = (btn) => {
+        if (!btn) return;
+        btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<i data-lucide="loader" class="spin-icon" style="width: 16px; height: 16px; display: inline-block; vertical-align: middle; margin-right: 4px;"></i> Generando Master PDF...';
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+
+            const previousViewId = document.querySelector('.view-container.active')?.id || 'view-config';
+            const ytdCheckbox = document.getElementById('ytdToggle');
+            const previousYTD = ytdCheckbox ? ytdCheckbox.checked : false;
+            
+            // Scroll to top before rendering to prevent html2canvas clipping sticky elements
+            window.scrollTo(0, 0);
+
+            const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+            let pdf = null;
+            let isFirstPage = true;
+
+            const addPageToPDF = async (forcedSubtitle = "") => {
+                const layoutWrapper = document.querySelector('.layout-wrapper');
+                const contentToRender = document.querySelector('.main-container');
+                if (!contentToRender) return;
+
+                // Expand parent fully to avoid cropping
+                let layoutWrapperOrigHeight = "";
+                let layoutWrapperOrigOverflow = "";
+                if (layoutWrapper) {
+                    layoutWrapperOrigHeight = layoutWrapper.style.height;
+                    layoutWrapperOrigOverflow = layoutWrapper.style.overflow;
+                    layoutWrapper.style.height = "auto";
+                    layoutWrapper.style.overflow = "visible";
+                }
+
+                const headerActions = document.querySelector('.header-actions');
+                let originalHeaderDisplay = '';
+                if (headerActions) {
+                    originalHeaderDisplay = headerActions.style.display;
+                    headerActions.style.display = 'none';
+                }
+                
+                // Keep perspective buttons visible so it's clear what's being viewed
+                let pnlControls = contentToRender.querySelector('.pnl-controls');
+                let pnlControlsDisplay = '';
+                if (pnlControls) {
+                    pnlControlsDisplay = pnlControls.style.display;
+                    pnlControls.style.display = 'none';
+                }
+
+                const originalOverflow = contentToRender.style.overflow;
+                const originalHeight = contentToRender.style.height;
+                const originalPaddingBottom = contentToRender.style.paddingBottom;
+                contentToRender.style.overflow = "visible";
+                contentToRender.style.height = "max-content";
+                contentToRender.style.paddingBottom = "100px";
+
+                const expandStyles = document.createElement('style');
+                expandStyles.id = 'pdf-expand-style';
+                expandStyles.innerHTML = `
+                    .main-container, .layout-wrapper {
+                        width: max-content !important;
+                        min-width: 100% !important;
+                        height: auto !important;
+                        max-height: none !important;
+                        overflow: visible !important;
+                    }
+                    .view-container.active, .card, .pnl-detail-table, .table-container, .chart-box {
+                        height: auto !important;
+                        max-height: none !important;
+                        overflow: visible !important;
+                    }
+                    table {
+                        width: 100% !important; 
+                        max-width: none !important;
+                    }
+                `;
+                document.head.appendChild(expandStyles);
+                
+                await sleep(150); // allow layout to recalculate
+                
+                // Esperar a que el layout se estabilice (altura deja de cambiar)
+                await new Promise(resolve => {
+                    let lastHeight = 0;
+                    let stable = 0;
+                    const check = () => {
+                        const h = contentToRender.scrollHeight;
+                        if (h === lastHeight) { stable++; } else { stable = 0; lastHeight = h; }
+                        if (stable >= 3) { resolve(); } else { requestAnimationFrame(check); }
+                    };
+                    requestAnimationFrame(check);
+                });
+                
+                const header = document.getElementById('mainHeader');
+                let origHeaderPos = "";
+                if (header) {
+                    origHeaderPos = header.style.position;
+                    header.style.position = 'static'; 
+                }
+
+                // Add Subtitle if provided
+                const titleLabel = document.getElementById('titleLabel');
+                let origTitleHTML = "";
+                if (titleLabel && forcedSubtitle) {
+                    origTitleHTML = titleLabel.innerHTML;
+                    titleLabel.innerHTML += ` <span style="font-size: 0.7em; color: white; background-color: var(--primary); padding: 4px 8px; border-radius: 8px; margin-left: 10px; vertical-align: middle;">${forcedSubtitle}</span>`;
+                }
+
+                // Use solid white background to avoid pale/veil effect from lighter grey
+                const bgColor = "#ffffff";
+
+                // Ensure the capture window captures the true scrollable width
+                const fullWidth = Math.max(document.body.scrollWidth, contentToRender.scrollWidth);
+
+                const canvas = await html2canvas(contentToRender, {
+                    scale: 2, 
+                    useCORS: true,
+                    logging: false,
+                    backgroundColor: bgColor,
+                    windowWidth: fullWidth,
+                    windowHeight: Math.max(document.body.scrollHeight, contentToRender.scrollHeight) + 200,
+                    onclone: (clonedDoc) => {
+                         // Fix the animation veil: animations mid-flight cause elements to have 50% opacity
+                         const style = clonedDoc.createElement('style');
+                         style.innerHTML = `
+                            * { 
+                                animation: none !important; 
+                                transition: none !important; 
+                            }
+                            .main-container, .layout-wrapper {
+                                width: max-content !important;
+                                min-width: 100% !important;
+                                height: auto !important;
+                                max-height: none !important;
+                                overflow: visible !important;
+                            }
+                            .view-container.active, .card, .section-table, .pnl-detail-table, .table-container, .chart-box {
+                                height: auto !important;
+                                max-height: none !important;
+                                overflow: visible !important;
+                            }
+                            table {
+                                width: 100% !important; 
+                                max-width: none !important;
+                            }
+                         `;
+                         clonedDoc.head.appendChild(style);
+
+                         const mainCont = clonedDoc.querySelector('.main-container');
+                         if (mainCont) {
+                             mainCont.style.overflow = "visible";
+                             mainCont.style.height = "max-content";
+                             mainCont.style.maxHeight = "none";
+                             mainCont.style.paddingTop = "40px";
+                             mainCont.style.paddingBottom = "140px";
+                         }
+                         const activeTab = clonedDoc.querySelector('.view-container.active');
+                         if (activeTab) {
+                             activeTab.style.overflow = "visible"; 
+                             activeTab.style.height = "max-content";
+                             activeTab.style.maxHeight = "none";
+                             activeTab.style.padding = "20px";
+                             
+                             // Darken secondary text slightly so it's not faded in PDF
+                             const textSecs = activeTab.querySelectorAll('[style*="var(--text-secondary)"]');
+                             textSecs.forEach(el => {
+                                 if (el.style) el.style.color = "#475569";
+                             });
+
+                             // Prevent tables from cutting off
+                             const tableCont = activeTab.querySelector('.pnl-detail-table');
+                             if (tableCont) {
+                                 tableCont.style.overflow = "visible";
+                                 tableCont.style.maxHeight = "none";
+                                 tableCont.style.height = "auto";
+                             }
+                             
+                             const ventasList = activeTab.querySelectorAll('.pnl-detail-table');
+                             ventasList.forEach(t => {
+                                 t.style.overflow = "visible";
+                                 t.style.maxHeight = "none";
+                             });
+
+                             // Forzar visibilidad de todos los elementos de la vista activa
+                             const allChildren = activeTab ? activeTab.querySelectorAll('*') : [];
+                             allChildren.forEach(el => {
+                                 const cs = window.getComputedStyle(el);
+                                 if (cs.display === 'none' && !el.closest('.header-actions') && !el.closest('.pnl-controls')) {
+                                     // No forzar; solo loguear para debug
+                                 }
+                             });
+                             // Asegurar que el contenedor raíz de la vista tenga dimensiones reales
+                             if (activeTab) {
+                                 activeTab.style.minHeight = activeTab.scrollHeight + 'px';
+                                 activeTab.style.minWidth = activeTab.scrollWidth + 'px';
+                                 activeTab.style.paddingBottom = '100px';
+                             }
+                             const clonedMain = clonedDoc.querySelector('.main-container');
+                             if (clonedMain) {
+                                 clonedMain.style.paddingBottom = '100px';
+                             }
+                         }
+                    }
+                });
+
+                // RESTORE everything
+                if (titleLabel && forcedSubtitle) titleLabel.innerHTML = origTitleHTML;
+                if (header) header.style.position = origHeaderPos;
+                contentToRender.style.overflow = originalOverflow;
+                contentToRender.style.height = originalHeight;
+                contentToRender.style.paddingBottom = originalPaddingBottom;
+                if (layoutWrapper) {
+                    layoutWrapper.style.height = layoutWrapperOrigHeight;
+                    layoutWrapper.style.overflow = layoutWrapperOrigOverflow;
+                }
+                if (headerActions) headerActions.style.display = originalHeaderDisplay;
+                if (pnlControls) pnlControls.style.display = pnlControlsDisplay;
+
+                const styleEl = document.getElementById('pdf-expand-style');
+                if (styleEl) styleEl.remove();
+
+                const imgData = canvas.toDataURL('image/jpeg', 0.95);
+                
+                const pdfWidth = 420; // 420mm -> roughly A3 width
+                const ratio = canvas.height / canvas.width;
+                const pdfHeight = pdfWidth * ratio;
+                const pageFormat = [pdfWidth, pdfHeight];
+                const orientation = pdfWidth > pdfHeight ? 'landscape' : 'portrait';
+
+                if (!pdf) {
+                    pdf = new jsPDF({ orientation: orientation, unit: 'mm', format: pageFormat });
+                    pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight, undefined, 'MEDIUM');
+                } else {
+                    pdf.addPage(pageFormat, orientation);
+                    pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight, undefined, 'MEDIUM');
+                }
+            };
+
+            const toggleYTD = (enable) => {
+                if (ytdCheckbox && ytdCheckbox.checked !== enable) {
+                    ytdCheckbox.click();
+                } else if (typeof updateUI === 'function') {
+                    const sel = document.getElementById('monthSelector');
+                    const idx = sel ? parseInt(sel.value) : NaN;
+                    if (!isNaN(idx) && globalFinancialData) {
+                        updateUI(globalFinancialData, idx);
+                    }
+                }
+            };
+            
+            const clickElement = (id) => {
+                const el = document.getElementById(id);
+                if (el) el.click();
+            };
+            
+            const showViewAndSync = (viewId, menuId) => {
+                document.querySelectorAll('.view-container').forEach(v => v.classList.remove('active'));
+                const v = document.getElementById(viewId);
+                if (v) v.classList.add('active');
+                if (window.syncNavigationUI) window.syncNavigationUI(menuId);
+                
+                if (typeof renderActiveViewLazy === 'function' && typeof globalFinancialData !== 'undefined' && globalFinancialData) {
+                    const sel = document.getElementById('monthSelector');
+                    if (sel) {
+                        const idx = parseInt(sel.value);
+                        if (!isNaN(idx)) renderActiveViewLazy(globalFinancialData, idx);
+                    }
+                }
+            };
+
+                try {
+                // 1. KPIs
+                if (document.getElementById('view-kpi')) {
+                    showViewAndSync('view-kpi', 'menu-kpi'); 
+                    await sleep(800); 
+                    await addPageToPDF("Dashboard | " + (previousYTD ? "YTD" : "Mensual"));
+                }
+
+                // 2. Resumen Ejecutivo
+                if (document.getElementById('view-resumen')) {
+                    showViewAndSync('view-resumen', 'menu-resumen'); 
+                    await sleep(800); 
+                    await addPageToPDF("Gestión Corporativa | " + (previousYTD ? "YTD" : "Mensual"));
+                }
+
+                // 3. Resumen Comercial
+                if (document.getElementById('view-resumen-comercial')) {
+                    showViewAndSync('view-resumen-comercial', 'menu-resumen-comercial');
+                    
+                    toggleYTD(false); clickElement('btn-comercial-resumen'); await sleep(800); await addPageToPDF("Mensual | Resumen de Ventas");
+                    toggleYTD(true); clickElement('btn-comercial-resumen'); await sleep(800); await addPageToPDF("YTD | Resumen de Ventas");
+                    
+                    toggleYTD(false); clickElement('btn-comercial-variacion'); await sleep(800); await addPageToPDF("Mensual | Análisis de Variación (vs PPTO / vs AA)");
+                    toggleYTD(true); clickElement('btn-comercial-variacion'); await sleep(800); await addPageToPDF("YTD | Análisis de Variación (vs PPTO / vs AA)");
+                    
+                    toggleYTD(false); clickElement('btn-comercial-mom'); await sleep(800); await addPageToPDF("Mensual | Variación MoM");
+                }
+
+                // 4. Estado de Resultado (Mensual y YTD)
+                if (document.getElementById('view-preliminar')) {
+                    showViewAndSync('view-preliminar', 'menu-preliminar');
+                    toggleYTD(false); await sleep(800); await addPageToPDF("Mensual");
+                    toggleYTD(true); await sleep(800); await addPageToPDF("YTD");
+                }
+
+                // 5. Balance Sheet
+                if (document.getElementById('view-balance')) {
+                    showViewAndSync('view-balance', 'menu-balance');
+                    toggleYTD(previousYTD);
+                    clickElement('btn-balance-resumen');
+                    await sleep(800);
+                    await addPageToPDF("Balance Sheet | Resumen | " + (previousYTD ? "YTD" : "Mensual"));
+                }
+
+                // 6. Cash Flow
+                if (document.getElementById('view-cashflow')) {
+                    showViewAndSync('view-cashflow', 'menu-cashflow');
+                    toggleYTD(previousYTD);
+                    clickElement('btn-cashflow-resumen');
+                    await sleep(800);
+                    await addPageToPDF("Cash Flow | Resumen | " + (previousYTD ? "YTD" : "Mensual"));
+                }
+
+                // 7. Ventas CEO
+                if (document.getElementById('view-ventas-ceo')) {
+                    showViewAndSync('view-ventas-ceo', 'menu-ventas-ceo');
+                    toggleYTD(previousYTD);
+                    clickElement('btn-ventas-vol'); await sleep(800); await addPageToPDF("Métrica: Volumen (k de Unidades)");
+                    clickElement('btn-ventas-monto'); await sleep(800); await addPageToPDF("Métrica: Monto (mDOP)");
+                    clickElement('btn-ventas-precio'); await sleep(800); await addPageToPDF("Métrica: Precio Unitario");
+                }
+
+                // 8. P&G Horizontal
+                if (document.getElementById('view-pg-horizontal')) {
+                    showViewAndSync('view-pg-horizontal', 'menu-pg-horizontal');
+                    toggleYTD(previousYTD);
+                    clickElement('btn-pg-totales'); await sleep(800); await addPageToPDF("Perspectiva: Totales");
+                    clickElement('btn-pg-unitarios'); await sleep(800); await addPageToPDF("Perspectiva: Unitarios");
+                }
+
+                const dateStr = new Date().toISOString().slice(0, 10);
+                pdf.save(`Reportes_Ejecutivos_Maestros_${dateStr}.pdf`);
+
+            } catch(e) {
+                console.error("Error generating Master PDF:", e);
+                alert("Ocurrió un error al generar el PDF: " + String(e.message || e));
+            } finally {
+                toggleYTD(previousYTD);
+                
+                // Keep the menuid sync in check for restoration
+                const navKeyMap = {
+                    'view-kpi': 'menu-kpi', 'view-resumen': 'menu-resumen', 'view-preliminar': 'menu-preliminar',
+                    'view-resumen-comercial': 'menu-resumen-comercial', 'view-ventas-ceo': 'menu-ventas-ceo',
+                    'view-pg-horizontal': 'menu-pg-horizontal', 'view-config': 'menu-config'
+                };
+                showViewAndSync(previousViewId, navKeyMap[previousViewId]);
+
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            }
+        });
+    };
+    
+    bindPdfExport(btnExportPDF);
 
     const menuToggleBtn = document.getElementById('menuToggleBtn');
     const sidebar = document.querySelector('.sidebar');
@@ -3268,6 +3765,312 @@ function renderBalanceSheet(data, selectedIndex = -1) {
     } else {
         document.getElementById('covenant-section').style.display = 'none';
     }
+
+    renderBalanceResumen(dic2025Balance || visibleMonths[0], curr);
+}
+
+function renderBalanceResumen(dicData, currData) {
+    const headerEl = document.getElementById('balanceResumenHeader');
+    const bodyEl = document.getElementById('balanceResumenBody');
+    if (!headerEl || !bodyEl) return;
+
+    const dicLabel = dicData ? dicData.date : 'N/A';
+    const currLabel = currData ? currData.date : 'N/A';
+    
+    headerEl.innerHTML = `
+        <tr>
+            <th style="background: var(--sidebar); color: white;">Concepto</th>
+            <th style="text-align: right; background: var(--sidebar-dark); color: white;">${dicLabel}</th>
+            <th style="text-align: right; background: var(--sidebar-dark); color: white;">${currLabel}</th>
+            <th style="text-align: right; background: var(--sidebar-dark); color: white;">PPTO</th>
+        </tr>
+    `;
+
+    if (!currData) return;
+
+    const getVal = (source, labelMatch, sumAll = false, excludeMatch = null, exactMatch = false) => {
+        if (!source || !source.balance || !source.balance.fullRows) return 0;
+        const matches = Array.isArray(labelMatch) ? labelMatch : [labelMatch];
+        const excludes = excludeMatch ? (Array.isArray(excludeMatch) ? excludeMatch : [excludeMatch]) : [];
+        const dateKey = source.date || currData.date;
+
+        const normalizeLocal = (str) => {
+            if (!str) return "";
+            return str.toString()
+                .toLowerCase()
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "")
+                .replace(/[.:;()]/g, " ")
+                .replace(/\s+/g, " ")
+                .trim();
+        };
+
+        const matchesNorm = matches.map(m => normalizeLocal(m));
+        const excludesNorm = excludes.map(e => normalizeLocal(e));
+
+        const rowsToProcess = (() => {
+            let idx = source.balance.fullRows.findIndex(r => {
+                const c = normalizeLocal(r.concept);
+                return c.includes("total pasivo") && (c.includes("capital") || c.includes("accionista") || c.includes("patrimonio"));
+            });
+            if (idx === -1) idx = source.balance.fullRows.length;
+            return source.balance.fullRows.slice(0, Math.max(0, idx + 1));
+        })();
+
+        if (sumAll) {
+            let sum = 0;
+            rowsToProcess.forEach(r => {
+                const cNorm = normalizeLocal(r.concept);
+                const isMatch = exactMatch ? matchesNorm.some(m => cNorm === m) : matchesNorm.some(m => cNorm.includes(m));
+                if (isMatch && !excludesNorm.some(e => cNorm.includes(e))) {
+                    if (r.values) {
+                        sum += r.values[dateKey] || 0;
+                    }
+                }
+            });
+            return sum;
+        } else {
+            const row = rowsToProcess.find(r => {
+                const cNorm = normalizeLocal(r.concept);
+                const isMatch = exactMatch ? matchesNorm.some(m => cNorm === m) : matchesNorm.some(m => cNorm.includes(m));
+                return isMatch && !excludesNorm.some(e => cNorm.includes(e));
+            });
+            if (row && row.values) return row.values[dateKey] || 0;
+        }
+        return 0;
+    };
+
+    const conceptRow20 = (currData.balance && currData.balance.conceptRow20) || (dicData && dicData.balance && dicData.balance.conceptRow20) || "";
+    const intangibleMatch = conceptRow20 ? [conceptRow20, 'intangible'] : ['intangible'];
+
+    const rowSpec = [
+        { label: 'Efectivo', match: ['efectivo', 'inversion en cd'], sumAll: true },
+        { label: 'CXC', match: 'cobrar', sumAll: true },
+        { label: 'Inventarios', match: 'inventario' },
+        { label: 'Gastos Pagados por Anticipado', match: 'pagados por anticipado' },
+        { label: 'PPE', match: 'propiedad' },
+        { label: 'Inversión en Acciones', match: 'acciones' },
+        { label: 'Bienes Intangibles', match: intangibleMatch },
+        { label: 'Impuestos', match: ['impuesto', 'taxes'] },
+        { label: 'Otros Activos', match: 'otros activos' },
+        { label: 'Total Activos', match: 'total activo', highlight: true, overlayBg: 'rgba(0,150,199,0.1)' },
+        { type: 'separator' },
+        { label: 'CXP', match: 'cuentas por pagar', exactMatch: true },
+        { label: 'Deuda Financiera CP', match: 'corto plazo', exclude: 'relacionad' },
+        { label: 'Deuda Financiera LP', match: 'largo plazo', exclude: 'relacionad' },
+        { label: 'Deuda Accionista', match: ['deuda corto plazo relacionadas', 'deuda largo plazo relacionadas', 'deuda accionista'], sumAll: true },
+        { label: 'Otros Pasivos', match: 'otros pasivos' },
+        { label: 'Total Pasivos', match: 'total pasivos', exactMatch: true, highlight: true, overlayBg: 'rgba(0,150,199,0.1)' },
+        { type: 'separator' },
+        { label: 'Capital Suscrito y Pagado, Reserva Legal', match: ['suscrito y pagado', 'reserva legal', 'aporte para futuras'], sumAll: true },
+        { label: 'Revaluaciones', match: 'revaluacion' },
+        { label: 'Ganancias (Perdida) Acumuladas', match: 'acumulada' },
+        { label: 'Ganancia del Periodo', match: ['beneficio neto del periodo', 'beneficio neto'] },
+        { label: 'Total Patrimonio', match: 'total patrimonio', exactMatch: true, highlight: true, overlayBg: 'rgba(0,150,199,0.1)' },
+        { label: 'Total Pasivo y Patrimonio', match: 'total pasivo y patrimonio', exactMatch: true, highlight: true, overlayBg: 'var(--sidebar)' }
+    ];
+
+    // Compute all values first
+    const evaluatedRows = rowSpec.map(spec => {
+        if (spec.type === 'separator') return { type: 'separator' };
+
+        let vDic = getVal(dicData, spec.match, spec.sumAll, spec.exclude, spec.exactMatch);
+        let vCurr = getVal(currData, spec.match, spec.sumAll, spec.exclude, spec.exactMatch);
+        let vPpto = getVal(currData.ppto, spec.match, spec.sumAll, spec.exclude, spec.exactMatch);
+        
+        if (spec.label === 'Ganancia del Periodo') {
+            const findBenNeto = (src, explicitDate) => {
+                let res = 0;
+                if (!src) return res;
+                const dKey = explicitDate || src.date;
+                const searchRow = (rows) => {
+                    if (!rows) return null;
+                    return [...rows].reverse().find(r => r.concept && (r.concept.toLowerCase().includes('beneficio neto') || r.concept.toLowerCase().includes('ganancia del periodo')));
+                };
+                let r = searchRow(src.balance?.fullRows) || searchRow(src.pnl?.fullRows);
+                if (r && r.values) {
+                    res = r.values[dKey] !== undefined ? r.values[dKey] : (Object.values(r.values)[0] || 0);
+                }
+                return res || src.pnl?.netIncome || 0;
+            };
+            
+            if (vDic === 0) vDic = findBenNeto(dicData, dicData.date);
+            if (vCurr === 0) vCurr = findBenNeto(currData, currData.date);
+            if (vPpto === 0 && currData.ppto) vPpto = findBenNeto(currData.ppto, currData.date);
+        }
+
+        // Use PPTO object's period/date context for correct row evaluation fallback
+        if (!vPpto && currData.ppto && currData.ppto.balance && currData.ppto.balance.fullRows) {
+            const matches = Array.isArray(spec.match) ? spec.match : [spec.match];
+            const excludes = spec.exclude ? (Array.isArray(spec.exclude) ? spec.exclude : [spec.exclude]) : [];
+            
+            const normalizeLocal = (str) => {
+                if (!str) return "";
+                return str.toString()
+                    .toLowerCase()
+                    .normalize("NFD")
+                    .replace(/[\u0300-\u036f]/g, "")
+                    .replace(/[.:;()]/g, " ")
+                    .replace(/\s+/g, " ")
+                    .trim();
+            };
+
+            const matchesNorm = matches.map(m => normalizeLocal(m));
+            const excludesNorm = excludes.map(e => normalizeLocal(e));
+            
+            const rowsToProcess = (() => {
+                let idx = currData.ppto.balance.fullRows.findIndex(r => {
+                    const c = normalizeLocal(r.concept);
+                    return c.includes("total pasivo") && (c.includes("capital") || c.includes("accionista") || c.includes("patrimonio"));
+                });
+                if (idx === -1) idx = currData.ppto.balance.fullRows.length;
+                return currData.ppto.balance.fullRows.slice(0, Math.max(0, idx + 1));
+            })();
+
+            if (spec.sumAll) {
+                let sum = 0;
+                rowsToProcess.forEach(r => {
+                    const cNorm = normalizeLocal(r.concept);
+                    const isMatch = spec.exactMatch ? matchesNorm.some(m => cNorm === m) : matchesNorm.some(m => cNorm.includes(m));
+                    if (isMatch && !excludesNorm.some(e => cNorm.includes(e))) {
+                        if (r.values) {
+                            const vals = Object.values(r.values);
+                            if (vals.length > 0) sum += vals[0] || 0;
+                        }
+                    }
+                });
+                vPpto = sum;
+            } else {
+                const row = rowsToProcess.find(r => {
+                    const cNorm = normalizeLocal(r.concept);
+                    const isMatch = spec.exactMatch ? matchesNorm.some(m => cNorm === m) : matchesNorm.some(m => cNorm.includes(m));
+                    return isMatch && !excludesNorm.some(e => cNorm.includes(e));
+                });
+                if(row && row.values) {
+                    const vals = Object.values(row.values);
+                    if(vals.length > 0) vPpto = vals[0] || 0;
+                }
+            }
+        }
+
+        return {
+            label: spec.label,
+            match: spec.match,
+            highlight: spec.highlight,
+            overlayBg: spec.overlayBg,
+            vDic,
+            vCurr,
+            vPpto
+        };
+    });
+
+    // Substraer "Impuestos" de "Otros Activos" porque en la fuente figuran como subcategoría
+    const otrosActivosItem = evaluatedRows.find(r => r.label === 'Otros Activos');
+    const impuestosItem = evaluatedRows.find(r => r.label === 'Impuestos');
+    if (otrosActivosItem && impuestosItem) {
+        otrosActivosItem.vDic = (otrosActivosItem.vDic || 0) - (impuestosItem.vDic || 0);
+        otrosActivosItem.vCurr = (otrosActivosItem.vCurr || 0) - (impuestosItem.vCurr || 0);
+        otrosActivosItem.vPpto = (otrosActivosItem.vPpto || 0) - (impuestosItem.vPpto || 0);
+    }
+
+    // Calcular "Otros Pasivos" dinámicamente = Total Pasivos de la fuente - CXP - Deuda Financiera CP - Deuda Financiera LP - Deuda Accionista
+    const otrosPasivosItem = evaluatedRows.find(r => r.label === 'Otros Pasivos');
+    const cxpItem = evaluatedRows.find(r => r.label === 'CXP');
+    const dfcpItem = evaluatedRows.find(r => r.label === 'Deuda Financiera CP');
+    const dflpItem = evaluatedRows.find(r => r.label === 'Deuda Financiera LP');
+    const daItem = evaluatedRows.find(r => r.label === 'Deuda Accionista');
+    const totalPasivosItem = evaluatedRows.find(r => r.label === 'Total Pasivos');
+
+    if (totalPasivosItem && otrosPasivosItem) {
+        const sumOthers = (item) => item ? (item.vDic || 0) : 0;
+        const sumOthersCurr = (item) => item ? (item.vCurr || 0) : 0;
+        const sumOthersPpto = (item) => item ? (item.vPpto || 0) : 0;
+
+        const subtotalDic = sumOthers(cxpItem) + sumOthers(dfcpItem) + sumOthers(dflpItem) + sumOthers(daItem);
+        const subtotalCurr = sumOthersCurr(cxpItem) + sumOthersCurr(dfcpItem) + sumOthersCurr(dflpItem) + sumOthersCurr(daItem);
+        const subtotalPpto = sumOthersPpto(cxpItem) + sumOthersPpto(dfcpItem) + sumOthersPpto(dflpItem) + sumOthersPpto(daItem);
+
+        otrosPasivosItem.vDic = totalPasivosItem.vDic - subtotalDic;
+        otrosPasivosItem.vCurr = totalPasivosItem.vCurr - subtotalCurr;
+        otrosPasivosItem.vPpto = totalPasivosItem.vPpto - subtotalPpto;
+    }
+
+    // Calcular "Ganancias (Perdida) Acumuladas" dinámicamente
+    const gananciasAcumItem = evaluatedRows.find(r => r.label === 'Ganancias (Perdida) Acumuladas');
+    const capSusItem = evaluatedRows.find(r => r.label === 'Capital Suscrito y Pagado, Reserva Legal');
+    const revalItem = evaluatedRows.find(r => r.label === 'Revaluaciones');
+    const gananciaPerItem = evaluatedRows.find(r => r.label === 'Ganancia del Periodo');
+    const totPatriSource = evaluatedRows.find(r => r.label === 'Total Patrimonio');
+
+    if (gananciasAcumItem && totPatriSource) {
+        gananciasAcumItem.vDic = (totPatriSource.vDic || 0) - ((capSusItem?.vDic || 0) + (revalItem?.vDic || 0) + (gananciaPerItem?.vDic || 0));
+        gananciasAcumItem.vCurr = (totPatriSource.vCurr || 0) - ((capSusItem?.vCurr || 0) + (revalItem?.vCurr || 0) + (gananciaPerItem?.vCurr || 0));
+        gananciasAcumItem.vPpto = (totPatriSource.vPpto || 0) - ((capSusItem?.vPpto || 0) + (revalItem?.vPpto || 0) + (gananciaPerItem?.vPpto || 0));
+    }
+
+    const sumByLabels = (labels) => {
+        let sd = 0, sc = 0, sp = 0;
+        labels.forEach(lbl => {
+            const item = evaluatedRows.find(r => r.label === lbl);
+            if (item) {
+                sd += item.vDic || 0;
+                sc += item.vCurr || 0;
+                sp += item.vPpto || 0;
+            }
+        });
+        return { vDic: sd, vCurr: sc, vPpto: sp };
+    };
+
+    const activosLabels = ['Efectivo', 'CXC', 'Inventarios', 'Gastos Pagados por Anticipado', 'PPE', 'Inversión en Acciones', 'Bienes Intangibles', 'Impuestos', 'Otros Activos'];
+    const pasivosLabels = ['CXP', 'Deuda Financiera CP', 'Deuda Financiera LP', 'Deuda Accionista', 'Otros Pasivos'];
+    const patrimonioLabels = ['Capital Suscrito y Pagado, Reserva Legal', 'Revaluaciones', 'Ganancias (Perdida) Acumuladas', 'Ganancia del Periodo'];
+
+    const assetsSum = sumByLabels(activosLabels);
+    const liabsSum = sumByLabels(pasivosLabels);
+    const patriSum = sumByLabels(patrimonioLabels);
+
+    // Override the totals with their correct calculated sums
+    const totAssets = evaluatedRows.find(r => r.label === 'Total Activos');
+    if (totAssets) {
+        totAssets.vDic = assetsSum.vDic;
+        totAssets.vCurr = assetsSum.vCurr;
+        totAssets.vPpto = assetsSum.vPpto;
+    }
+
+    const totLiabs = evaluatedRows.find(r => r.label === 'Total Pasivos');
+    if (totLiabs) {
+        totLiabs.vDic = liabsSum.vDic;
+        totLiabs.vCurr = liabsSum.vCurr;
+        totLiabs.vPpto = liabsSum.vPpto;
+    }
+
+    const totPatri = evaluatedRows.find(r => r.label === 'Total Patrimonio');
+    // Removed override to keep original value
+
+    const totLiabPatri = evaluatedRows.find(r => r.label === 'Total Pasivo y Patrimonio');
+    if (totLiabPatri) {
+        totLiabPatri.vDic = (totLiabs ? totLiabs.vDic : 0) + (totPatri ? totPatri.vDic : 0);
+        totLiabPatri.vCurr = (totLiabs ? totLiabs.vCurr : 0) + (totPatri ? totPatri.vCurr : 0);
+        totLiabPatri.vPpto = (totLiabs ? totLiabs.vPpto : 0) + (totPatri ? totPatri.vPpto : 0);
+    }
+
+    bodyEl.innerHTML = evaluatedRows.map(spec => {
+        if (spec.type === 'separator') {
+            return `<tr><td colspan="4" style="height: 16px; background: transparent; border: none;"></td></tr>`;
+        }
+
+        let styleStr = 'padding: 8px 12px; color: var(--text-primary);';
+        if (spec.highlight) styleStr += ' font-weight: 700;';
+        if (spec.overlayBg) styleStr += ` background-color: ${spec.overlayBg};`;
+        if (spec.overlayBg === 'var(--sidebar)') styleStr += ' color: white;';
+        
+        return `<tr>
+            <td style="${styleStr}">${spec.label}</td>
+            <td style="text-align: right; ${styleStr}">${formatCurrency(spec.vDic)}</td>
+            <td style="text-align: right; ${styleStr}">${formatCurrency(spec.vCurr)}</td>
+            <td style="text-align: right; ${styleStr}">${formatCurrency(spec.vPpto)}</td>
+        </tr>`;
+    }).join('');
 }
 
 /**
@@ -3373,16 +4176,37 @@ function renderWorkingCapital(data, selectedIndex = -1) {
                  }
             }
             if (val === undefined && m.balance && m.balance.fullRows && c.key === 'cxc') {
-                 const localRow = m.balance.fullRows.find(r => r.concept.toLowerCase().includes("cobrar"));
-                 if (localRow && localRow.values && localRow.values[m.date]) val = localRow.values[m.date];
+                 let sum = 0;
+                 m.balance.fullRows.forEach(r => {
+                     if (r.concept.toLowerCase().includes("cobrar")) {
+                         if (r.values && r.values[m.date] !== undefined) {
+                             sum += r.values[m.date] || 0;
+                         }
+                     }
+                 });
+                 val = sum;
             }
             if (val === undefined && m.balance && m.balance.fullRows && c.key === 'cxp') {
-                 const localRow = m.balance.fullRows.find(r => r.concept.toLowerCase().includes("pagar"));
-                 if (localRow && localRow.values && localRow.values[m.date]) val = localRow.values[m.date];
+                 let sum = 0;
+                 m.balance.fullRows.forEach(r => {
+                     if (r.concept.toLowerCase().includes("pagar")) {
+                         if (r.values && r.values[m.date] !== undefined) {
+                             sum += r.values[m.date] || 0;
+                         }
+                     }
+                 });
+                 val = sum;
             }
             if (val === undefined && m.balance && m.balance.fullRows && c.key === 'inv') {
-                 const localRow = m.balance.fullRows.find(r => r.concept.toLowerCase().includes("inventario"));
-                 if (localRow && localRow.values && localRow.values[m.date]) val = localRow.values[m.date];
+                 let sum = 0;
+                 m.balance.fullRows.forEach(r => {
+                     if (r.concept.toLowerCase().includes("inventario")) {
+                         if (r.values && r.values[m.date] !== undefined) {
+                             sum += r.values[m.date] || 0;
+                         }
+                     }
+                 });
+                 val = sum;
             }
             if (val === undefined) { val = 0; }
             
@@ -3440,7 +4264,7 @@ function renderCashFlow(data, selectedIndex = -1) {
         { key: 'cxp', label: ' Aumento/(Disminución) CxP', indent: true },
         { key: 'wc', label: 'Total Cambios Capital Trabajo', isTotal: true },
         { type: 'separator', label: 'Otros Ajustes Operativos' },
-        { key: 'taxes', label: 'Impuestos Pagados', indent: true },
+        { key: 'taxes', label: 'Taxes', indent: true },
         { key: 'extraordinary', label: 'Gastos/Ingresos Extraordinarios', indent: true },
         { key: 'operating', label: 'FLUJO DE CAJA OPERATIVO', isTotal: true },
         { type: 'separator', label: 'Actividades de Inversión' },
@@ -3517,6 +4341,201 @@ function renderCashFlow(data, selectedIndex = -1) {
     } else {
         metricsSection.style.display = 'none';
     }
+
+    // Render Cash Flow Resumen
+    renderCashFlowResumen(dic2025Cash || visibleMonths[0], curr, data, endIdx);
+}
+
+function renderCashFlowResumen(dicData, currData, fullData, selectedIndex) {
+    const headerEl = document.getElementById('cashflowResumenHeader');
+    const bodyEl = document.getElementById('cashflowResumenBody');
+    if (!headerEl || !bodyEl) return;
+
+    const dicLabel = dicData ? dicData.date : 'N/A';
+    const currLabel = currData ? currData.date : 'N/A';
+    
+    headerEl.innerHTML = `
+        <tr>
+            <th style="background: var(--sidebar); color: white;">Concepto</th>
+            <th style="text-align: right; background: var(--sidebar-dark); color: white;">${dicLabel}</th>
+            <th style="text-align: right; background: var(--sidebar-dark); color: white;">YTD ${currLabel}</th>
+            <th style="text-align: right; background: var(--sidebar-dark); color: white;">PPTO YTD</th>
+        </tr>
+    `;
+
+    if (!currData) return;
+
+    // Function to sum year-to-date or full year data based on an up-to index
+    const calcYTD = (targetItem, isPpto = false) => {
+        let result = {};
+        if (!targetItem) return result;
+        const targetYear = targetItem.sortDate ? targetItem.sortDate.getFullYear() : 2026;
+        const targetIdx = fullData.indexOf(targetItem);
+        
+        let firstMonth;
+        for (let k = 0; k <= targetIdx; k++) {
+            const item = fullData[k];
+            if (item.sortDate && item.sortDate.getFullYear() === targetYear) {
+                if (!firstMonth) firstMonth = item;
+                
+                const detail = isPpto ? (item.ppto?.cashflowDetail || {}) : (item.cashflowDetail || {});
+                const kpis = isPpto ? (item.ppto?.kpis || {}) : (item.kpis || {});
+
+                Object.keys(detail).forEach(key => {
+                    if (key !== 'beginning' && key !== 'ending' && key !== 'ccc' && key !== 'dso' && key !== 'dpo' && key !== 'dio') {
+                        result[key] = (result[key] || 0) + (detail[key] || 0);
+                    }
+                });
+                result.ebitda = (result.ebitda || 0) + (kpis.ebitda || 0);
+            }
+        }
+        
+        // Point in time values
+        const endDetail = isPpto ? (targetItem.ppto?.cashflowDetail || {}) : (targetItem.cashflowDetail || {});
+        const startDetail = firstMonth ? (isPpto ? (firstMonth.ppto?.cashflowDetail || {}) : (firstMonth.cashflowDetail || {})) : {};
+        
+        result.beginning = startDetail.beginning || 0;
+        result.ending = endDetail.ending || 0;
+        result.dso = endDetail.dso || 0;
+        result.dpo = endDetail.dpo || 0;
+        result.dio = endDetail.dio || 0;
+        result.ccc = endDetail.ccc || 0;
+        
+        result.cxp = (result.cxp || 0);
+        
+        result.change = result.ending - result.beginning;
+
+        // Internal verification for debugging purposes
+        const flowSum = (result.operating||0) + (result.capex||0) + (result.netDebt||0) + 
+                        (result.interest||0) + (result.extraordinary||0) + (result.diferencialCambiario||0);
+        const expectedChange = result.ending - result.beginning;
+        if (Math.abs(flowSum - expectedChange) > 1) {
+            console.warn(`[CF Resumen] Descuadre ${isPpto?'PPTO':'Real'}: flujos=${flowSum.toFixed(2)}, cambio esperado=${expectedChange.toFixed(2)}, diferencia=${(flowSum-expectedChange).toFixed(2)}`);
+        }
+
+        return result;
+    };
+
+    const targetYearDic = dicData && dicData.sortDate ? dicData.sortDate.getFullYear() : 2025;
+    const ytdDic = calcYTD(dicData, false);
+    
+    // Override starting cash if necessary based on Y-1 ending (if available in fullData)
+    const prevYearItem = fullData.find(d => d.sortDate && d.sortDate.getFullYear() === targetYearDic - 1 && d.sortDate.getMonth() === 11);
+    if(prevYearItem && prevYearItem.cashflowDetail) {
+        ytdDic.beginning = prevYearItem.cashflowDetail.ending || ytdDic.beginning;
+    }
+
+    const ytdCurr = calcYTD(currData, false);
+    const ytdPpto = calcYTD(currData, true);
+
+    // Override starting cash for Curr using dicData ending
+    const isPrevYearDec = dicData && dicData.date && (dicData.date.toLowerCase().includes('dic') || dicData.date.toLowerCase().includes('dec'));
+    if (dicData && dicData.cashflowDetail && isPrevYearDec) {
+        ytdCurr.beginning = dicData.cashflowDetail.ending || ytdCurr.beginning;
+    }
+    // For PPTO YTD, we do NOT override beginning cash with December 2025's Actual ending cash,
+    // as PPTO has its own budgeted starting cash balance which aligns with all its budgeted cash flows.
+
+    const rowSpec = [
+        { key: 'beginning', label: 'Efectivo Inicial', highlight: true },
+        { key: 'ebitda', label: 'EBITDA', highlight: true },
+        { key: 'cxc', label: 'Cuentas por Cobrar' },
+        { key: 'inv', label: 'Inventario' },
+        { key: 'otrosActivos', label: 'Otros Activos' },
+        { key: 'cxp', label: 'Cuentas por Pagar' },
+        { key: 'pasivoLaboral', label: 'Pasivo Laboral' },
+        { key: 'otrosPasivos', label: 'Otros Pasivos' },
+        { key: 'taxes', label: 'Taxes' },
+        { key: 'operating', label: 'Flujo de Caja Operativo', highlight: true, overlayBg: 'rgba(0,150,199,0.1)' },
+        { key: 'capex', label: 'CAPEX', highlight: true },
+        { key: 'netDebt', label: 'Aumento Deuda Neta' },
+        { key: 'interest', label: 'Gastos de Interes' },
+        { key: 'extraordinary', label: 'Ingresos (Gastos) Extraordinarios' },
+        { key: 'diferencialCambiario', label: 'Diferencial Cambiario' },
+        { key: 'change', label: 'Cambio en Efectivo', highlight: true, overlayBg: 'rgba(0,150,199,0.1)' },
+        { key: 'ending', label: 'Efectivo Final', highlight: true, overlayBg: 'rgba(0,150,199,0.1)' },
+        { type: 'separator' },
+        { key: 'dso', label: 'DSO', isMetric: true },
+        { key: 'dpo', label: 'DPO', isMetric: true },
+        { key: 'dio', label: 'DIO', isMetric: true }
+    ];
+
+    const evaluateCFColumn = (ytdSource, isDic = false) => {
+        const valMap = {};
+        rowSpec.forEach(spec => {
+            if (spec.type !== 'separator') {
+                valMap[spec.key] = ytdSource ? ytdSource[spec.key] || 0 : 0;
+            }
+        });
+
+        // 1. Calculate Flujo de Caja Operativo = EBITDA + CxC + Inv + OtrosActivos + CxP + PasivoLaboral + OtrosPasivos + Taxes
+        valMap['operating'] = (valMap['ebitda'] || 0) + 
+                              (valMap['cxc'] || 0) + 
+                              (valMap['inv'] || 0) + 
+                              (valMap['otrosActivos'] || 0) + 
+                              (valMap['cxp'] || 0) + 
+                              (valMap['pasivoLaboral'] || 0) + 
+                              (valMap['otrosPasivos'] || 0) + 
+                              (valMap['taxes'] || 0);
+
+        // 2. Calculate Cambio en Efectivo = Ending - Beginning (guarantees perfect consistency)
+        valMap['change'] = (valMap['ending'] || 0) - (valMap['beginning'] || 0);
+
+        // 3. Calculate Efectivo Final = Beginning + Change
+        valMap['ending'] = (valMap['beginning'] || 0) + (valMap['change'] || 0);
+
+        // 4. Calculate Net Debt as the balancing plug of the cash flow statement:
+        // change = operating + capex + netDebt + interest + extraordinary + diferencialCambiario
+        // therefore netDebt = change - (operating + capex + interest + extraordinary + diferencialCambiario)
+        if (isDic) {
+            valMap['netDebt'] = ytdSource ? ytdSource['netDebt'] || 0 : 0;
+        } else {
+            valMap['netDebt'] = valMap['change'] - (
+                (valMap['operating'] || 0) + 
+                (valMap['capex'] || 0) + 
+                (valMap['interest'] || 0) + 
+                (valMap['extraordinary'] || 0) + 
+                (valMap['diferencialCambiario'] || 0)
+            );
+        }
+
+        return valMap;
+    };
+
+    const finalYtdDic = evaluateCFColumn(ytdDic, true);
+    const finalYtdCurr = evaluateCFColumn(ytdCurr, false);
+    const finalYtdPpto = evaluateCFColumn(ytdPpto, false);
+
+    console.log("CASH FLOW RESUMEN TAXES DEBUG:");
+    console.log("DIC Data target element:", dicData ? dicData.date : null);
+    console.log("CURR Data target element:", currData ? currData.date : null);
+    console.log("ytdDic.taxes:", ytdDic.taxes, "finalYtdDic.taxes:", finalYtdDic.taxes);
+    console.log("ytdCurr.taxes:", ytdCurr.taxes, "finalYtdCurr.taxes:", finalYtdCurr.taxes);
+    console.log("ytdPpto.taxes:", ytdPpto.taxes, "finalYtdPpto.taxes:", finalYtdPpto.taxes);
+
+    bodyEl.innerHTML = rowSpec.map(spec => {
+        if (spec.type === 'separator') {
+            return `<tr><td colspan="4" style="height: 16px; background: transparent; border: none;"></td></tr>`;
+        }
+
+        const vDic = finalYtdDic[spec.key] !== undefined ? finalYtdDic[spec.key] : (ytdDic ? ytdDic[spec.key] || 0 : 0);
+        const vCurr = finalYtdCurr[spec.key] !== undefined ? finalYtdCurr[spec.key] : (ytdCurr ? ytdCurr[spec.key] || 0 : 0);
+        const vPpto = finalYtdPpto[spec.key] !== undefined ? finalYtdPpto[spec.key] : (ytdPpto ? ytdPpto[spec.key] || 0 : 0);
+        
+        let styleStr = 'padding: 8px 12px;';
+        if (spec.highlight) styleStr += ' font-weight: 700;';
+        if (spec.overlayBg) styleStr += ` background-color: ${spec.overlayBg};`;
+        if (spec.isMetric) styleStr += ' background-color: #e2e8f0; font-weight: 600; font-size: 0.85rem;';
+        
+        const formatFn = spec.isMetric ? (v) => Math.round(v) : formatCurrency;
+
+        return `<tr>
+            <td style="${styleStr}">${spec.label}</td>
+            <td style="text-align: right; ${styleStr}">${formatFn(vDic)}</td>
+            <td style="text-align: right; ${styleStr}">${formatFn(vCurr)}</td>
+            <td style="text-align: right; ${styleStr}">${formatFn(vPpto)}</td>
+        </tr>`;
+    }).join('');
 }
 
 function renderPreliminaryView(data, selectedIndex = -1) {
@@ -5375,7 +6394,7 @@ function renderEstadosFinancieros(data, selectedIndex = -1) {
         { label: "Diferencial Cambiario", type: "normal" },
         { label: "Gastos Extraordinarios", type: "normal" },
         { label: "Ingreso Antes de Impuestos", type: "normal", borderT: "1px dashed var(--text-secondary)" },
-        { label: "Impuesto Sobre la Renta", type: "normal" },
+        { label: "Impuestos", type: "normal", dataKey: ["Impuesto Sobre la Renta", "Taxes", "Impuestos"] },
         { label: "Beneficio Neto", type: "bold", borderT: "2px solid #000", dataKey: ["Beneficio Neto", "Beneficio Neto del Periodo"] },
         
         { label: "Empty_1", type: "empty" },
@@ -5625,6 +6644,34 @@ function renderEstadosFinancieros(data, selectedIndex = -1) {
 
 function renderWaterfallChart(data, index) {
     if (!data || !data[index]) return;
+    const domElement = document.getElementById('waterfallChart');
+    if (!domElement) return;
+
+    if (domElement.__resizeObserver) {
+        domElement.__resizeObserver.disconnect();
+    }
+
+    const ro = new ResizeObserver(entries => {
+        const cw = domElement.clientWidth;
+        if (cw > 0 && domElement.__lastWidth !== cw) {
+            domElement.__lastWidth = cw;
+            requestAnimationFrame(() => {
+                renderWaterfallChartInternal(data, index, cw);
+            });
+        }
+    });
+    domElement.__resizeObserver = ro;
+    ro.observe(domElement);
+
+    const initialCw = domElement.clientWidth;
+    if (initialCw > 0) {
+        domElement.__lastWidth = initialCw;
+        renderWaterfallChartInternal(data, index, initialCw);
+    }
+}
+
+function renderWaterfallChartInternal(data, index, cw) {
+    if (!data || !data[index]) return;
     const curr = data[index];
     const containerId = "#waterfallChart";
     
@@ -5737,7 +6784,7 @@ function renderWaterfallChart(data, index) {
     });
 
     // Drawing the Waterfall
-    const width = container.node().clientWidth || 800;
+    const width = cw;
     const height = container.node().clientHeight || 350;
     const margin = { top: 30, right: 20, bottom: 40, left: 60 };
 
@@ -5846,6 +6893,34 @@ function renderWaterfallChart(data, index) {
 
 function renderMarginTrendChart(globalData, index) {
     if (!globalData || globalData.length === 0) return;
+    const domElement = document.getElementById('marginTrendChart');
+    if (!domElement) return;
+
+    if (domElement.__resizeObserver) {
+        domElement.__resizeObserver.disconnect();
+    }
+
+    const ro = new ResizeObserver(entries => {
+        const cw = domElement.clientWidth;
+        if (cw > 0 && domElement.__lastWidth !== cw) {
+            domElement.__lastWidth = cw;
+            requestAnimationFrame(() => {
+                renderMarginTrendChartInternal(globalData, index, cw);
+            });
+        }
+    });
+    domElement.__resizeObserver = ro;
+    ro.observe(domElement);
+
+    const initialCw = domElement.clientWidth;
+    if (initialCw > 0) {
+        domElement.__lastWidth = initialCw;
+        renderMarginTrendChartInternal(globalData, index, initialCw);
+    }
+}
+
+function renderMarginTrendChartInternal(globalData, index, cw) {
+    if (!globalData || globalData.length === 0) return;
     const containerId = "#marginTrendChart";
     
     const container = d3.select(containerId);
@@ -5876,7 +6951,7 @@ function renderMarginTrendChart(globalData, index) {
         pptoMargen: (d.ppto && d.ppto.kpis && d.ppto.kpis.ingresos !== 0) ? ((d.ppto.kpis.ebitda || 0) / (d.ppto.kpis.ingresos || 1)) * 100 : ((d.ppto && d.ppto.pnl && d.ppto.pnl.categorias && d.ppto.pnl.categorias.EBITDA) ? (d.ppto.pnl.categorias.EBITDA / (d.ppto.pnl.categorias.Ingresos || 1) * 100) : 0)
     }));
 
-    const width = container.node().clientWidth || 800;
+    const width = cw;
     const height = container.node().clientHeight || 300;
     const margin = { top: 40, right: 50, bottom: 40, left: 50 };
 
@@ -6051,6 +7126,34 @@ function renderMarginTrendChart(globalData, index) {
 
 function renderCashBridgeChart(data, index) {
     if (!data || !data[index]) return;
+    const domElement = document.getElementById('cashBridgeChart');
+    if (!domElement) return;
+
+    if (domElement.__resizeObserver) {
+        domElement.__resizeObserver.disconnect();
+    }
+
+    const ro = new ResizeObserver(entries => {
+        const cw = domElement.clientWidth;
+        if (cw > 0 && domElement.__lastWidth !== cw) {
+            domElement.__lastWidth = cw;
+            requestAnimationFrame(() => {
+                renderCashBridgeChartInternal(data, index, cw);
+            });
+        }
+    });
+    domElement.__resizeObserver = ro;
+    ro.observe(domElement);
+
+    const initialCw = domElement.clientWidth;
+    if (initialCw > 0) {
+        domElement.__lastWidth = initialCw;
+        renderCashBridgeChartInternal(data, index, initialCw);
+    }
+}
+
+function renderCashBridgeChartInternal(data, index, cw) {
+    if (!data || !data[index]) return;
     const curr = data[index];
     const containerId = "#cashBridgeChart";
     
@@ -6160,7 +7263,6 @@ function renderCashBridgeChart(data, index) {
 
     // D3 Setup
     const isMobile = window.innerWidth < 1024;
-    const cw = document.getElementById('cashBridgeChart').clientWidth || 800;
     const width = cw;
     const height = 350;
     
@@ -7971,6 +9073,54 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             window.comercialCurrentView = 'variacion';
             updateComercialButtonsVisuals();
             window.renderResumenComercial();
+        });
+
+        document.getElementById('btn-cashflow-detalle')?.addEventListener('click', () => {
+            const btnDetalle = document.getElementById('btn-cashflow-detalle');
+            const btnResumen = document.getElementById('btn-cashflow-resumen');
+            if (btnDetalle) { btnDetalle.style.background = 'white'; btnDetalle.style.color = 'var(--primary)'; btnDetalle.style.boxShadow = '0 1px 2px rgba(0,0,0,0.05)'; }
+            if (btnResumen) { btnResumen.style.background = 'transparent'; btnResumen.style.color = 'var(--text-secondary)'; btnResumen.style.boxShadow = 'none'; }
+            
+            const detailContainer = document.getElementById('cashflow-detalle-container');
+            const resumenContainer = document.getElementById('cashflow-resumen-container');
+            if(detailContainer) detailContainer.style.display = 'block';
+            if(resumenContainer) resumenContainer.style.display = 'none';
+        });
+
+        document.getElementById('btn-cashflow-resumen')?.addEventListener('click', () => {
+            const btnDetalle = document.getElementById('btn-cashflow-detalle');
+            const btnResumen = document.getElementById('btn-cashflow-resumen');
+            if (btnResumen) { btnResumen.style.background = 'white'; btnResumen.style.color = 'var(--primary)'; btnResumen.style.boxShadow = '0 1px 2px rgba(0,0,0,0.05)'; }
+            if (btnDetalle) { btnDetalle.style.background = 'transparent'; btnDetalle.style.color = 'var(--text-secondary)'; btnDetalle.style.boxShadow = 'none'; }
+            
+            const detailContainer = document.getElementById('cashflow-detalle-container');
+            const resumenContainer = document.getElementById('cashflow-resumen-container');
+            if(detailContainer) detailContainer.style.display = 'none';
+            if(resumenContainer) resumenContainer.style.display = 'block';
+        });
+
+        document.getElementById('btn-balance-detalle')?.addEventListener('click', () => {
+            const btnDetalle = document.getElementById('btn-balance-detalle');
+            const btnResumen = document.getElementById('btn-balance-resumen');
+            if (btnDetalle) { btnDetalle.style.background = 'white'; btnDetalle.style.color = 'var(--primary)'; btnDetalle.style.boxShadow = '0 1px 2px rgba(0,0,0,0.05)'; }
+            if (btnResumen) { btnResumen.style.background = 'transparent'; btnResumen.style.color = 'var(--text-secondary)'; btnResumen.style.boxShadow = 'none'; }
+            
+            const detailContainer = document.getElementById('balance-detalle-container');
+            const resumenContainer = document.getElementById('balance-resumen-container');
+            if(detailContainer) detailContainer.style.display = 'block';
+            if(resumenContainer) resumenContainer.style.display = 'none';
+        });
+
+        document.getElementById('btn-balance-resumen')?.addEventListener('click', () => {
+            const btnDetalle = document.getElementById('btn-balance-detalle');
+            const btnResumen = document.getElementById('btn-balance-resumen');
+            if (btnResumen) { btnResumen.style.background = 'white'; btnResumen.style.color = 'var(--primary)'; btnResumen.style.boxShadow = '0 1px 2px rgba(0,0,0,0.05)'; }
+            if (btnDetalle) { btnDetalle.style.background = 'transparent'; btnDetalle.style.color = 'var(--text-secondary)'; btnDetalle.style.boxShadow = 'none'; }
+            
+            const detailContainer = document.getElementById('balance-detalle-container');
+            const resumenContainer = document.getElementById('balance-resumen-container');
+            if(detailContainer) detailContainer.style.display = 'none';
+            if(resumenContainer) resumenContainer.style.display = 'block';
         });
 
         const btnToggleComercial = document.getElementById('btn-toggle-comercial-view');

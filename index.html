@@ -2399,7 +2399,7 @@
       <!-- View: Balance Sheet -->
       <div id="view-balance" class="view-container">
         <div class="table-header">
-          <h3>Balance General Consolidado</h3>
+          <h3>Estado de Situación</h3>
           <span
             id="balancePeriodLabel"
             style="
@@ -2410,66 +2410,93 @@
             >Situación Financiera al Cierre</span
           >
         </div>
-        <div class="pnl-detail-table" style="position: relative;">
-          <table id="balanceTable" class="desktop-only-table">
-            <thead id="balanceHeader"></thead>
-            <tbody id="balanceBody">
-              <tr>
-                <td
-                  style="
-                    text-align: center;
-                    padding: 40px;
-                    color: var(--text-secondary);
-                    font-style: italic;
-                  "
-                >
-                  Cargue un archivo para generar el Balance General.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <div id="balanceMobileContainer" style="display: none;"></div>
+
+        <div id="balance-view-toggles" style="display: flex; justify-content: flex-end; margin-bottom: 24px; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <span style="font-size: 0.85rem; font-weight: 600; color: var(--sidebar);">Vista:</span>
+            <div style="display: flex; gap: 4px; background: #f1f5f9; padding: 4px; border-radius: 8px;">
+                <button id="btn-balance-detalle" class="balance-view-btn" data-view="detalle" style="padding: 6px 14px; background: white; color: var(--primary); border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.05); transition: 0.2s;">Detalle</button>
+                <button id="btn-balance-resumen" class="balance-view-btn" data-view="resumen" style="padding: 6px 14px; background: transparent; color: var(--text-secondary); border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 600; box-shadow: none; transition: 0.2s;">Resumen</button>
+            </div>
         </div>
 
-        <!-- New Section: Covenant Deuda -->
-        <div id="covenant-section" style="margin-top: 32px; display: none">
-          <div
-            class="table-header"
-            style="
-              background: var(--sidebar);
-              color: white;
-              padding: 12px 24px;
-              border-radius: 12px 12px 0 0;
-              border: 1px solid var(--sidebar);
-            "
-          >
-            <h3
+        <div id="balance-detalle-container">
+          <div class="pnl-detail-table" style="position: relative;">
+            <table id="balanceTable" class="desktop-only-table">
+              <thead id="balanceHeader"></thead>
+              <tbody id="balanceBody">
+                <tr>
+                  <td
+                    style="
+                      text-align: center;
+                      padding: 40px;
+                      color: var(--text-secondary);
+                      font-style: italic;
+                    "
+                  >
+                    Cargue un archivo para generar el Balance General.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div id="balanceMobileContainer" style="display: none;"></div>
+          </div>
+
+          <!-- New Section: Covenant Deuda -->
+          <div id="covenant-section" style="margin-top: 32px; display: none">
+            <div
+              class="table-header"
               style="
+                background: var(--sidebar);
                 color: white;
-                margin: 0;
-                font-size: 1.1rem;
-                font-weight: 800;
-                text-transform: uppercase;
-                letter-spacing: 1px;
+                padding: 12px 24px;
+                border-radius: 12px 12px 0 0;
+                border: 1px solid var(--sidebar);
               "
             >
-              Covenant Deuda
-            </h3>
+              <h3
+                style="
+                  color: white;
+                  margin: 0;
+                  font-size: 1.1rem;
+                  font-weight: 800;
+                  text-transform: uppercase;
+                  letter-spacing: 1px;
+                "
+              >
+                Covenant Deuda
+              </h3>
+            </div>
+            <div
+              class="pnl-detail-table"
+              style="
+                margin-top: 0;
+                border-radius: 0 0 12px 12px;
+                border-top: none;
+                position: relative;
+              "
+            >
+              <table id="covenantTable" class="desktop-only-table">
+                <thead id="covenantHeader"></thead>
+                <tbody id="covenantBody"></tbody>
+              </table>
+              <div id="covenantMobileContainer" style="display: none;"></div>
+            </div>
           </div>
-          <div
-            class="pnl-detail-table"
-            style="
-              margin-top: 0;
-              border-radius: 0 0 12px 12px;
-              border-top: none;
-              position: relative;
-            "
-          >
-            <table id="covenantTable" class="desktop-only-table">
-              <thead id="covenantHeader"></thead>
-              <tbody id="covenantBody"></tbody>
+        </div>
+
+        <!-- Vista Resumen (Oculta por defecto) -->
+        <div id="balance-resumen-container" style="display: none;">
+          <div class="pnl-detail-table" style="position: relative;">
+            <table id="balanceResumenTable" class="desktop-only-table" style="max-width: 800px; margin: 0 auto; border: 1px solid var(--border);">
+              <thead id="balanceResumenHeader"></thead>
+              <tbody id="balanceResumenBody">
+                <tr>
+                  <td colspan="4" style="text-align: center; padding: 40px; color: var(--text-secondary); font-style: italic;">
+                    Cargue un archivo para generar este reporte.
+                  </td>
+                </tr>
+              </tbody>
             </table>
-            <div id="covenantMobileContainer" style="display: none;"></div>
           </div>
         </div>
       </div>
@@ -2522,67 +2549,94 @@
           >
         </div>
 
-        <div class="pnl-detail-table" style="position: relative;">
-          <table id="cashflowTable" class="desktop-only-table">
-            <thead id="cashflowHeader"></thead>
-            <tbody id="cashflowBody">
-              <tr>
-                <td
-                  style="
-                    text-align: center;
-                    padding: 40px;
-                    color: var(--text-secondary);
-                    font-style: italic;
-                  "
-                >
-                  Cargue un archivo con la hoja "Cash-Flow" para generar este
-                  reporte.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <div id="cashflowMobileContainer" style="display: none;"></div>
+        <div id="cashflow-view-toggles" style="display: flex; justify-content: flex-end; margin-bottom: 24px; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <span style="font-size: 0.85rem; font-weight: 600; color: var(--sidebar);">Vista:</span>
+            <div style="display: flex; gap: 4px; background: #f1f5f9; padding: 4px; border-radius: 8px;">
+                <button id="btn-cashflow-detalle" class="cashflow-view-btn" data-view="detalle" style="padding: 6px 14px; background: white; color: var(--primary); border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.05); transition: 0.2s;">Detalle</button>
+                <button id="btn-cashflow-resumen" class="cashflow-view-btn" data-view="resumen" style="padding: 6px 14px; background: transparent; color: var(--text-secondary); border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 600; box-shadow: none; transition: 0.2s;">Resumen</button>
+            </div>
         </div>
 
-        <!-- Operating Metrics Section -->
-        <div id="cf-metrics-section" style="margin-top: 32px; display: none">
-          <div
-            class="table-header"
-            style="
-              background: var(--info);
-              color: white;
-              padding: 12px 24px;
-              border-radius: 12px 12px 0 0;
-              border: 1px solid var(--info);
-            "
-          >
-            <h3
+        <div id="cashflow-detalle-container">
+          <div class="pnl-detail-table" style="position: relative;">
+            <table id="cashflowTable" class="desktop-only-table">
+              <thead id="cashflowHeader"></thead>
+              <tbody id="cashflowBody">
+                <tr>
+                  <td
+                    style="
+                      text-align: center;
+                      padding: 40px;
+                      color: var(--text-secondary);
+                      font-style: italic;
+                    "
+                  >
+                    Cargue un archivo con la hoja "Cash-Flow" para generar este
+                    reporte.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div id="cashflowMobileContainer" style="display: none;"></div>
+          </div>
+
+          <!-- Operating Metrics Section -->
+          <div id="cf-metrics-section" style="margin-top: 32px; display: none">
+            <div
+              class="table-header"
               style="
-                color: #1e293b; 
-                margin: 0;
-                font-size: 1.1rem;
-                font-weight: 800;
-                text-transform: uppercase;
-                letter-spacing: 1px;
+                background: var(--info);
+                color: white;
+                padding: 12px 24px;
+                border-radius: 12px 12px 0 0;
+                border: 1px solid var(--info);
               "
             >
-              Métricas de Eficiencia Operativa (Ciclo de Caja)
-            </h3>
+              <h3
+                style="
+                  color: #1e293b; 
+                  margin: 0;
+                  font-size: 1.1rem;
+                  font-weight: 800;
+                  text-transform: uppercase;
+                  letter-spacing: 1px;
+                "
+              >
+                Métricas de Eficiencia Operativa (Ciclo de Caja)
+              </h3>
+            </div>
+            <div
+              class="pnl-detail-table"
+              style="
+                margin-top: 0;
+                border-radius: 0 0 12px 12px;
+                border-top: none;
+                position: relative;
+              "
+            >
+              <table id="cfMetricsTable" class="desktop-only-table">
+                <thead id="cfMetricsHeader"></thead>
+                <tbody id="cfMetricsBody"></tbody>
+              </table>
+              <div id="cfMetricsMobileContainer" style="display: none;"></div>
+            </div>
           </div>
-          <div
-            class="pnl-detail-table"
-            style="
-              margin-top: 0;
-              border-radius: 0 0 12px 12px;
-              border-top: none;
-              position: relative;
-            "
-          >
-            <table id="cfMetricsTable" class="desktop-only-table">
-              <thead id="cfMetricsHeader"></thead>
-              <tbody id="cfMetricsBody"></tbody>
+        </div>
+
+        <!-- Vista Resumen (Oculta por defecto) -->
+        <div id="cashflow-resumen-container" style="display: none;">
+          <div class="pnl-detail-table" style="position: relative;">
+            <table id="cashflowResumenTable" class="desktop-only-table" style="max-width: 800px; margin: 0 auto; border: 1px solid var(--border);">
+              <thead id="cashflowResumenHeader"></thead>
+              <tbody id="cashflowResumenBody">
+                <tr>
+                  <td colspan="4" style="text-align: center; padding: 40px; color: var(--text-secondary); font-style: italic;">
+                    Cargue un archivo con la hoja "Cash-Flow" para generar este reporte.
+                  </td>
+                </tr>
+              </tbody>
             </table>
-            <div id="cfMetricsMobileContainer" style="display: none;"></div>
+            <div id="cashflowResumenMobileContainer" style="display: none;"></div>
           </div>
         </div>
       </div>
@@ -2772,6 +2826,22 @@
                   margin-right: 4px;
                 "
               ></i>Exportar CSV
+            </button>
+            <button
+              id="btn-export-pdf"
+              class="upload-btn"
+              style="width: auto; margin-top: 0; background: var(--danger)"
+            >
+              <i
+                data-lucide="file-text"
+                style="
+                  width: 16px;
+                  height: 16px;
+                  display: inline-block;
+                  vertical-align: middle;
+                  margin-right: 4px;
+                "
+              ></i>Exportar PDF
             </button>
           </div>
         </div>
