@@ -4457,7 +4457,7 @@ function renderDeudaChart(data, selectedIndex, dic2025) {
 
     const width = container.clientWidth || 400;
     const height = 350;
-    const margin = { top: 40, right: 30, bottom: 40, left: 175 };
+    const margin = { top: 40, right: 30, bottom: 40, left: 195 };
 
     const svgWrapper = d3.select(container).append("div").style("width", "100%").style("display", "flex").style("justify-content", "center");
     
@@ -4532,14 +4532,14 @@ function renderDeudaChart(data, selectedIndex, dic2025) {
             if (b.logo) {
                 svg.append("image")
                     .attr("href", b.logo)
-                    .attr("x", -155) // to the left of the y-axis
-                    .attr("y", yCenter - 15)
-                    .attr("width", 100)
-                    .attr("height", 30)
+                    .attr("x", -175) // to the left of the y-axis
+                    .attr("y", yCenter - 20)
+                    .attr("width", 135)
+                    .attr("height", 40)
                     .attr("preserveAspectRatio", "xMaxYMid meet");
             } else {
                 svg.append("text")
-                    .attr("x", -55)
+                    .attr("x", -75)
                     .attr("y", yCenter)
                     .attr("dy", "0.35em")
                     .attr("text-anchor", "end")
