@@ -1783,9 +1783,9 @@ export async function processComercialWorkbook(workbook) {
   }
 
   comercialRawData = {
-    dataF:   nameDataF ? parseDataF(workbook.Sheets[workbook.SheetNames[sheetNames.indexOf(nameDataF.toLowerCase())]]) : [],
-    data2025: nameData2025 ? parseData2025(workbook.Sheets[workbook.SheetNames[sheetNames.indexOf(nameData2025.toLowerCase())]]) : [],
-    ppto:    namePPTO ? parsePPTO(workbook.Sheets[workbook.SheetNames[sheetNames.indexOf(namePPTO.toLowerCase())]]) : { vol: [], vta: [] },
+    dataF:   nameDataF ? parseDataF(workbook.Sheets[workbook.SheetNames[sheetNames.indexOf(nameDataF.toLowerCase())]]) : (comercialRawData?.dataF || []),
+    data2025: nameData2025 ? parseData2025(workbook.Sheets[workbook.SheetNames[sheetNames.indexOf(nameData2025.toLowerCase())]]) : (comercialRawData?.data2025 || []),
+    ppto:    namePPTO ? parsePPTO(workbook.Sheets[workbook.SheetNames[sheetNames.indexOf(namePPTO.toLowerCase())]]) : (comercialRawData?.ppto || { vol: [], vta: [] }),
     pgHorizontal: finalPgData
   };
 

@@ -1620,7 +1620,7 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
             console.log(" Gap:", integrityGap);
 
         // Toleramos un descuadre por Otras Ventas o Depreciaciones (aprox 5% de los ingresos o $150M)
-        const integrityError = false;
+        const integrityError = (ingresos !== 0) ? (integrityGap / Math.abs(ingresos)) > 0.05 && integrityGap > 150 : integrityGap > 150;
 
         const findRowVal = (rows, search) => {
             const r = rows.filter(r => r && r[0]).find(r => normalizeText(String(r[0])).includes(search));

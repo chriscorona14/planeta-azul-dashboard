@@ -1371,6 +1371,7 @@ async function loadCacheInstant() {
             const hasComm = await engine.loadComercialCache();
             if (hasComm) {
                 window.hasComercialAccess = true;
+                window.isMagicLoaded = true;
                 if (document.getElementById("view-resumen-comercial") && document.getElementById("view-resumen-comercial").classList.contains("active")) {
                     window.renderResumenComercial();
                 }
