@@ -638,6 +638,10 @@ async function fetchMasterData(token = null) {
         let arrayBuffer = null;
         let arrayBufferCeo = null;
         
+        const prevMaster = window.hasMasterAccess;
+        const prevVentas = window.hasVentasAccess;
+        const prevComercial = window.hasComercialAccess;
+
         window.hasMasterAccess = false;
         window.hasVentasAccess = false;
         window.hasComercialAccess = false;
@@ -925,6 +929,19 @@ async function fetchMasterData(token = null) {
             if (err.name === 'AbortError') console.warn("Tiempo de espera de red agotado.");
         }
 
+        // Si operamos con caché (ya se cargaron los datos), restauramos los permisos que se perdieron con el reset
+        if (window.isMagicLoaded) {
+            if (!window.hasMasterAccess && (globalFinancialData && globalFinancialData.length > 0)) {
+                window.hasMasterAccess = true;
+            }
+            if (!window.hasVentasAccess && (typeof ceoData !== 'undefined' && ceoData && ceoData.length > 0)) {
+                window.hasVentasAccess = true;
+            }
+            if (!window.hasComercialAccess && prevComercial) {
+                window.hasComercialAccess = true;
+            }
+        }
+
         // Aplicamos el RBAC después de las peticiones, pero si operamos con caché, mantenemos permisos
         if (typeof window.applyRoleBasedUI === 'function') {
             const hasCom = window.hasComercialAccess || false;
@@ -1068,8 +1085,22 @@ async function fetchMasterData(token = null) {
             statusEl.innerHTML = "⚠️ Sincronización fallida.";
         }
         
-        // Si falló y no tenemos caché, devolvemos a O al usuario para que no quede en pantalla blanca fantasma
-        if (!window.isMagicLoaded) {
+        // Si falló y tenemos caché, restauramos los accesos para que las vistas no desaparezcan
+        if (window.isMagicLoaded) {
+            if (!window.hasMasterAccess && (globalFinancialData && globalFinancialData.length > 0)) {
+                window.hasMasterAccess = true;
+            }
+            if (!window.hasVentasAccess && (typeof ceoData !== 'undefined' && ceoData && ceoData.length > 0)) {
+                window.hasVentasAccess = true;
+            }
+            if (!window.hasComercialAccess && typeof prevComercial !== 'undefined' && prevComercial) {
+                window.hasComercialAccess = true;
+            }
+            if (typeof window.applyRoleBasedUI === 'function') {
+                window.applyRoleBasedUI(window.hasMasterAccess, window.hasVentasAccess, window.hasComercialAccess);
+            }
+        } else {
+            // Si falló y no tenemos caché, devolvemos a 0 al usuario para que no quede en pantalla blanca fantasma
             window.handleZeroState();
         }
     }
@@ -4426,7 +4457,7 @@ function renderDeudaChart(data, selectedIndex, dic2025) {
 
     const width = container.clientWidth || 400;
     const height = 350;
-    const margin = { top: 40, right: 30, bottom: 40, left: 140 };
+    const margin = { top: 40, right: 30, bottom: 40, left: 175 };
 
     const svgWrapper = d3.select(container).append("div").style("width", "100%").style("display", "flex").style("justify-content", "center");
     
@@ -4439,7 +4470,7 @@ function renderDeudaChart(data, selectedIndex, dic2025) {
     const x = d3.scaleBand()
         .domain(labels)
         .range([0, width - margin.left - margin.right])
-        .padding(0.4);
+        .padding(0.55);
 
     const maxY = d3.max(chartData, d => d.total) * 1.1;
     const y = d3.scaleLinear()
@@ -4501,14 +4532,14 @@ function renderDeudaChart(data, selectedIndex, dic2025) {
             if (b.logo) {
                 svg.append("image")
                     .attr("href", b.logo)
-                    .attr("x", -120) // to the left of the y-axis
+                    .attr("x", -155) // to the left of the y-axis
                     .attr("y", yCenter - 15)
                     .attr("width", 100)
                     .attr("height", 30)
                     .attr("preserveAspectRatio", "xMaxYMid meet");
             } else {
                 svg.append("text")
-                    .attr("x", -20)
+                    .attr("x", -55)
                     .attr("y", yCenter)
                     .attr("dy", "0.35em")
                     .attr("text-anchor", "end")
