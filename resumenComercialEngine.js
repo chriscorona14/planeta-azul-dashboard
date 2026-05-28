@@ -976,7 +976,7 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
       <tr>
         <th rowspan="2" style="background:var(--sidebar); color:white; border-right: 2px solid rgba(255,255,255, 0.2); vertical-align:middle; text-transform:uppercase; font-size: 0.65rem; letter-spacing: 0.05em; padding: 12px 24px;">Categoría</th>
         <th colspan="3" style="text-align:center; background:#1e293b; color:white; border-bottom: 2px solid #38bdf8; padding: 10px; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em;">Volumen (Unidades)</th>
-        <th colspan="3" style="text-align:center; background:var(--sidebar); color:white; border-bottom: 2px solid #a855f7; border-left: 3px solid #475569; padding: 10px; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em;">Precio (DOP)</th>
+        <th colspan="3" style="text-align:center; background:var(--sidebar); color:white; border-bottom: 2px solid #1e40af; border-left: 3px solid #475569; padding: 10px; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em;">Precio (DOP)</th>
         <th colspan="3" style="text-align:center; background:#1e293b; color:white; border-bottom: 2px solid #38bdf8; border-left: 3px solid #475569; padding: 10px; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em;">Ventas Netas (mDOP)</th>
       </tr>
       <tr>
@@ -1288,22 +1288,22 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
     <tr>
       <th rowspan="2" style="background:var(--sidebar); color:white; border-right: 2px solid rgba(255,255,255, 0.2); vertical-align:middle; text-transform:uppercase; font-size: 0.65rem; letter-spacing: 0.05em; padding: 12px 24px;">Categoría</th>
       <th colspan="3" style="text-align:center; background:#1e293b; color:white; border-bottom: 2px solid #38bdf8; padding: 10px; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em;">Volumen (Unidades)</th>
-      <th colspan="3" style="text-align:center; background:var(--sidebar); color:white; border-bottom: 2px solid #a855f7; border-left: 3px solid #475569; padding: 10px; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em;">Precio (DOP)</th>
+      <th colspan="3" style="text-align:center; background:var(--sidebar); color:white; border-bottom: 2px solid #1e40af; border-left: 3px solid #475569; padding: 10px; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em;">Precio (DOP)</th>
       <th colspan="3" style="text-align:center; background:#1e293b; color:white; border-bottom: 2px solid #38bdf8; border-left: 3px solid #475569; padding: 10px; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em;">Ventas Netas (mDOP)</th>
       <th colspan="2" style="text-align:center; background:var(--sidebar); color:white; border-bottom: 2px solid #10b981; border-left: 3px solid #475569; padding: 10px; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em;">Variación %</th>
     </tr>
     <tr>
       <th style="text-align:right; background:#334155; color:white; font-size: 0.6rem;">${mesLabel25}</th>
       <th style="text-align:right; background:#334155; color:var(--primary); font-weight: 800; font-size: 0.6rem;">${mesLabel26}</th>
-      <th style="text-align:right; background:#4c1d95; color:white; font-size: 0.6rem; border-right: 3px solid #475569;">PPTO</th>
+      <th style="text-align:right; background:#1e3a8a; color:white; font-size: 0.6rem; border-right: 3px solid #475569;">PPTO</th>
       
       <th style="text-align:right; background:#1e293b; color:white; font-size: 0.6rem;">${mesLabel25}</th>
       <th style="text-align:right; background:#1e293b; color:var(--primary); font-weight: 800; font-size: 0.6rem;">${mesLabel26}</th>
-      <th style="text-align:right; background:#4c1d95; color:white; font-size: 0.6rem; border-right: 3px solid #475569;">PPTO</th>
+      <th style="text-align:right; background:#1e3a8a; color:white; font-size: 0.6rem; border-right: 3px solid #475569;">PPTO</th>
       
       <th style="text-align:right; background:#334155; color:white; font-size: 0.6rem;">${mesLabel25}</th>
       <th style="text-align:right; background:#334155; color:#38bdf8; font-weight: 800; font-size: 0.6rem;">${mesLabel26}</th>
-      <th style="text-align:right; background:#4c1d95; color:white; font-size: 0.6rem; border-right: 3px solid #475569;">PPTO</th>
+      <th style="text-align:right; background:#1e3a8a; color:white; font-size: 0.6rem; border-right: 3px solid #475569;">PPTO</th>
       
       <th style="text-align:right; background:#1e293b; color:white; font-size: 0.6rem;">vs 2025</th>
       <th style="text-align:right; background:#1e293b; color:white; font-size: 0.6rem;">Vs PPTO</th>
@@ -1336,7 +1336,7 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
       const v25 = formatPrcClr(var25);
       const vPpto = formatPrcClr(varPpto);
 
-      const pptoBg = 'rgba(124, 58, 237, 0.04)';
+      const pptoBg = 'rgba(30, 64, 175, 0.04)';
 
       html += `
       <tr class="${rowClass}">
@@ -1344,15 +1344,15 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
           
           <td style="text-align:right; font-family:var(--font-mono); font-size:0.75rem;">${fmtVol(row.volumen.a25)}</td>
           <td style="text-align:right; font-family:var(--font-mono); font-size:0.75rem; font-weight: 700;">${fmtVol(row.volumen.a26)}</td>
-          <td style="text-align:right; font-family:var(--font-mono); font-size:0.75rem; background:${pptoBg}; color:#6d28d9; border-right: 3px solid #e2e8f0;">${fmtVol(row.volumen.ppto)}</td>
+          <td style="text-align:right; font-family:var(--font-mono); font-size:0.75rem; background:${pptoBg}; color:#1e40af; border-right: 3px solid #e2e8f0;">${fmtVol(row.volumen.ppto)}</td>
           
           <td style="text-align:right; font-family:var(--font-mono); font-size:0.72rem;">${fmtPrecio(row.precio.a25)}</td>
           <td style="text-align:right; font-family:var(--font-mono); font-size:0.72rem; font-weight: 700;">${fmtPrecio(row.precio.a26)}</td>
-          <td style="text-align:right; font-family:var(--font-mono); font-size:0.72rem; background:${pptoBg}; color:#6d28d9; border-right: 3px solid #e2e8f0;">${fmtPrecio(row.precio.ppto)}</td>
+          <td style="text-align:right; font-family:var(--font-mono); font-size:0.72rem; background:${pptoBg}; color:#1e40af; border-right: 3px solid #e2e8f0;">${fmtPrecio(row.precio.ppto)}</td>
           
           <td style="text-align:right; font-family:var(--font-mono); font-size:0.75rem;">${fmtMdop(row.ventas.a25)}</td>
           <td style="text-align:right; font-family:var(--font-mono); font-size:0.75rem; font-weight: 700; color:var(--primary); background:rgba(0,0,0,0.02);">${fmtMdop(row.ventas.a26)}</td>
-          <td style="text-align:right; font-family:var(--font-mono); font-size:0.75rem; background:${pptoBg}; color:#6d28d9; border-right: 3px solid #e2e8f0;">${fmtMdop(row.ventas.ppto)}</td>
+          <td style="text-align:right; font-family:var(--font-mono); font-size:0.75rem; background:${pptoBg}; color:#1e40af; border-right: 3px solid #e2e8f0;">${fmtMdop(row.ventas.ppto)}</td>
           
           <td style="text-align:right; font-family:var(--font-mono); font-size:0.72rem; color:${v25.color}; font-weight:bold;">${v25.text}</td>
           <td style="text-align:right; font-family:var(--font-mono); font-size:0.72rem; color:${vPpto.color}; font-weight:bold;">${vPpto.text}</td>
@@ -1371,13 +1371,13 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
           <td style="background:var(--sidebar) !important; color:white !important; font-weight:bold !important; text-transform:uppercase; border-right: 2px solid rgba(255,255,255, 0.2);">TOTAL</td>
           <td style="text-align:right; background:var(--sidebar) !important; color:white !important; border-top:2px solid var(--sidebar-accent); font-family:var(--font-mono); font-size:0.75rem;">${fmtVol(table.grandTotalVol.a25)}</td>
           <td style="text-align:right; background:var(--sidebar) !important; color:white !important; font-weight:bold; border-top:2px solid var(--sidebar-accent); font-family:var(--font-mono); font-size:0.75rem;">${fmtVol(table.grandTotalVol.a26)}</td>
-          <td style="text-align:right; background:#4c1d95 !important; color:white !important; font-weight:bold; border-top:2px solid var(--sidebar-accent); border-right: 3px solid #475569; font-family:var(--font-mono); font-size:0.75rem;">${fmtVol(table.grandTotalVol.ppto)}</td>
+          <td style="text-align:right; background:#1e3a8a !important; color:white !important; font-weight:bold; border-top:2px solid var(--sidebar-accent); border-right: 3px solid #475569; font-family:var(--font-mono); font-size:0.75rem;">${fmtVol(table.grandTotalVol.ppto)}</td>
           
           <td colspan="3" style="text-align:center; background:var(--sidebar) !important; border-top:2px solid var(--sidebar-accent); border-right: 3px solid #475569;"></td>
           
           <td style="text-align:right; background:var(--sidebar) !important; color:white !important; border-top:2px solid var(--sidebar-accent); font-family:var(--font-mono); font-size:0.75rem;">${fmtMdop(table.grandTotalVta.a25)}</td>
           <td style="text-align:right; background:var(--sidebar) !important; color:#38bdf8 !important; font-weight:bold; border-top:2px solid var(--sidebar-accent); font-family:var(--font-mono); font-size:0.75rem;">${fmtMdop(table.grandTotalVta.a26)}</td>
-          <td style="text-align:right; background:#4c1d95 !important; color:white !important; font-weight:bold; border-top:2px solid var(--sidebar-accent); border-right: 3px solid #475569; font-family:var(--font-mono); font-size:0.75rem;">${fmtMdop(table.grandTotalVta.ppto)}</td>
+          <td style="text-align:right; background:#1e3a8a !important; color:white !important; font-weight:bold; border-top:2px solid var(--sidebar-accent); border-right: 3px solid #475569; font-family:var(--font-mono); font-size:0.75rem;">${fmtMdop(table.grandTotalVta.ppto)}</td>
           
           <td style="text-align:right; background:var(--sidebar) !important; color:${vTot25.color} !important; font-weight:bold; border-top:2px solid var(--sidebar-accent); font-family:var(--font-mono); font-size:0.75rem;">${vTot25.text}</td>
           <td style="text-align:right; background:var(--sidebar) !important; color:${vTotPpto.color} !important; font-weight:bold; border-top:2px solid var(--sidebar-accent); font-family:var(--font-mono); font-size:0.75rem;">${vTotPpto.text}</td>

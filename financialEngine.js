@@ -153,8 +153,20 @@ export function financialEngine(workbook) {
     const pptoBalanceKey = sheetKeys.find(s => /ppto/i.test(s) && /balance/i.test(s));
     const pptoCashflowKey = sheetKeys.find(s => /ppto/i.test(s) && /cash/i.test(s));
 
+    let deudaSheetKeys = sheetKeys.filter(s => s.toLowerCase().includes("deuda"));
+    let deudaSheet = null;
+    if (deudaSheetKeys.length > 0) {
+        deudaSheet = sheets[deudaSheetKeys[0]];
+    }
+
+    let presentacionSheetKey = sheetKeys.find(s => {
+        const lower = s.toLowerCase();
+        return lower.includes("presentaci") || lower.includes("presentación") || lower.includes("presentation");
+    });
+    let presentacionSheet = presentacionSheetKey ? sheets[presentacionSheetKey] : null;
+
     if (pnlKey && sheets[pnlKey]) {
-        const result = processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, pptoPnlKey, pptoBalanceKey, pptoCashflowKey, wcKey, estadosKey);
+        const result = processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, pptoPnlKey, pptoBalanceKey, pptoCashflowKey, wcKey, estadosKey, deudaSheet, presentacionSheet);
         if (!result.error && result.data && result.data.length > 0) {
             result.modelType = "Reporte PA / Estados Financieros";
             return result;
@@ -399,7 +411,7 @@ export const FINANCIAL_KEYWORDS = {
     cf_dio: ["dio"]
 };
 
-function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, pptoPnlKey = null, pptoBalanceKey = null, pptoCashflowKey = null, wcKey = null, estadosKey = null) {
+function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, pptoPnlKey = null, pptoBalanceKey = null, pptoCashflowKey = null, wcKey = null, estadosKey = null, deudaSheet = null, presentacionSheet = null) {
     const pnlSheet = sheets[pnlKey];
     const balanceSheet = balanceKey ? sheets[balanceKey] : null;
     const cashflowSheet = cashflowKey ? sheets[cashflowKey] : null;
@@ -525,9 +537,16 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
         activos: (balanceSheet ? findRowByKeywords(balanceSheet, balanceKeywords.activos) : null) || findRowByKeywords(pnlSheet, balanceKeywords.activos),
         pasivos: (balanceSheet ? findRowByKeywords(balanceSheet, balanceKeywords.pasivos) : null) || findRowByKeywords(pnlSheet, balanceKeywords.pasivos),
         patrimonio: (balanceSheet ? findRowByKeywords(balanceSheet, balanceKeywords.patrimonio) : null) || findRowByKeywords(pnlSheet, balanceKeywords.patrimonio),
-        // Cuentas específicas para cálculo de Beneficio Neto si viene en 0
         gananciaAcumulada: (balanceSheet ? findRowByKeywords(balanceSheet, ["ganancia acumulada", "utilidad acumulada", "ganancias acumuladas", "utilidades acumuladas"]) : null),
-        utilidadesRetenidas: (balanceSheet ? findRowByKeywords(balanceSheet, ["utilidades retenidas", "utilidad retenida"]) : null)
+        utilidadesRetenidas: (balanceSheet ? findRowByKeywords(balanceSheet, ["utilidades retenidas", "utilidad retenida"]) : null),
+        // Covenant and Leverage Indicators (using user exact row references in case keywords fail)
+        covenantLean: balanceSheet ? (findRowByKeywords(balanceSheet, ["deuda neta bancaria", "ebitda", "4.0x"]) || balanceSheet[97]) : null,
+        apalancamiento: balanceSheet ? (findRowByKeywords(balanceSheet, ["apalancamiento", "= 2.0x", "<=2.0x", "<= 2.0x"]) || balanceSheet[98]) : null,
+        capacidadPago: balanceSheet ? (findRowByKeywords(balanceSheet, ["capacidad de pago"]) || balanceSheet[99]) : null,
+        razonCorriente: balanceSheet ? (findRowByKeywords(balanceSheet, ["razon corriente", "current ratio", "liquidez"]) || balanceSheet[100]) : null,
+        deudaBancariaNetaUSD: balanceSheet ? (findRowByKeywords(balanceSheet, ["deuda neta bancaria usd", "bancaria usd"]) || balanceSheet[95]) : null,
+        cajaEfectivo: balanceSheet ? findRowByKeywords(balanceSheet, ["caja y banco", "efectivo y equivalente", "efectivo y caja", "caja"]) : null,
+        deudaTotal: balanceSheet ? findRowByKeywords(balanceSheet, ["deuda financiera total", "deuda a corto y largo plazo"]) : null
     };
 
     const cfRows = {
@@ -724,13 +743,14 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
     const cfIndices = cashflowSheet ? findSheetIndices(cashflowSheet) : {};
     const wcIndices = wcSheet ? findSheetIndices(wcSheet) : {};
     const estadosIndices = estadosSheet ? findSheetIndices(estadosSheet) : {};
+    const deudaIndices = deudaSheet ? findSheetIndices(deudaSheet) : {};
 
     const pptoPnlIndices = pptoPnlSheet ? findSheetIndices(pptoPnlSheet) : {};
     const pptoBalanceIndices = pptoBalanceSheet ? findSheetIndices(pptoBalanceSheet) : {};
     const pptoCfIndices = pptoCashflowSheet ? findSheetIndices(pptoCashflowSheet) : {};
     
     // Unificar todas las fechas detectadas en ambos reportes
-    const allDateKeys = new Set([...Object.keys(pnlIndices), ...Object.keys(balanceIndices), ...Object.keys(cfIndices), ...Object.keys(wcIndices), ...Object.keys(estadosIndices), ...Object.keys(pptoPnlIndices), ...Object.keys(pptoBalanceIndices), ...Object.keys(pptoCfIndices)]);
+    const allDateKeys = new Set([...Object.keys(pnlIndices), ...Object.keys(balanceIndices), ...Object.keys(cfIndices), ...Object.keys(wcIndices), ...Object.keys(estadosIndices), ...Object.keys(deudaIndices), ...Object.keys(pptoPnlIndices), ...Object.keys(pptoBalanceIndices), ...Object.keys(pptoCfIndices)]);
     
     let dataPeriods = [];
     allDateKeys.forEach(key => {
@@ -745,11 +765,12 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
             const cfIdx = cfIndices[key] !== undefined ? cfIndices[key] : pnlIdx;
             const wcIdx = wcIndices[key] !== undefined ? wcIndices[key] : pnlIdx;
             const estadosIdx = estadosIndices[key] !== undefined ? estadosIndices[key] : -1;
+            const deudaIdx = deudaIndices[key] !== undefined ? deudaIndices[key] : -1;
             const pptoPnlIdx = pptoPnlIndices[key] !== undefined ? pptoPnlIndices[key] : pptoPnlIndices[key] !== undefined ? pptoPnlIndices[key] : -1;
             const pptoBalanceIdx = pptoBalanceIndices[key] !== undefined ? pptoBalanceIndices[key] : pptoPnlIdx !== -1 ? pptoPnlIdx : balanceIdx;
             const pptoCfIdx = pptoCfIndices[key] !== undefined ? pptoCfIndices[key] : pptoPnlIdx !== -1 ? pptoPnlIdx : cfIdx;
 
-            dataPeriods.push({ date: d, pnlIdx, balanceIdx, cfIdx, wcIdx, estadosIdx, pptoPnlIdx, pptoBalanceIdx, pptoCfIdx });
+            dataPeriods.push({ date: d, pnlIdx, balanceIdx, cfIdx, wcIdx, estadosIdx, deudaIdx, pptoPnlIdx, pptoBalanceIdx, pptoCfIdx });
         }
     });
     
@@ -1069,6 +1090,7 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
         const bIdx = point.balanceIdx;
         const cfIdx = point.cfIdx;
         const wcIdx = point.wcIdx !== undefined ? point.wcIdx : -1;
+        const dIdx = point.deudaIdx !== undefined ? point.deudaIdx : -1;
         
         const pptoPnlIdx = point.pptoPnlIdx;
         const pptoBIdx = point.pptoBalanceIdx;
@@ -1086,7 +1108,6 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
 
         let utilidad = pIdx !== -1 ? getVal(pnlRows.utilidad, pIdx) : 0;
         
-        // 🚨 CRITICAL FIX: Si la utilidad es 0, intentar calcularla por diferencia en el Balance
         if (utilidad === 0 && bIdx !== -1) {
             const gananciaAcum = getBalanceVal(balanceRows.gananciaAcumulada, bIdx);
             const utilRetenidas = getBalanceVal(balanceRows.utilidadesRetenidas, bIdx);
@@ -1101,6 +1122,164 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
         const pasivos = bIdx !== -1 ? getBalanceVal(balanceRows.pasivos, bIdx) : 0;
         const patrimonio = bIdx !== -1 ? getBalanceVal(balanceRows.patrimonio, bIdx) : 0;
         const tasaCambio = pIdx !== -1 ? getVal(pnlRows.tasa_cambio, pIdx) : 1;
+
+        // Extraer Detalle de la Vista Deuda
+        let tasaDop = null;
+        let tasaUsd = null;
+        let deudaNetaUsd = null;
+        let bancaTotal = null;
+        let relacionadaTotal = null;
+        let deudaTotal = null;
+        let efectivo = null;
+        let deudaNeta = null;
+        
+        let bancos = {
+            'Banco Popular': null,
+            'Banco Santa Cruz': null,
+            'Scotiabank': null,
+            'Loganville': null
+        };
+        let tasasPorBanco = {
+            'Banco Popular': null,
+            'Banco Santa Cruz': null,
+            'Scotiabank': null
+        };
+        
+        if (deudaSheet && dIdx !== -1) {
+            const tasaDopRow = findRowByKeywords(deudaSheet, ["promedio ponderado dop"]);
+            if (tasaDopRow) tasaDop = getBalanceVal(tasaDopRow, dIdx);
+            
+            const tasaUsdRow = findRowByKeywords(deudaSheet, ["promedio ponderado usd", "tasa usd", "fx dop/usd", "tasa de cambio"]);
+            if (tasaUsdRow) tasaUsd = getBalanceVal(tasaUsdRow, dIdx);
+            
+            const deudaNetaUsdRow = findRowByKeywords(deudaSheet, ["deuda neta total usd"]);
+            if (deudaNetaUsdRow) deudaNetaUsd = getBalanceVal(deudaNetaUsdRow, dIdx);
+            
+            bancaTotal = getBalanceVal(deudaSheet[5], dIdx); // Fila 6 es index 5
+            relacionadaTotal = getBalanceVal(deudaSheet[6], dIdx); // Fila 7
+            deudaTotal = getBalanceVal(deudaSheet[7], dIdx); // Fila 8
+            efectivo = getBalanceVal(deudaSheet[8], dIdx); // Fila 9
+            deudaNeta = getBalanceVal(deudaSheet[9], dIdx); // Fila 10
+            
+            // Loganville = Deuda Relacionada (fila 7, index 6), mismo valor ya capturado en relacionadaTotal.
+            // La fila 197 ("Total DOP") usa FX histórico variable y da valores incorrectos para períodos pasados.
+            bancos['Loganville'] = relacionadaTotal;
+            
+            // Recorrer filas 39-67 para acumular por banco (indices 38 a 66), asumiendo col 2 (index 1) es el nombre del banco
+            let popV = 0, scV = 0, scotiV = 0;
+            let popFound = false, scFound = false, scotiFound = false;
+            
+            for (let r = 38; r <= 66; r++) {
+                const rRow = deudaSheet[r];
+                if (!rRow) continue;
+                const bancoName = normalizeText(rRow[1] || rRow[2] || '');
+                const val = getBalanceVal(rRow, dIdx) || 0;
+                
+                if (bancoName.includes("popular")) { popV += val; popFound = true; }
+                else if (bancoName.includes("santa cruz")) { scV += val; scFound = true; }
+                else if (bancoName.includes("scotia") || bancoName.includes("bns")) { scotiV += val; scotiFound = true; }
+            }
+            if (popFound) bancos['Banco Popular'] = popV;
+            if (scFound) bancos['Banco Santa Cruz'] = scV;
+            if (scotiFound) bancos['Scotiabank'] = scotiV;
+            
+            // Tasas promedio ponderado por banco: filas 120-147 (indices 119 a 146). Usa la tasa general DOP para simplificar si no se encuentra especifica,
+            // pero el usuario pidio calcularla, aunque tambien dijo "Si es complejo, simplificar usando la tasa promedio general (fila 148)"
+            const tasaGeneralDOP = getBalanceVal(deudaSheet[147], dIdx); // Fila 148 is index 147 
+            if (popFound) tasasPorBanco['Banco Popular'] = tasaGeneralDOP;
+            if (scFound) tasasPorBanco['Banco Santa Cruz'] = tasaGeneralDOP;
+            if (scotiFound) tasasPorBanco['Scotiabank'] = tasaGeneralDOP;
+        }
+
+        const key = `${point.date.getMonth()}-${point.date.getFullYear()}`;
+        let presDIdx = presentacionSheet ? (deudaIndices[key] !== undefined ? deudaIndices[key] : -1) : -1; 
+        
+        let prestTasaDop, prestTasaUsd, prestNetaUsd, prestNetaBancUsd, prestInd1, prestInd2, prestInd3, prestInd4;
+        
+        if (presentacionSheet) {
+            // Find columns in Presentacion using standard findSheetIndices
+            const presIndices = findSheetIndices(presentacionSheet);
+            let pIdx = presIndices[key] !== undefined ? presIndices[key] : -1;
+            
+            if (pIdx !== -1) {
+                // Tasa DOP
+                const rowDop = findRowByKeywords(presentacionSheet, ["tasa dop"]);
+                if (rowDop) prestTasaDop = getBalanceVal(rowDop, pIdx);
+                
+                const rowUsd = findRowByKeywords(presentacionSheet, ["tasa usd"]);
+                if (rowUsd) prestTasaUsd = getBalanceVal(rowUsd, pIdx);
+                
+                const rowNeta = findRowByKeywords(presentacionSheet, ["deuda neta usd"]);
+                if (rowNeta) prestNetaUsd = getBalanceVal(rowNeta, pIdx);
+                
+                const rowNetaBanc = findRowByKeywords(presentacionSheet, ["deuda neta bancaria usd", "bancaria usd"]);
+                if (rowNetaBanc) prestNetaBancUsd = getBalanceVal(rowNetaBanc, pIdx);
+                
+                const rowInd1 = findRowByKeywords(presentacionSheet, ["deuda neta bancaria /", "<=4.0x"]);
+                if (rowInd1) prestInd1 = getBalanceVal(rowInd1, pIdx);
+                
+                const rowInd2 = findRowByKeywords(presentacionSheet, ["apalancamiento", "<=2.0x"]);
+                if (rowInd2) prestInd2 = getBalanceVal(rowInd2, pIdx);
+                
+                const rowInd3 = findRowByKeywords(presentacionSheet, ["capacidad de pago"]);
+                if (rowInd3) prestInd3 = getBalanceVal(rowInd3, pIdx);
+                
+                const rowInd4 = findRowByKeywords(presentacionSheet, ["razon corriente", ">= 1.5x"]);
+                if (rowInd4) prestInd4 = getBalanceVal(rowInd4, pIdx);
+            }
+        }
+
+        // Deuda Total is BP48 + BP49 + BP51 + BP52 (Indices 47, 48, 50, 51)
+        let calcDeudaTotal = null;
+        if (bIdx !== -1 && balanceSheet) {
+            const v48 = getBalanceVal(balanceSheet[47], bIdx) || 0;
+            const v49 = getBalanceVal(balanceSheet[48], bIdx) || 0;
+            const v51 = getBalanceVal(balanceSheet[50], bIdx) || 0;
+            const v52 = getBalanceVal(balanceSheet[51], bIdx) || 0;
+            calcDeudaTotal = v48 + v49 + v51 + v52;
+            if (calcDeudaTotal === 0 && !getBalanceVal(balanceSheet[47], bIdx)) calcDeudaTotal = null; // Only set to null if all were missing
+        }
+        
+        const fallbackDeudaTotal = (bIdx !== -1 ? getBalanceVal(balanceRows.deudaTotal, bIdx) : null) || calcDeudaTotal;
+        const fallbackCaja = bIdx !== -1 ? getBalanceVal(balanceRows.cajaEfectivo, bIdx) : null;
+        const fallbackTasaUsd = (prestTasaUsd !== undefined ? prestTasaUsd : tasaUsd) || tasaCambio || 1;
+        
+        let calculatedDeudaNetaUsd = prestNetaUsd !== undefined ? prestNetaUsd : deudaNetaUsd;
+        if (calculatedDeudaNetaUsd === null && fallbackDeudaTotal !== null && fallbackCaja !== null) {
+            calculatedDeudaNetaUsd = (fallbackDeudaTotal - fallbackCaja) / fallbackTasaUsd;
+        }
+
+        let rawBanc = prestNetaBancUsd !== undefined ? prestNetaBancUsd : (bIdx !== -1 ? (getBalanceVal(balanceRows.deudaBancariaNetaUSD, bIdx) || getBalanceVal(balanceSheet ? balanceSheet[109] : null, bIdx)) : null);
+        let calculatedDeudaNetaBancUSD = rawBanc;
+        const fxRate = tasaCambio || 1;
+        if (calculatedDeudaNetaBancUSD !== null && fxRate > 0) {
+            calculatedDeudaNetaBancUSD = calculatedDeudaNetaBancUSD / fxRate;
+        }
+
+        const deudaMetrics = {
+            tasaDop: prestTasaDop !== undefined ? prestTasaDop : tasaDop,
+            tasaUsd: prestTasaUsd !== undefined ? prestTasaUsd : tasaUsd,
+            tasaCambio: tasaCambio,
+            deudaNetaUsd: calculatedDeudaNetaUsd,
+            deudaNetaBancUSD: calculatedDeudaNetaBancUSD,
+            covenantLean: prestInd1 !== undefined ? prestInd1 : (bIdx !== -1 ? (getBalanceVal(balanceRows.covenantLean, bIdx) || getBalanceVal(balanceSheet ? balanceSheet[110] : null, bIdx)) : null),
+            apalancamiento: prestInd2 !== undefined ? prestInd2 : (bIdx !== -1 ? (getBalanceVal(balanceRows.apalancamiento, bIdx) || getBalanceVal(balanceSheet ? balanceSheet[111] : null, bIdx)) : null),
+            capacidadPago: prestInd3 !== undefined ? prestInd3 : (bIdx !== -1 ? (getBalanceVal(balanceRows.capacidadPago, bIdx) || getBalanceVal(balanceSheet ? balanceSheet[112] : null, bIdx)) : null),
+            razonCorriente: prestInd4 !== undefined ? prestInd4 : (bIdx !== -1 ? (getBalanceVal(balanceRows.razonCorriente, bIdx) || getBalanceVal(balanceSheet ? balanceSheet[113] : null, bIdx)) : null),
+            cajaEfectivo: fallbackCaja || (bIdx !== -1 ? getBalanceVal(balanceSheet ? balanceSheet[12] : null, bIdx) : null),
+            deudaTotal: fallbackDeudaTotal,
+            debtDetail: {
+                bancaTotal,
+                relacionadaTotal,
+                deudaTotal: deudaTotal || fallbackDeudaTotal,
+                efectivo: efectivo || fallbackCaja,
+                deudaNeta: deudaNeta,
+                deudaNetaUSD: calculatedDeudaNetaUsd,
+                tasaDOP: prestTasaDop !== undefined ? prestTasaDop : tasaDop,
+                bancos,
+                tasasPorBanco
+            }
+        };
 
         // Extraer Detalle de Cash Flow completo si existe
         const cashflowDetail = {};
@@ -1250,7 +1429,7 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
             return (r && curBIdx !== -1) ? getBalanceVal(r, curBIdx) : 0;
         };
 
-        const deudaTotal = findRowVal(bSheetToUse, "deuda total") || findRowVal(bSheetToUse, "deuda bruta");
+        const deudaTotalBalance = findRowVal(bSheetToUse, "deuda total") || findRowVal(bSheetToUse, "deuda bruta");
         const ebitdaLTM = findRowVal(bSheetToUse, "ltm ebitda") || ebitda * 12;
 
         return {
@@ -1266,6 +1445,7 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
                 cashflow: cashflowVal, // Este es el flujo neto
                 cashEnding: cashflowDetail.ending || 0 // Este es el saldo final (Health)
             },
+            deudaMetrics: deudaMetrics,
             ppto: {
                 tasaCambio: pptoTasaCambio,
                 cashflowDetail: pptoCashflowDetail,
@@ -1301,7 +1481,7 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
                 }
             },
             balance: { 
-                activos, pasivos, patrimonio, deudaTotal, ebitdaLTM,
+                activos, pasivos, patrimonio, deudaTotal: deudaTotalBalance, ebitdaLTM,
                 cuadra: Math.abs(activos - (pasivos + patrimonio)) < 100,
                 fullRows: balanceFullRows,
                 conceptRow20: conceptRow20
@@ -1457,7 +1637,7 @@ function processWide(sheets) {
 
         // Filtramos filas que tengan al menos 1 número en los dataPoints, o si son Categorias (sin numeros)
         // Agregamos también las filas que sean categorias (por ejemplo "Estado de Resultados") aunque no tengan numeros
-        const whitelist = ["estado de resultados", "estado de situacion", "otras ventas", "otros ingresos", "evp", "bt5", "bon", "descuentos", "devoluciones", "descuentos y devoluciones", "itbis", "gastos administrativos", "gastos de mercadeo", "gastos de ventas", "gastos de logistica", "d & a", "intereses netos", "ingresos financieros", "gastos financieros", "diferencial cambiario", "ingresos (gastos) extraordinarios", "tasa cambio cierre", "cuentas por cobrar", "inventario", "cuentas por pagar", "gastos de ventas (comercial)"];
+        const whitelist = ["costo de ventas", "costos de operacion", "costos", "estado de resultados", "estado de situacion", "otras ventas", "otros ingresos", "evp", "bt5", "bon", "descuentos", "devoluciones", "descuentos y devoluciones", "itbis", "gastos administrativos", "gastos de mercadeo", "gastos de ventas", "gastos de logistica", "d & a", "intereses netos", "ingresos financieros", "gastos financieros", "diferencial cambiario", "ingresos (gastos) extraordinarios", "tasa cambio cierre", "cuentas por cobrar", "inventario", "cuentas por pagar", "gastos de ventas (comercial)"];
         const isCategory = whitelist.some(w => concept.includes(w)) || (concept === "estado de resultados" || concept === "estado de situacion" || concept === "kpis y drivers" || concept === "modulo deuda" || concept === "analisis horizontal" || concept === "analisis vertical" || concept === "analisis margen" || concept === "rentabilidad" || concept === "variables macro" || concept === "balances deuda" || concept === "schedule amortizacion" || concept === "kpis deuda");
         return isCategory || dataPoints.some(p => typeof row[p.idx] === 'number' || (!isNaN(cleanNumber(row[p.idx])) && cleanNumber(row[p.idx]) !== 0));
     }).map(row => {

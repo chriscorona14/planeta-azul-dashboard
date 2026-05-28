@@ -1083,6 +1083,7 @@ window.syncNavigationUI = function(menuId) {
         'menu-pnl': "Estado de Resultados Detallado (RD$)",
         'menu-balance': "Balance General Consolidado (RD$)",
         'menu-cashflow': "Estado de Flujo de Efectivo (RD$)",
+        'menu-deuda': "Zoom in Deuda (Millones DOP)",
         'menu-wc': "Capital de Trabajo (RD$)",
         'menu-estados': "Estados Financieros y KPIs (RD$)",
         'menu-simulador': "Simulador Estratégico (What-If)",
@@ -1919,6 +1920,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                     await addPageToPDF("Cash Flow | Resumen | " + (previousYTD ? "YTD" : "Mensual"));
                 }
 
+                // 6.5. Zoom in Deuda
+                if (document.getElementById('view-deuda')) {
+                    showViewAndSync('view-deuda', 'menu-deuda');
+                    await sleep(800);
+                    await addPageToPDF("Zoom in Deuda");
+                }
+
                 // 7. Ventas CEO
                 if (document.getElementById('view-ventas-ceo')) {
                     showViewAndSync('view-ventas-ceo', 'menu-ventas-ceo');
@@ -2226,7 +2234,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             
             if (searchWrapper) {
-                const viewsWithSearch = ['menu-resumen', 'menu-preliminar', 'menu-pnl', 'menu-balance', 'menu-cashflow', 'menu-wc', 'menu-estados'];
+                const viewsWithSearch = ['menu-resumen', 'menu-preliminar', 'menu-pnl', 'menu-balance', 'menu-cashflow', 'menu-deuda', 'menu-wc', 'menu-estados'];
                 if (viewsWithSearch.includes(id) && globalFinancialData && globalFinancialData.length > 0) {
                     searchWrapper.style.display = 'flex';
                 } else {
@@ -2910,7 +2918,7 @@ function renderDashboard(data) {
     const searchWrapper = document.getElementById('searchContainerWrapper');
     if (searchWrapper) {
         const activeMenu = document.querySelector('.menu-item a.active');
-        const viewsWithSearch = ['menu-resumen', 'menu-preliminar', 'menu-pnl', 'menu-balance', 'menu-cashflow', 'menu-wc', 'menu-estados'];
+        const viewsWithSearch = ['menu-resumen', 'menu-preliminar', 'menu-pnl', 'menu-balance', 'menu-cashflow', 'menu-deuda', 'menu-wc', 'menu-estados'];
         if (activeMenu && viewsWithSearch.includes(activeMenu.id)) {
             searchWrapper.style.display = 'flex';
         }
@@ -3196,6 +3204,11 @@ function renderActiveViewLazy(data, index) {
             if (typeof window.renderPgHorizontal === 'function') {
                 window.renderPgHorizontal();
             }
+        }
+
+        let viewDeuda = document.getElementById("view-deuda");
+        if (viewDeuda && viewDeuda.classList.contains("active")) {
+            renderDeudaView(data, index);
         }
 
         let viewEstados = document.getElementById("view-estados");
@@ -4222,6 +4235,339 @@ function renderWorkingCapital(data, selectedIndex = -1) {
     bodyEl.innerHTML = bodyHTML;
 }
 
+function renderDeudaView(data, selectedIndex = -1) {
+    if (!data || data.length === 0) return;
+    
+    const endIdx = selectedIndex >= 0 ? selectedIndex : data.length - 1;
+    const curr = data[endIdx];
+    
+    // Buscar Dic-25 para los saldos iniciales (si existe en los datos)
+    const dic2025 = data.find(d => d.sortDate && d.sortDate.getFullYear() === 2025 && d.sortDate.getMonth() === 11) || curr;
+    
+    const pLabel = document.getElementById("deudaPeriodLabel");
+    if (pLabel) pLabel.textContent = `Millones DOP | ${curr.date}`;
+
+    const ext = (obj) => obj && obj.deudaMetrics ? obj.deudaMetrics : {};
+    
+    const currD = ext(curr);
+    const dicD = ext(dic2025);
+    
+    const currDetail = currD.debtDetail || { bancos: {}, tasasPorBanco: {} };
+    const dicDetail = dicD.debtDetail || { bancos: {}, tasasPorBanco: {} };
+
+    const formatPercent = (val) => val === null || val === undefined ? "N/A" : (val * 100).toFixed(2) + "%";
+    const formatRatio = (val) => val === null || val === undefined ? "N/A" : val.toFixed(2) + "x";
+    const formatNum = (val, decimals=0) => val === null || val === undefined ? "N/A" : (decimals > 0 ? formatCurrency(val).replace('$', '') : formatCurrency(val).replace('$', '').split('.')[0]);
+    const formatFx = (val) => val === null || val === undefined || val === 0 ? "N/A" : val.toFixed(2);
+
+    // Tabla Bancos
+    const banksHeader = document.getElementById('deudaBancosHeader');
+    const banksBody = document.getElementById('deudaBancosBody');
+    if (banksHeader && banksBody) {
+        banksHeader.innerHTML = `
+            <tr>
+                <th style="background: var(--sidebar); color: white;">Banco</th>
+                <th style="background: var(--sidebar); color: white; text-align: right;">${dic2025.date}</th>
+                <th style="background: var(--sidebar); color: white; text-align: right;">${curr.date}</th>
+                <th style="background: var(--sidebar); color: white; text-align: right;">Tasa Promedio</th>
+            </tr>
+        `;
+        
+        const bancoList = [
+            { id: 'Banco Popular', label: 'Banco Popular' },
+            { id: 'Banco Santa Cruz', label: 'Banco Santa Cruz' },
+            { id: 'Scotiabank', label: 'Scotiabank' },
+            { id: 'Loganville', label: 'Loganville' }
+        ];
+        
+        let banksHTML = '';
+        let totDic = 0, totCurr = 0;
+        
+        bancoList.forEach(b => {
+            const vDic = dicDetail.bancos[b.id] || 0;
+            const vCurr = currDetail.bancos[b.id] || 0;
+            const tCurr = currDetail.tasasPorBanco[b.id];
+            
+            totDic += vDic;
+            totCurr += vCurr;
+            
+            banksHTML += `
+                <tr>
+                    <td style="font-weight: 600;">${b.label}</td>
+                    <td class="num">${vDic === 0 ? "" : formatNum(vDic)}</td>
+                    <td class="num">${vCurr === 0 ? "" : formatNum(vCurr)}</td>
+                    <td class="num">${tCurr === undefined || tCurr === null || tCurr === 0 ? "" : formatPercent(tCurr)}</td>
+                </tr>
+            `;
+        });
+        
+        banksHTML += `
+            <tr style="background: var(--sidebar); color: white; font-weight: bold;">
+                <td style="font-weight: bold;">Total</td>
+                <td class="num" style="font-weight: bold;">${totDic === 0 ? "" : formatNum(totDic)}</td>
+                <td class="num" style="font-weight: bold;">${totCurr === 0 ? "" : formatNum(totCurr)}</td>
+                <td class="num"></td>
+            </tr>
+        `;
+        banksBody.innerHTML = banksHTML;
+    }
+
+    // Tabla Indicadores
+    const indHeader = document.getElementById('deudaIndicadoresHeader');
+    const indBody = document.getElementById('deudaIndicadoresBody');
+    if (indHeader && indBody) {
+        indHeader.innerHTML = `
+            <tr>
+                <th style="background: var(--sidebar); color: white;">Indicador</th>
+                <th style="background: var(--sidebar); color: white; text-align: right;">${dic2025.date}</th>
+                <th style="background: var(--sidebar); color: white; text-align: right;">${curr.date}</th>
+            </tr>
+        `;
+        
+        const highlightStyle = (valStr, isBad) => {
+            if (valStr === "N/A" || valStr === "") return valStr;
+            if (isBad) return `<span style="color: #ef4444; font-weight: bold;">${valStr}</span>`;
+            return valStr;
+        };
+        
+        const iDic = dicD;
+        const iCurr = currD;
+        
+        indBody.innerHTML = `
+            <tr style="background: #e2e8f0; border-bottom: 2px solid #cbd5e1;"><td colspan="3" style="font-weight: 800; color: var(--sidebar); font-size: 0.9rem; padding-top: 12px; padding-bottom: 12px;">Tasa de Interés y Tipo de Cambio</td></tr>
+            <tr>
+                <td style="font-weight: 600;">Tasa DOP</td>
+                <td class="num">${formatPercent(iDic.tasaDop)}</td>
+                <td class="num">${formatPercent(iCurr.tasaDop)}</td>
+            </tr>
+            <tr>
+                <td style="font-weight: 600;">Tasa USD</td>
+                <td class="num">${iDic.tasaUsd !== null && iDic.tasaUsd !== undefined && iDic.tasaUsd !== 0 ? formatPercent(iDic.tasaUsd) : formatFx(iDic.tasaCambio)}</td>
+                <td class="num">${iCurr.tasaUsd !== null && iCurr.tasaUsd !== undefined && iCurr.tasaUsd !== 0 ? formatPercent(iCurr.tasaUsd) : formatFx(iCurr.tasaCambio)}</td>
+            </tr>
+            <tr style="background: #e2e8f0; border-bottom: 2px solid #cbd5e1;"><td colspan="3" style="font-weight: 800; color: var(--sidebar); font-size: 0.9rem; padding-top: 12px; padding-bottom: 12px;">Indicadores</td></tr>
+            <tr>
+                <td style="font-weight: 600;">Deuda Neta USD <span style="font-size:0.75rem; color:var(--text-secondary);">(M USD)</span></td>
+                <td class="num">${formatNum(iDic.deudaNetaUsd, 1)}</td>
+                <td class="num">${formatNum(iCurr.deudaNetaUsd, 1)}</td>
+            </tr>
+            <tr>
+                <td style="font-weight: 600;">Deuda Neta Bancaria USD <span style="font-size:0.75rem; color:var(--text-secondary);">(M USD)</span></td>
+                <td class="num">${formatNum(iDic.deudaNetaBancUSD, 1)}</td>
+                <td class="num">${formatNum(iCurr.deudaNetaBancUSD, 1)}</td>
+            </tr>
+            <tr>
+                <td style="font-weight: 600;">Deuda Neta Bancaria / EBITDA R12 (&lt;=4.0x)</td>
+                <td class="num">${highlightStyle(formatRatio(iDic.covenantLean), iDic.covenantLean > 4)}</td>
+                <td class="num">${highlightStyle(formatRatio(iCurr.covenantLean), iCurr.covenantLean > 4)}</td>
+            </tr>
+            <tr>
+                <td style="font-weight: 600;">Apalancamiento (&lt;=2.0x)</td>
+                <td class="num">${highlightStyle(formatRatio(iDic.apalancamiento), iDic.apalancamiento > 2)}</td>
+                <td class="num">${highlightStyle(formatRatio(iCurr.apalancamiento), iCurr.apalancamiento > 2)}</td>
+            </tr>
+            <tr>
+                <td style="font-weight: 600;">Capacidad de Pago</td>
+                <td class="num">${formatRatio(iDic.capacidadPago)}</td>
+                <td class="num">${formatRatio(iCurr.capacidadPago)}</td>
+            </tr>
+            <tr>
+                <td style="font-weight: 600;">Razón Corriente (&gt;=1.5x)</td>
+                <td class="num">${highlightStyle(formatRatio(iDic.razonCorriente), iDic.razonCorriente !== null && iDic.razonCorriente < 1.5)}</td>
+                <td class="num">${highlightStyle(formatRatio(iCurr.razonCorriente), iCurr.razonCorriente !== null && iCurr.razonCorriente < 1.5)}</td>
+            </tr>
+        `;
+    }
+
+    renderDeudaChart(data, endIdx, dic2025);
+}
+
+function renderDeudaChart(data, selectedIndex, dic2025) {
+    const container = document.getElementById('deuda-chart-container');
+    if (!container) return;
+    d3.select(container).selectAll("*").remove();
+
+    const curr = data[selectedIndex];
+    if (!curr || !dic2025) {
+        container.innerHTML = '<p style="color: var(--text-secondary);">[Insuficientes Datos para Gráfico]</p>';
+        return;
+    }
+
+    const ext = (obj) => obj && obj.deudaMetrics && obj.deudaMetrics.debtDetail ? obj.deudaMetrics.debtDetail.bancos : {};
+
+    const bDic = ext(dic2025);
+    const bCurr = ext(curr);
+    
+    // Dataset para apilados
+    const labels = [dic2025.date, curr.date];
+    const bancos = [
+        { key: 'Banco Popular', color: '#0040C1', label: 'Banco Popular', logo: 'popular.png' },
+        { key: 'Banco Santa Cruz', color: '#00B050', label: 'Banco Santa Cruz', logo: 'santacruz.png' },
+        { key: 'Scotiabank', color: '#FF0000', label: 'Scotiabank', logo: 'scotiabank.png' },
+        { key: 'Loganville', color: '#ED7D31', label: 'Loganville', logo: null }
+    ];
+
+    const chartData = labels.map((l, i) => {
+        let obj = { label: l, total: 0 };
+        const dataSrc = i === 0 ? bDic : bCurr;
+        let y0 = 0;
+        bancos.forEach(b => {
+            const val = dataSrc[b.key] || 0;
+            obj[b.key] = {
+                val: val,
+                y0: y0,
+                y1: y0 + val
+            };
+            y0 += val;
+            obj.total += val;
+        });
+        return obj;
+    });
+
+    const width = container.clientWidth || 400;
+    const height = 350;
+    const margin = { top: 40, right: 30, bottom: 40, left: 140 };
+
+    const svgWrapper = d3.select(container).append("div").style("width", "100%").style("display", "flex").style("justify-content", "center");
+    
+    const svg = svgWrapper.append("svg")
+        .attr("width", width)
+        .attr("height", height)
+        .append("g")
+        .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    const x = d3.scaleBand()
+        .domain(labels)
+        .range([0, width - margin.left - margin.right])
+        .padding(0.4);
+
+    const maxY = d3.max(chartData, d => d.total) * 1.1;
+    const y = d3.scaleLinear()
+        .domain([0, maxY || 1])
+        .range([height - margin.top - margin.bottom, 0]);
+
+    // Grid
+    svg.append("g")
+        .attr("class", "grid")
+        .call(d3.axisLeft(y).ticks(6).tickSize(-width + margin.left + margin.right).tickFormat(""))
+        .style("stroke-dasharray", "3,3")
+        .style("stroke-opacity", 0.1);
+
+    svg.append("g")
+        .attr("transform", `translate(0,${height - margin.top - margin.bottom})`)
+        .call(d3.axisBottom(x).tickSize(0).tickPadding(10))
+        .selectAll("text")
+        .style("font-size", "12px")
+        .style("font-weight", "600")
+        .style("color", "var(--text-secondary)");
+
+    svg.append("g")
+        .call(d3.axisLeft(y).ticks(5).tickFormat(d => (d/1000).toFixed(1) + 'k'))
+        .selectAll("text")
+        .style("font-size", "11px")
+        .style("color", "var(--text-secondary)");
+
+    const yearGroups = svg.selectAll(".yearGroup")
+        .data(chartData)
+        .enter().append("g")
+        .attr("class", "yearGroup")
+        .attr("transform", d => `translate(${x(d.label)},0)`);
+
+    bancos.forEach(b => {
+        yearGroups.append("rect")
+            .attr("x", 0)
+            .attr("width", x.bandwidth())
+            .attr("y", d => y(d[b.key].y1))
+            .attr("height", d => y(d[b.key].y0) - y(d[b.key].y1))
+            .style("fill", b.color)
+            .style("stroke", "#fff")
+            .style("stroke-width", 1);
+            
+        // Number inside bar
+        yearGroups.append("text")
+            .filter(d => d[b.key].val > d.total * 0.05) // only if > 5% of total
+            .attr("x", x.bandwidth() / 2)
+            .attr("y", d => y(d[b.key].y0 + (d[b.key].val / 2)))
+            .attr("dy", "0.3em")
+            .attr("text-anchor", "middle")
+            .style("fill", "#fff")
+            .style("font-size", "11px")
+            .style("font-weight", "bold")
+            .text(d => Math.round(d[b.key].val));
+            
+        // Logos on the left side (only for the first bar)
+        if (chartData[0] && chartData[0][b.key].val > 0) {
+            const yCenter = y(chartData[0][b.key].y0 + (chartData[0][b.key].val / 2));
+            if (b.logo) {
+                svg.append("image")
+                    .attr("href", b.logo)
+                    .attr("x", -120) // to the left of the y-axis
+                    .attr("y", yCenter - 15)
+                    .attr("width", 100)
+                    .attr("height", 30)
+                    .attr("preserveAspectRatio", "xMaxYMid meet");
+            } else {
+                svg.append("text")
+                    .attr("x", -20)
+                    .attr("y", yCenter)
+                    .attr("dy", "0.35em")
+                    .attr("text-anchor", "end")
+                    .style("font-weight", "bold")
+                    .style("font-size", "14px")
+                    .style("fill", "var(--sidebar)")
+                    .text(b.label);
+            }
+        }
+    });
+
+    // Totales top
+    yearGroups.append("text")
+        .attr("x", x.bandwidth() / 2)
+        .attr("y", d => y(d.total) - 8)
+        .attr("text-anchor", "middle")
+        .style("fill", "var(--sidebar)")
+        .style("font-size", "12px")
+        .style("font-weight", "bold")
+        .text(d => formatCurrency(d.total).replace('$', '').split('.')[0]);
+
+    // Custom HTML Legend with Logos
+    const legendDiv = d3.select(container).append("div")
+        .style("display", "flex")
+        .style("justify-content", "center")
+        .style("gap", "1.5rem")
+        .style("margin-top", "1rem")
+        .style("flex-wrap", "wrap")
+        .style("align-items", "center");
+
+    bancos.forEach(b => {
+        const item = legendDiv.append("div")
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("gap", "0.4rem");
+            
+        // Pequeño indicador de color
+        item.append("div")
+            .style("width", "10px")
+            .style("height", "10px")
+            .style("border-radius", "2px")
+            .style("background-color", b.color);
+            
+        if (b.logo) {
+            item.append("img")
+                .attr("src", b.logo)
+                .attr("alt", b.label)
+                .style("height", "18px")
+                .style("object-fit", "contain");
+        } else {
+            item.append("span")
+                .style("font-size", "13px")
+                .style("font-weight", "700")
+                .style("color", "var(--sidebar)")
+                .text(b.label);
+        }
+    });
+}
+
 /**
  * Render the Cash Flow Table
  */
@@ -4567,7 +4913,8 @@ function renderPreliminaryView(data, selectedIndex = -1) {
                 const idxMargen = rows.findIndex(r => r.concept && r.concept.toLowerCase().includes("margen bruto"));
                 let idxCosto = -1;
                 for (let i = 0; i < rows.length; i++) {
-                     if (rows[i].concept && (rows[i].concept.trim().toLowerCase() === "costo de ventas" || rows[i].concept.trim().toLowerCase() === "costos")) {
+                     let cLabel = rows[i].concept ? rows[i].concept.trim().toLowerCase() : "";
+                     if (cLabel === "costo de ventas" || cLabel === "costos" || cLabel === "costos de operacion") {
                           idxCosto = i;
                           break;
                      }
@@ -4648,7 +4995,7 @@ function renderPreliminaryView(data, selectedIndex = -1) {
         { label: "BT5", match: ["bt5"], isTotal: false, isSubItem: true, restrictTo: "ventas", parentId: "vnetas" },
         { label: "BON", match: ["bon", "p6"], isTotal: false, isSubItem: true, restrictTo: "ventas", parentId: "vnetas" },
         { label: "Otros Ingresos", match: ["otras ventas", "otros ingresos"], isTotal: false, isSubItem: true, parentId: "vnetas" },
-        { label: "Costo de ventas", match: ["costo de ventas", "costos", "costo"], isTotal: false, id: "costos" },
+        { label: "Costo de ventas", match: ["costo de ventas", "costos", "costo", "costos de operacion"], isTotal: false, id: "costos" },
         { label: "EVP ", match: ["evp", "costo evp"], isTotal: false, isSubItem: true, restrictTo: "costos", parentId: "costos" },
         { label: "BT5 ", match: ["bt5", "costo bt5"], isTotal: false, isSubItem: true, restrictTo: "costos", parentId: "costos" },
         { label: "BON ", match: ["bon", "p6", "costo bon"], isTotal: false, isSubItem: true, restrictTo: "costos", parentId: "costos" },
@@ -4815,7 +5162,7 @@ function renderPreliminaryView(data, selectedIndex = -1) {
 
         if (rowLabel === "Margen Bruto") {
             const vNet = getVal(targetItem, ["ventas netas", "ingresos"]) || targetItem?.kpis?.ingresos || 0;
-            const cVentas = getVal(targetItem, ["costo de ventas", "costos", "costo"]) || targetItem?.pnl?.categorias?.["Costo de Ventas"] || 0;
+            const cVentas = getVal(targetItem, ["costo de ventas", "costos", "costo", "costos de operacion"]) || targetItem?.pnl?.categorias?.["Costo de Ventas"] || 0;
             actual = vNet + cVentas;
         }
 
