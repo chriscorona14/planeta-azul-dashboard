@@ -54,10 +54,29 @@ Data: ${JSON.stringify(financialData)}`;
 
   function resolveSharepointUrl(inputUrl: string | undefined, defaultUrl: string): string {
     if (!inputUrl) return defaultUrl;
-    // If it's a GUID, format it into the full SharePoint URL
-    if (/^[0-9a-fA-F\-]{36}$/.test(inputUrl) || /^\{[0-9a-fA-F\-]{36}\}$/.test(inputUrl)) {
-      return `https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc=${inputUrl.startsWith('{') ? inputUrl : '{' + inputUrl + '}'}&download=1`;
+    
+    // Extract sourcedoc GUID if present in a URL
+    const sourcedocMatch = inputUrl.match(/sourcedoc=([^&]+)/i);
+    let guid = sourcedocMatch ? decodeURIComponent(sourcedocMatch[1]) : inputUrl;
+    
+    // Clean braces of the guid if needed for check
+    const cleanGuid = guid.replace(/^\{|\}$/g, "");
+    if (/^[0-9a-fA-F\-]{36}$/.test(cleanGuid)) {
+      return `https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc={${cleanGuid}}&download=1`;
     }
+    
+    // For general SharePoint URLs, convert embed/action view to direct download
+    if (inputUrl.includes("sharepoint.com") || inputUrl.includes("onedrive.live.com")) {
+      let resolved = inputUrl;
+      if (resolved.includes("action=embedview")) {
+        resolved = resolved.replace(/action=embedview/g, "download=1");
+      }
+      if (!resolved.includes("download=1")) {
+        resolved += (resolved.includes("?") ? "&" : "?") + "download=1";
+      }
+      return resolved;
+    }
+    
     return inputUrl;
   }
 
@@ -184,13 +203,41 @@ Data: ${JSON.stringify(financialData)}`;
     }
   });
 
+  app.get("/api/downloadSyncCxp", async (req, res) => {
+    try {
+      const customUrl = typeof req.query.url === "string" ? req.query.url : undefined;
+      const url = resolveSharepointUrl(customUrl || process.env.VITE_CXP_URL, "https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc={da78e2c9-ceb1-4f4a-8752-9b1927700779}&download=1");
+      if (!url.includes("sharepoint.com") && !url.includes("onedrive.live.com")) {
+        return res.status(400).json({ error: "Invalid Microsoft 365 file URL." });
+      }
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+      });
+      
+      if (!response.ok) {
+        return res.status(response.status).json({ error: `SharePoint rejected the request: ${response.status} ${response.statusText}. Ensure the file is shared publicly.` });
+      }
+      
+      const buffer = await response.arrayBuffer();
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.send(Buffer.from(buffer));
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+
   // Vite middleware for development
   app.get("/api/config", (req, res) => {
     res.json({
       VITE_ONEDRIVE_FILE_URL: process.env.VITE_ONEDRIVE_ITEM_ID || process.env.VITE_ONEDRIVE_FILE_URL,
       VITE_CEO_FILE_URL: process.env.VITE_CEO_FILE_URL || process.env.VITE_ONEDRIVE_VENTAS_ITEM_ID,
       VITE_RESUMEN_COMERCIAL_URL: process.env.VITE_RESUMEN_COMERCIAL_URL,
-      VITE_PG_HORIZONTAL_URL: process.env.VITE_PG_HORIZONTAL_URL
+      VITE_PG_HORIZONTAL_URL: process.env.VITE_PG_HORIZONTAL_URL,
+      VITE_CXP_URL: process.env.VITE_CXP_URL
     });
   });
 

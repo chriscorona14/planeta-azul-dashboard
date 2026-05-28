@@ -1343,6 +1343,32 @@
           color: var(--text);
         }
       }
+
+      /* CSS animations for P&L deviation pulses */
+      @keyframes pulse-pos {
+        0% { background-color: rgba(42, 157, 143, 0.12) !important; box-shadow: inset 0 0 4px rgba(42, 157, 143, 0.15); }
+        50% { background-color: rgba(42, 157, 143, 0.32) !important; box-shadow: inset 0 0 8px rgba(42, 157, 143, 0.35); }
+        100% { background-color: rgba(42, 157, 143, 0.12) !important; box-shadow: inset 0 0 4px rgba(42, 157, 143, 0.15); }
+      }
+      @keyframes pulse-neg {
+        0% { background-color: rgba(231, 111, 81, 0.12) !important; box-shadow: inset 0 0 4px rgba(231, 111, 81, 0.15); }
+        50% { background-color: rgba(231, 111, 81, 0.32) !important; box-shadow: inset 0 0 8px rgba(231, 111, 81, 0.35); }
+        100% { background-color: rgba(231, 111, 81, 0.12) !important; box-shadow: inset 0 0 4px rgba(231, 111, 81, 0.15); }
+      }
+      .pulse-pos {
+        animation: pulse-pos 2.5s infinite ease-in-out !important;
+        background-image: none !important;
+        background: none !important;
+        border-radius: 4px;
+        transition: all 0.3s ease;
+      }
+      .pulse-neg {
+        animation: pulse-neg 2.5s infinite ease-in-out !important;
+        background-image: none !important;
+        background: none !important;
+        border-radius: 4px;
+        transition: all 0.3s ease;
+      }
     </style>
   </head>
   <body>
@@ -1485,7 +1511,7 @@
             <span>Modelo de Seguimiento</span>
             <i data-lucide="chevron-up" id="icon-seguimiento" style="width: 14px; height: 14px; transition: transform 0.2s;"></i>
           </div>
-          <div id="grupo-seguimiento" style="overflow: hidden; transition: max-height 0.3s ease; max-height: 500px;">
+          <div id="grupo-seguimiento" style="overflow: hidden; transition: max-height 0.3s ease; max-height: 700px;">
             <div class="menu-item">
               <a href="#" id="menu-kpi" class="active" style="padding-left: 24px;">KPI Dashboard</a>
             </div>
@@ -1509,6 +1535,9 @@
             </div>
             <div class="menu-item">
               <a href="#" id="menu-wc" style="padding-left: 24px;">Working Capital</a>
+            </div>
+            <div class="menu-item">
+              <a href="#" id="menu-cxp" style="padding-left: 24px;">Detalle CxP</a>
             </div>
             <div class="menu-item">
               <a href="#" id="menu-estados" style="padding-left: 24px;">Estados Financieros</a>
@@ -1554,7 +1583,7 @@
               group.style.maxHeight = '0px';
               icon.style.transform = 'rotate(180deg)';
             } else {
-              group.style.maxHeight = groupId === 'grupo-seguimiento' ? '500px' : '200px';
+              group.style.maxHeight = groupId === 'grupo-seguimiento' ? '700px' : '200px';
               icon.style.transform = 'rotate(0deg)';
             }
           }
@@ -2571,6 +2600,28 @@
         </div>
       </div>
 
+      <!-- View: Detalle CxP -->
+      <div id="view-cxp" class="view-container">
+        <div class="table-header" style="margin-bottom: 24px;">
+          <h3>Detalle de Cuentas por Pagar (DOP)</h3>
+          <span id="cxpPeriodLabel" style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);">Análisis de Antigüedad de Saldos y Proveedores</span>
+        </div>
+
+        <div class="pnl-detail-table" style="position: relative;">
+          <table id="cxpTable" class="desktop-only-table">
+            <thead id="cxpHeader"></thead>
+            <tbody id="cxpBody">
+              <tr>
+                <td colspan="14" style="text-align: center; color: var(--text-secondary)">
+                  <i data-lucide="loader" class="spin"></i> Cargando...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div id="cxpMobileContainer" style="display: none;"></div>
+        </div>
+      </div>
+
       <!-- View: Cash Flow -->
       <div id="view-cashflow" class="view-container">
         <div class="table-header">
@@ -2793,6 +2844,12 @@
                   <label for="upload-pg-horizontal-home" class="btn-primary" style="margin-top: 0; width: fit-content; padding: 10px 24px; cursor: pointer; background: #eef2f5; color: var(--primary); border: 1px solid var(--border); border-radius: 8px; font-weight: 500;">4. P&G Horizontal</label>
                   <input type="file" id="upload-pg-horizontal-home" accept=".xlsx, .xls, .csv" style="display: none;" />
                   <span id="pgHorizontalFileName" style="font-size: 0.75rem; color: var(--text-secondary);">Ningún archivo seleccionado</span>
+                </div>
+
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+                  <label for="upload-cxp-home" class="btn-primary" style="margin-top: 0; width: fit-content; padding: 10px 24px; cursor: pointer; background: #eef2f5; color: var(--primary); border: 1px solid var(--border); border-radius: 8px; font-weight: 500;">5. Detalle CxP</label>
+                  <input type="file" id="upload-cxp-home" accept=".xlsx, .xls, .csv" style="display: none;" />
+                  <span id="cxpFileName" style="font-size: 0.75rem; color: var(--text-secondary);">Ningún archivo seleccionado</span>
                 </div>
               </div>
               

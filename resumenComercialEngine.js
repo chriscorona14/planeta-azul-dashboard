@@ -1390,9 +1390,26 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
 // ------------------------------------------------------------------
 // RENDERER DE LA TABLA P&G HORIZONTAL (ID: pg-horizontal-tbody)
 // ------------------------------------------------------------------
-export function renderPgHorizontal() {
-  if (!comercialRawData || !comercialRawData.pgHorizontal) {
+export async function renderPgHorizontal() {
+  // fallback if missing
+  if (!comercialRawData || !comercialRawData.pgHorizontal || comercialRawData.pgHorizontal.length === 0) {
+    try {
+      const db = await openDB();
+      const cached = await dbGet(db, 'COMERCIAL_KEY');
+      if (cached && cached.data && cached.data.pgHorizontal && cached.data.pgHorizontal.length > 0) {
+        if (!comercialRawData) comercialRawData = cached.data;
+        else comercialRawData.pgHorizontal = cached.data.pgHorizontal;
+        console.log('[comercialEngine] pgHorizontal restaurado de IndexedDB en render.');
+      }
+    } catch (e) {}
+  }
+
+  if (!comercialRawData || !comercialRawData.pgHorizontal || comercialRawData.pgHorizontal.length === 0) {
     console.warn('[comercialEngine] No hay datos de P&G Horizontal cargados aún.');
+    const tbody = document.getElementById('pg-horizontal-tbody');
+    const badge = document.getElementById('integrityBadge');
+    if (badge) badge.style.display = 'none';
+    if (tbody) tbody.innerHTML = `<tr><td colspan="19" style="text-align:center; padding:40px; color:var(--text-secondary); font-style:italic;">No se encontraron datos de P&G Horizontal en el archivo.</td></tr>`;
     return;
   }
 
@@ -1401,6 +1418,8 @@ export function renderPgHorizontal() {
 
   const data = comercialRawData.pgHorizontal;
   if (data.length === 0) {
+    const badge = document.getElementById('integrityBadge');
+    if (badge) badge.style.display = 'none';
     tbody.innerHTML = `<tr><td colspan="19" style="text-align: center; padding: 40px; color: var(--text-secondary); font-style: italic;">No se encontraron datos de P&G Horizontal en el archivo.</td></tr>`;
     return;
   }
@@ -1652,7 +1671,11 @@ export function renderPgHorizontal() {
 }
 
 export async function processPgHorizontalWorkbook(workbook) {
-  let pgSheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('analítico pyg') || n.toLowerCase().includes('analitico pyg')) || workbook.SheetNames[0];
+  let pgSheetName = workbook.SheetNames.find(n => {
+      const lower = n.toLowerCase();
+      return lower.includes('analítico pyg') || lower.includes('analitico pyg') || 
+             lower.includes('p&g') || lower.includes('horizontal') || lower.includes('pyg');
+  }) || workbook.SheetNames[0];
 
   let pgData = [];
   if (pgSheetName) {
@@ -1737,16 +1760,33 @@ export async function processComercialWorkbook(workbook) {
   }
 
   // Preserve pgHorizontal if we already have it and current upload doesn't have it (or we fallback to existing)
-  const existingPgData = (comercialRawData && comercialRawData.pgHorizontal && comercialRawData.pgHorizontal.length > 0) ? comercialRawData.pgHorizontal : [];
-  if (pgData.length === 0 && existingPgData.length > 0) {
-      pgData = existingPgData;
+  const safePgData = (() => {
+    if (pgData && pgData.length > 0) return pgData;
+    if (comercialRawData && comercialRawData.pgHorizontal && comercialRawData.pgHorizontal.length > 0) {
+      return comercialRawData.pgHorizontal;
+    }
+    return [];
+  })();
+
+  let finalPgData = safePgData;
+  if (finalPgData.length === 0) {
+    try {
+      const db = await openDB();
+      const cached = await dbGet(db, 'COMERCIAL_KEY');
+      if (cached && cached.data && cached.data.pgHorizontal && cached.data.pgHorizontal.length > 0) {
+        finalPgData = cached.data.pgHorizontal;
+        console.log('[comercialEngine] pgHorizontal recuperado de IndexedDB como fallback.');
+      }
+    } catch (e) {
+      console.warn('[comercialEngine] No se pudo recuperar pgHorizontal desde IndexedDB:', e);
+    }
   }
 
   comercialRawData = {
     dataF:   nameDataF ? parseDataF(workbook.Sheets[workbook.SheetNames[sheetNames.indexOf(nameDataF.toLowerCase())]]) : [],
     data2025: nameData2025 ? parseData2025(workbook.Sheets[workbook.SheetNames[sheetNames.indexOf(nameData2025.toLowerCase())]]) : [],
     ppto:    namePPTO ? parsePPTO(workbook.Sheets[workbook.SheetNames[sheetNames.indexOf(namePPTO.toLowerCase())]]) : { vol: [], vta: [] },
-    pgHorizontal: pgData
+    pgHorizontal: finalPgData
   };
 
   // Guardar en caché local
