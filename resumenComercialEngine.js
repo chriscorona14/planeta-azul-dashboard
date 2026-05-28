@@ -1841,7 +1841,7 @@ export async function processManualFile(arrayBuffer) {
 // ------------------------------------------------------------------
 function openDB() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open('PlanetaAzulDB', 3);
+    const req = indexedDB.open('PlanetaAzulDB', 5);
     req.onupgradeneeded = (e) => {
       if (!e.target.result.objectStoreNames.contains('finance_cache')) {
         e.target.result.createObjectStore('finance_cache');

@@ -1407,95 +1407,116 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
         let cxpData = null;
         if (cxpSheet && cxpIdx !== -1) {
             const getCxpVal = (row) => row ? getBalanceVal(row, cxpIdx) : null;
-            cxpData = {
-                provisionSinFactura: getCxpVal(cxpRows.provisionSinFactura),
-                corriente: getCxpVal(cxpRows.corriente),
-                dias0_30: getCxpVal(cxpRows.dias0_30),
-                dias31_60: getCxpVal(cxpRows.dias31_60),
-                dias61_90: getCxpVal(cxpRows.dias61_90),
-                dias91_120: getCxpVal(cxpRows.dias91_120),
-                dias121_150: getCxpVal(cxpRows.dias121_150),
-                dias151_180: getCxpVal(cxpRows.dias151_180),
-                dias180Mas: getCxpVal(cxpRows.dias180Mas),
-                
-                // Suppliers
-                alplaHispaniola: getCxpVal(cxpRows.alplaHispaniola),
-                polyplas: getCxpVal(cxpRows.polyplas),
-                grupoRojas: getCxpVal(cxpRows.grupoRojas),
-                raviCaribe: getCxpVal(cxpRows.raviCaribe),
-                valcopack: getCxpVal(cxpRows.valcopack),
-                termopack: getCxpVal(cxpRows.termopack),
-                cartoneraApolo: getCxpVal(cxpRows.cartoneraApolo),
-                multiplast: getCxpVal(cxpRows.multiplast),
-                flexopack: getCxpVal(cxpRows.flexopack),
-                etiofset: getCxpVal(cxpRows.etiofset),
-                smurfit: getCxpVal(cxpRows.smurfit),
-                plasticosCaribe: getCxpVal(cxpRows.plasticosCaribe),
-                industriasNacionales: getCxpVal(cxpRows.industriasNacionales),
-                distribuidoraCorripo: getCxpVal(cxpRows.distribuidoraCorripo),
-                otrosProveedores: getCxpVal(cxpRows.otrosProveedores),
-                
-                // Indicators
-                costosGastoYtd: getCxpVal(cxpRows.costosGastoYtd),
-                dpo: getCxpVal(cxpRows.dpo)
-            };
+            
+            // Check if there's actually any real data in the column
+            let hasData = false;
+            for (let r in cxpRows) {
+                const val = getCxpVal(cxpRows[r]);
+                if (val !== null && val !== 0 && val !== undefined && !isNaN(val)) {
+                    hasData = true;
+                    break;
+                }
+            }
+            
+            if (hasData) {
+                cxpData = {
+                    provisionSinFactura: getCxpVal(cxpRows.provisionSinFactura),
+                    corriente: getCxpVal(cxpRows.corriente),
+                    dias0_30: getCxpVal(cxpRows.dias0_30),
+                    dias31_60: getCxpVal(cxpRows.dias31_60),
+                    dias61_90: getCxpVal(cxpRows.dias61_90),
+                    dias91_120: getCxpVal(cxpRows.dias91_120),
+                    dias121_150: getCxpVal(cxpRows.dias121_150),
+                    dias151_180: getCxpVal(cxpRows.dias151_180),
+                    dias180Mas: getCxpVal(cxpRows.dias180Mas),
+                    
+                    // Suppliers
+                    alplaHispaniola: getCxpVal(cxpRows.alplaHispaniola),
+                    polyplas: getCxpVal(cxpRows.polyplas),
+                    grupoRojas: getCxpVal(cxpRows.grupoRojas),
+                    raviCaribe: getCxpVal(cxpRows.raviCaribe),
+                    valcopack: getCxpVal(cxpRows.valcopack),
+                    termopack: getCxpVal(cxpRows.termopack),
+                    cartoneraApolo: getCxpVal(cxpRows.cartoneraApolo),
+                    multiplast: getCxpVal(cxpRows.multiplast),
+                    flexopack: getCxpVal(cxpRows.flexopack),
+                    etiofset: getCxpVal(cxpRows.etiofset),
+                    smurfit: getCxpVal(cxpRows.smurfit),
+                    plasticosCaribe: getCxpVal(cxpRows.plasticosCaribe),
+                    industriasNacionales: getCxpVal(cxpRows.industriasNacionales),
+                    distribuidoraCorripo: getCxpVal(cxpRows.distribuidoraCorripo),
+                    otrosProveedores: getCxpVal(cxpRows.otrosProveedores),
+                    
+                    // Indicators
+                    costosGastoYtd: getCxpVal(cxpRows.costosGastoYtd),
+                    dpo: getCxpVal(cxpRows.dpo)
+                };
+            }
         }
 
         const bCxp = (balanceRows.cxp && bIdx !== -1) ? getBalanceVal(balanceRows.cxp, bIdx) : null;
         let cxpVal = bCxp !== null ? bCxp : (ingresos !== 0 ? Math.abs(ingresos) * 0.22 : 800);
         
+        let isProjectedMonth = false;
         let cxpObj = cxpData || {};
 
-        const fillIfMissing = (field, ratio) => {
-            if (cxpObj[field] === undefined || cxpObj[field] === null || cxpObj[field] === 0) {
-                cxpObj[field] = cxpVal * ratio;
+        if (!cxpData) {
+            isProjectedMonth = point.date.getFullYear() >= 2026;
+            if (isProjectedMonth) {
+                const fillIfMissing = (field, ratio) => {
+                    if (cxpObj[field] === undefined || cxpObj[field] === null || cxpObj[field] === 0) {
+                        cxpObj[field] = cxpVal * ratio;
+                    }
+                };
+
+                fillIfMissing('provisionSinFactura', 0.12);
+                fillIfMissing('corriente', 0.30);
+                fillIfMissing('dias0_30', 0.25);
+                fillIfMissing('dias31_60', 0.15);
+                fillIfMissing('dias61_90', 0.08);
+                fillIfMissing('dias91_120', 0.03);
+                fillIfMissing('dias121_150', 0.01);
+                fillIfMissing('dias151_180', 0.005);
+                fillIfMissing('dias180Mas', 0.005);
+
+                const sumAging = (cxpObj.provisionSinFactura || 0) + (cxpObj.corriente || 0) + 
+                                (cxpObj.dias0_30 || 0) + (cxpObj.dias31_60 || 0) + 
+                                (cxpObj.dias61_90 || 0) + (cxpObj.dias91_120 || 0) + 
+                                (cxpObj.dias121_150 || 0) + (cxpObj.dias151_180 || 0) + 
+                                (cxpObj.dias180Mas || 0);
+                const agingGap = cxpVal - sumAging;
+                cxpObj.corriente = (cxpObj.corriente || 0) + agingGap;
+
+                fillIfMissing('alplaHispaniola', 0.20);
+                fillIfMissing('polyplas', 0.18);
+                fillIfMissing('grupoRojas', 0.03);
+                fillIfMissing('raviCaribe', 0.025);
+                fillIfMissing('valcopack', 0.005);
+                fillIfMissing('termopack', 0.04);
+                fillIfMissing('cartoneraApolo', 0.035);
+                fillIfMissing('multiplast', 0.03);
+                fillIfMissing('flexopack', 0.02);
+                fillIfMissing('etiofset', 0.015);
+                fillIfMissing('smurfit', 0.025);
+                fillIfMissing('plasticosCaribe', 0.015);
+                fillIfMissing('industriasNacionales', 0.01);
+                fillIfMissing('distribuidoraCorripo', 0.02);
+                fillIfMissing('otrosProveedores', 0.35);
+
+                const sumSuppliers = (cxpObj.alplaHispaniola || 0) + (cxpObj.polyplas || 0) + 
+                                     (cxpObj.grupoRojas || 0) + (cxpObj.raviCaribe || 0) + 
+                                     (cxpObj.valcopack || 0) + (cxpObj.termopack || 0) + 
+                                     (cxpObj.cartoneraApolo || 0) + (cxpObj.multiplast || 0) + 
+                                     (cxpObj.flexopack || 0) + (cxpObj.etiofset || 0) + 
+                                     (cxpObj.smurfit || 0) + (cxpObj.plasticosCaribe || 0) + 
+                                     (cxpObj.industriasNacionales || 0) + (cxpObj.distribuidoraCorripo || 0) + 
+                                     (cxpObj.otrosProveedores || 0);
+                const supplierGap = cxpVal - sumSuppliers;
+                cxpObj.otrosProveedores = (cxpObj.otrosProveedores || 0) + supplierGap;
+                
+                cxpObj.isProjectedDetail = true;
             }
-        };
-
-        fillIfMissing('provisionSinFactura', 0.12);
-        fillIfMissing('corriente', 0.30);
-        fillIfMissing('dias0_30', 0.25);
-        fillIfMissing('dias31_60', 0.15);
-        fillIfMissing('dias61_90', 0.08);
-        fillIfMissing('dias91_120', 0.03);
-        fillIfMissing('dias121_150', 0.01);
-        fillIfMissing('dias151_180', 0.005);
-        fillIfMissing('dias180Mas', 0.005);
-
-        const sumAging = (cxpObj.provisionSinFactura || 0) + (cxpObj.corriente || 0) + 
-                         (cxpObj.dias0_30 || 0) + (cxpObj.dias31_60 || 0) + 
-                         (cxpObj.dias61_90 || 0) + (cxpObj.dias91_120 || 0) + 
-                         (cxpObj.dias121_150 || 0) + (cxpObj.dias151_180 || 0) + 
-                         (cxpObj.dias180Mas || 0);
-        const agingGap = cxpVal - sumAging;
-        cxpObj.corriente = (cxpObj.corriente || 0) + agingGap;
-
-        fillIfMissing('alplaHispaniola', 0.20);
-        fillIfMissing('polyplas', 0.18);
-        fillIfMissing('grupoRojas', 0.03);
-        fillIfMissing('raviCaribe', 0.025);
-        fillIfMissing('valcopack', 0.005);
-        fillIfMissing('termopack', 0.04);
-        fillIfMissing('cartoneraApolo', 0.035);
-        fillIfMissing('multiplast', 0.03);
-        fillIfMissing('flexopack', 0.02);
-        fillIfMissing('etiofset', 0.015);
-        fillIfMissing('smurfit', 0.025);
-        fillIfMissing('plasticosCaribe', 0.015);
-        fillIfMissing('industriasNacionales', 0.01);
-        fillIfMissing('distribuidoraCorripo', 0.02);
-        fillIfMissing('otrosProveedores', 0.35);
-
-        const sumSuppliers = (cxpObj.alplaHispaniola || 0) + (cxpObj.polyplas || 0) + 
-                             (cxpObj.grupoRojas || 0) + (cxpObj.raviCaribe || 0) + 
-                             (cxpObj.valcopack || 0) + (cxpObj.termopack || 0) + 
-                             (cxpObj.cartoneraApolo || 0) + (cxpObj.multiplast || 0) + 
-                             (cxpObj.flexopack || 0) + (cxpObj.etiofset || 0) + 
-                             (cxpObj.smurfit || 0) + (cxpObj.plasticosCaribe || 0) + 
-                             (cxpObj.industriasNacionales || 0) + (cxpObj.distribuidoraCorripo || 0) + 
-                             (cxpObj.otrosProveedores || 0);
-        const supplierGap = cxpVal - sumSuppliers;
-        cxpObj.otrosProveedores = (cxpObj.otrosProveedores || 0) + supplierGap;
+        }
 
         if (cxpObj.costosGastoYtd === undefined || cxpObj.costosGastoYtd === null || cxpObj.costosGastoYtd === 0) {
             cxpObj.costosGastoMensual = Math.abs(costos) + Math.abs(opex) + Math.abs(cashflowDetail.capex || 0);
