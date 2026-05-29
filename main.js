@@ -4532,38 +4532,204 @@ window.renderCxpView = function(overrideData, globalIdx = -1) {
         });
     }
 
-    let startSliceIdx = Math.max(0, endSliceIdx - 4);
-    
-    // Create sliced data object
-    const data = {
-        labels: baseData.labels.slice(startSliceIdx, endSliceIdx + 1),
-        periods: baseData.periods.slice(startSliceIdx, endSliceIdx + 1),
-        Corriente: baseData.Corriente.slice(startSliceIdx, endSliceIdx + 1),
-        Aging: {
-            "0_30": baseData.Aging["0_30"].slice(startSliceIdx, endSliceIdx + 1),
-            "31_60": baseData.Aging["31_60"].slice(startSliceIdx, endSliceIdx + 1),
-            "61_90": baseData.Aging["61_90"].slice(startSliceIdx, endSliceIdx + 1),
-            "91_120": baseData.Aging["91_120"].slice(startSliceIdx, endSliceIdx + 1),
-            "121_150": baseData.Aging["121_150"].slice(startSliceIdx, endSliceIdx + 1),
-            "151_180": baseData.Aging["151_180"].slice(startSliceIdx, endSliceIdx + 1),
-            "180Mas": baseData.Aging["180Mas"].slice(startSliceIdx, endSliceIdx + 1)
-        },
-        BalanceGeneral: baseData.BalanceGeneral.slice(startSliceIdx, endSliceIdx + 1),
-        CXP: baseData.CXP.slice(startSliceIdx, endSliceIdx + 1),
-        Provisionales: baseData.Provisionales.slice(startSliceIdx, endSliceIdx + 1),
-        OtrosProveedores: (baseData.OtrosProveedores || []).slice(startSliceIdx, endSliceIdx + 1),
-        Top14Names: baseData.Top14Names || [],
-        Top14Saldos: {},
-        Total: (baseData.Total || []).slice(startSliceIdx, endSliceIdx + 1),
-        CostosYTD: (baseData.CostosYTD || []).slice(startSliceIdx, endSliceIdx + 1),
-        DPO: (baseData.DPO || []).slice(startSliceIdx, endSliceIdx + 1)
-    };
-    
-    if (baseData.Top14Saldos) {
-        for (let k in baseData.Top14Saldos) {
-            data.Top14Saldos[k] = baseData.Top14Saldos[k].slice(startSliceIdx, endSliceIdx + 1);
+    function matchFinAndCxpPeriod(gItem, pStr) {
+        if (!gItem || !pStr) return false;
+        const parts = String(pStr).split('/');
+        if (parts.length < 2) return false;
+        const pM = parseInt(parts[0], 10);
+        let pY = parseInt(parts[1], 10);
+        if (pY < 100) pY += 2000;
+        
+        const gSortDate = gItem.sortDate;
+        if (gSortDate) {
+            const d = new Date(gSortDate);
+            if (!isNaN(d)) {
+                return d.getMonth() + 1 === pM && d.getFullYear() === pY;
+            }
         }
+        
+        // Fallback: compare month and year using isYear2025/isYear2026 and month name
+        const normDate = (gItem.date || "").toLowerCase();
+        const shortMonths = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+        const pMonthShort = shortMonths[pM - 1];
+        const isTargetYear = pY === 2025 ? isYear2025(gItem) : (pY === 2026 ? isYear2026(gItem) : false);
+        
+        return isTargetYear && (normDate.includes(pMonthShort) || normDate.includes(String(pM)));
     }
+
+    let labels = [];
+    let periods = [];
+    let corriente = [];
+    let balanceGeneral = [];
+    let cxp = [];
+    let provisionales = [];
+    let otrosProveedores = [];
+    let total = [];
+    let costosYTD = [];
+    let dpo = [];
+    let aging = {
+        "0_30": [],
+        "31_60": [],
+        "61_90": [],
+        "91_120": [],
+        "121_150": [],
+        "151_180": [],
+        "180Mas": []
+    };
+    let top14Saldos = {};
+    if (baseData.Top14Names) {
+        baseData.Top14Names.forEach(k => {
+            top14Saldos[k] = [];
+        });
+    }
+
+    if (globalFinancialData && globalFinancialData.length > 0) {
+        const endIdx = useIdx >= 0 && useIdx < globalFinancialData.length ? useIdx : globalFinancialData.length - 1;
+        const startIdx = Math.max(0, endIdx - 5);
+        let visibleFinancialMonths = globalFinancialData.slice(startIdx, endIdx + 1);
+        visibleFinancialMonths = visibleFinancialMonths.filter(m => isYear2026(m));
+        const dic2025Fin = globalFinancialData.find(d => isYear2025(d) && (d.date.toLowerCase().includes('dic') || d.date.toLowerCase().includes('dec')));
+        if (dic2025Fin && !visibleFinancialMonths.includes(dic2025Fin)) {
+            visibleFinancialMonths.unshift(dic2025Fin);
+        }
+
+        visibleFinancialMonths.forEach(gItem => {
+            labels.push(gItem.date ? gItem.date.toUpperCase() : "");
+            
+            // Find corresponding index in baseData.periods
+            const cxpIdx = baseData.periods ? baseData.periods.findIndex(p => matchFinAndCxpPeriod(gItem, p)) : -1;
+            
+            if (cxpIdx !== -1) {
+                periods.push(baseData.periods[cxpIdx]);
+                corriente.push(baseData.Corriente[cxpIdx] || 0);
+                balanceGeneral.push(baseData.BalanceGeneral[cxpIdx] || 0);
+                cxp.push(baseData.CXP[cxpIdx] || 0);
+                provisionales.push(baseData.Provisionales[cxpIdx] || 0);
+                otrosProveedores.push((baseData.OtrosProveedores || [])[cxpIdx] || 0);
+                total.push((baseData.Total || [])[cxpIdx] || 0);
+                costosYTD.push((baseData.CostosYTD || [])[cxpIdx] || 0);
+                dpo.push((baseData.DPO || [])[cxpIdx] || 0);
+                
+                aging["0_30"].push(baseData.Aging["0_30"][cxpIdx] || 0);
+                aging["31_60"].push(baseData.Aging["31_60"][cxpIdx] || 0);
+                aging["61_90"].push(baseData.Aging["61_90"][cxpIdx] || 0);
+                aging["91_120"].push(baseData.Aging["91_120"][cxpIdx] || 0);
+                aging["121_150"].push(baseData.Aging["121_150"][cxpIdx] || 0);
+                aging["151_180"].push(baseData.Aging["151_180"][cxpIdx] || 0);
+                aging["180Mas"].push(baseData.Aging["180Mas"][cxpIdx] || 0);
+                
+                if (baseData.Top14Names) {
+                    baseData.Top14Names.forEach(k => {
+                        const arr = baseData.Top14Saldos ? baseData.Top14Saldos[k] : null;
+                        top14Saldos[k].push(arr ? (arr[cxpIdx] || 0) : 0);
+                    });
+                }
+            } else {
+                // Future month or non-existent in CXP files -> fill with 0
+                let m = 1;
+                let y = 2026;
+                if (gItem.sortDate) {
+                    const dt = new Date(gItem.sortDate);
+                    m = dt.getMonth() + 1;
+                    y = dt.getFullYear();
+                } else {
+                    const norm = (gItem.date || "").toLowerCase();
+                    const shortMonths = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+                    const foundMonthIdx = shortMonths.findIndex(sm => norm.includes(sm));
+                    if (foundMonthIdx !== -1) {
+                         m = foundMonthIdx + 1;
+                    }
+                    if (isYear2025(gItem)) y = 2025;
+                }
+                const pStr = `${m}/${y}`;
+                periods.push(pStr);
+                corriente.push(0);
+                balanceGeneral.push(0);
+                cxp.push(0);
+                provisionales.push(0);
+                otrosProveedores.push(0);
+                total.push(0);
+                costosYTD.push(0);
+                dpo.push(0);
+                
+                aging["0_30"].push(0);
+                aging["31_60"].push(0);
+                aging["61_90"].push(0);
+                aging["91_120"].push(0);
+                aging["121_150"].push(0);
+                aging["151_180"].push(0);
+                aging["180Mas"].push(0);
+                
+                if (baseData.Top14Names) {
+                    baseData.Top14Names.forEach(k => {
+                        top14Saldos[k].push(0);
+                    });
+                }
+            }
+        });
+    } else {
+        // Fallback to original slicing if globalFinancialData is empty
+        const startSliceIdx = Math.max(0, endSliceIdx - 5);
+        let visibleIndices = [];
+        for (let i = startSliceIdx; i <= endSliceIdx; i++) {
+            visibleIndices.push(i);
+        }
+        visibleIndices = visibleIndices.filter(idx => {
+            const pStr = baseData.periods[idx] || "";
+            return pStr.endsWith('/2026') || pStr.endsWith('/26');
+        });
+        const dic2025Idx = baseData.periods.findIndex(p => {
+            const pStr = String(p);
+            return pStr === "12/2025" || pStr === "12/25";
+        });
+        if (dic2025Idx !== -1 && !visibleIndices.includes(dic2025Idx)) {
+            visibleIndices.unshift(dic2025Idx);
+        }
+        
+        visibleIndices.forEach(idx => {
+            labels.push((baseData.labels[idx] || "").toUpperCase());
+            periods.push(baseData.periods[idx]);
+            corriente.push(baseData.Corriente[idx] || 0);
+            balanceGeneral.push(baseData.BalanceGeneral[idx] || 0);
+            cxp.push(baseData.CXP[idx] || 0);
+            provisionales.push(baseData.Provisionales[idx] || 0);
+            otrosProveedores.push((baseData.OtrosProveedores || [])[idx] || 0);
+            total.push((baseData.Total || [])[idx] || 0);
+            costosYTD.push((baseData.CostosYTD || [])[idx] || 0);
+            dpo.push((baseData.DPO || [])[idx] || 0);
+            
+            aging["0_30"].push(baseData.Aging["0_30"][idx] || 0);
+            aging["31_60"].push(baseData.Aging["31_60"][idx] || 0);
+            aging["61_90"].push(baseData.Aging["61_90"][idx] || 0);
+            aging["91_120"].push(baseData.Aging["91_120"][idx] || 0);
+            aging["121_150"].push(baseData.Aging["121_150"][idx] || 0);
+            aging["151_180"].push(baseData.Aging["151_180"][idx] || 0);
+            aging["180Mas"].push(baseData.Aging["180Mas"][idx] || 0);
+            
+            if (baseData.Top14Names) {
+                baseData.Top14Names.forEach(k => {
+                    const arr = baseData.Top14Saldos ? baseData.Top14Saldos[k] : null;
+                    top14Saldos[k].push(arr ? (arr[idx] || 0) : 0);
+                });
+            }
+        });
+    }
+
+    const data = {
+        labels,
+        periods,
+        Corriente: corriente,
+        Aging: aging,
+        BalanceGeneral: balanceGeneral,
+        CXP: cxp,
+        Provisionales: provisionales,
+        OtrosProveedores: otrosProveedores,
+        Top14Names: baseData.Top14Names || [],
+        Top14Saldos: top14Saldos,
+        Total: total,
+        CostosYTD: costosYTD,
+        DPO: dpo
+    };
 
     if (periodLabel) {
         let yr = "20XX";
@@ -4660,7 +4826,7 @@ window.renderCxpView = function(overrideData, globalIdx = -1) {
 
     // Render Summary view if active or updated
     if (typeof window.renderCxpResumen === 'function') {
-        window.renderCxpResumen(baseData, endSliceIdx);
+        window.renderCxpResumen(data, data.labels.length - 1);
     }
 }
 
