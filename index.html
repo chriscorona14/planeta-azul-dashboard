@@ -870,6 +870,28 @@
         min-width: 1250px !important;
       }
 
+      /* Specific overrides for CXP Resumen to prevent horizontal scroll and text cutoff */
+      #cxpResumenTable {
+        min-width: 0 !important;
+      }
+      #cxpResumenTable th:first-child,
+      #cxpResumenTable td:first-child {
+        width: auto !important;
+        min-width: 0 !important;
+        position: static !important;
+        background: transparent !important;
+        white-space: normal !important;
+        word-break: break-word !important;
+        box-shadow: none !important;
+        border-right: none !important;
+      }
+      #cxpResumenTable td {
+        white-space: normal !important;
+      }
+      #cxp-resumen-container .pnl-detail-table {
+        overflow-x: visible !important;
+      }
+
       #resumen-comercial-table th:first-child,
       #resumen-comercial-table td:first-child {
         width: 22% !important;
@@ -2607,18 +2629,62 @@
           <span id="cxpPeriodLabel" style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);">Análisis de Antigüedad de Saldos y Proveedores</span>
         </div>
 
-        <div class="pnl-detail-table" style="position: relative;">
-          <table id="cxpTable" class="desktop-only-table">
-            <thead id="cxpHeader"></thead>
-            <tbody id="cxpBody">
-              <tr>
-                <td colspan="14" style="text-align: center; color: var(--text-secondary)">
-                  <i data-lucide="loader" class="spin"></i> Cargando...
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <div id="cxpMobileContainer" style="display: none;"></div>
+        <div id="cxp-view-toggles" style="display: flex; justify-content: flex-end; margin-bottom: 24px; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <span style="font-size: 0.85rem; font-weight: 600; color: var(--sidebar);">Vista:</span>
+            <div style="display: flex; gap: 4px; background: #f1f5f9; padding: 4px; border-radius: 8px;">
+                <button id="btn-cxp-detalle" class="cxp-view-btn" data-view="detalle" style="padding: 6px 14px; background: white; color: var(--primary); border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.05); transition: 0.2s;">Detalle</button>
+                <button id="btn-cxp-resumen" class="cxp-view-btn" data-view="resumen" style="padding: 6px 14px; background: transparent; color: var(--text-secondary); border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: 600; box-shadow: none; transition: 0.2s;">Resumen</button>
+            </div>
+        </div>
+
+        <div id="cxp-detalle-container">
+          <div class="pnl-detail-table" style="position: relative;">
+            <table id="cxpTable" class="desktop-only-table">
+              <thead id="cxpHeader"></thead>
+              <tbody id="cxpBody">
+                <tr>
+                  <td colspan="14" style="text-align: center; color: var(--text-secondary)">
+                    <i data-lucide="loader" class="spin"></i> Cargando...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div id="cxpMobileContainer" style="display: none;"></div>
+          </div>
+        </div>
+
+        <!-- Vista Resumen CxP -->
+        <div id="cxp-resumen-container" style="display: none;">
+          <div style="display: grid; grid-template-columns: minmax(320px, 1fr) minmax(400px, 1.5fr); gap: 32px; align-items: start; background: white; padding: 24px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid var(--border);">
+            
+            <!-- Tabla Resumen -->
+            <div style="min-width: 0;">
+              <div class="pnl-detail-table" style="margin-top: 0; border: none; overflow-x: hidden;">
+                <table id="cxpResumenTable" class="desktop-only-table" style="width: 100%; table-layout: fixed;">
+                  <thead>
+                    <tr>
+                      <th id="cxpResumenColTitle" style="text-align: left; width: 65%; white-space: normal !important; word-break: break-word;">Saldos de Top 5 Proveedores</th>
+                      <th id="cxpResumenCol1" style="text-align: right; width: 17.5%;">dic 2025</th>
+                      <th id="cxpResumenCol2" style="text-align: right; width: 17.5%;">abr 2026</th>
+                    </tr>
+                  </thead>
+                  <tbody id="cxpResumenBody">
+                    <tr>
+                      <td colspan="3" style="text-align: center; padding: 24px; color: var(--text-secondary);">
+                        Carga el archivo CXP_Historico.xlsx para visualizar el resumen.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Gráfica Resumen -->
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: flex-start; height: 100%; min-width: 0;">
+              <div id="cxpResumenChart" style="width: 100%; height: 460px;"></div>
+            </div>
+
+          </div>
         </div>
       </div>
 

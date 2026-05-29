@@ -80,6 +80,12 @@ function base64ToArrayBuffer(base64) {
 }
 
 let globalFinancialData = [];
+Object.defineProperty(window, 'globalFinancialData', {
+    get: function() { return globalFinancialData; },
+    set: function(val) { globalFinancialData = val; },
+    configurable: true,
+    enumerable: true
+});
 let ceoData = null;
 let ventasCeoData = null; // Will hold { columns: [], rows: [] } mapped
 let ventasCeoCurrentMetric = 'Volumen';
@@ -2024,18 +2030,24 @@ document.addEventListener('DOMContentLoaded', async () => {
                     await addPageToPDF("Cash Flow | Resumen | " + (previousYTD ? "YTD" : "Mensual"));
                 }
 
-                // 6.5. Zoom in Deuda
+                // 6.5. Detalle CxP
+                if (document.getElementById('view-cxp')) {
+                    showViewAndSync('view-cxp', 'menu-cxp');
+
+                    clickElement('btn-cxp-resumen');
+                    await sleep(800);
+                    await addPageToPDF("Resumen de Cuentas por Pagar (DOP)");
+
+                    clickElement('btn-cxp-detalle');
+                    await sleep(800);
+                    await addPageToPDF("Detalle de Cuentas por Pagar (DOP)");
+                }
+
+                // 6.6. Zoom in Deuda
                 if (document.getElementById('view-deuda')) {
                     showViewAndSync('view-deuda', 'menu-deuda');
                     await sleep(800);
                     await addPageToPDF("Zoom in Deuda");
-                }
-
-                // 6.6. Detalle CxP
-                if (document.getElementById('view-cxp')) {
-                    showViewAndSync('view-cxp', 'menu-cxp');
-                    await sleep(800);
-                    await addPageToPDF("Detalle de Cuentas por Pagar (DOP)");
                 }
 
                 // 7. Ventas CEO
@@ -2321,9 +2333,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (targetView) targetView.classList.add('active');
             window.currentActiveView = viewId;
 
-            // Si se navega a CXP, renderizar directamente con los datos standalone
+            // Trigger directo al navegar a CXP
             if (id === 'menu-cxp' && typeof window.renderCxpView === 'function') {
-                window.renderCxpView(window.cxpStandaloneData || null);
+                const ms = document.getElementById('monthSelector');
+                const pIdx = ms ? parseInt(ms.value, 10) : -1;
+                window.renderCxpView(window.cxpStandaloneData || null, isNaN(pIdx) ? -1 : pIdx);
             }
 
             // Close mobile sidebar if open
@@ -3323,9 +3337,10 @@ function renderActiveViewLazy(data, index) {
         }
         
         let viewCxp = document.getElementById("view-cxp");
-        if (viewCxp && viewCxp.classList.contains("active")) {
+        // Update cxp view always so it scales automatically for when the user navigates there
+        if (viewCxp) {
             if (typeof window.renderCxpView === 'function') {
-                window.renderCxpView(window.cxpStandaloneData || null);
+                window.renderCxpView(window.cxpStandaloneData || null, index);
             }
             setTimeout(() => {
                 if (typeof buildMobileAccordionsFromTable === 'function') {
@@ -4382,15 +4397,172 @@ function renderWorkingCapital(data, selectedIndex = -1) {
     bodyEl.innerHTML = bodyHTML;
 }
 
-window.renderCxpView = function(overrideData) {
-    const data = overrideData || window.cxpStandaloneData;
+window.renderCxpView = function(overrideData, globalIdx = -1) {
+    let baseData = overrideData;
+    if (Array.isArray(baseData) || !baseData || !baseData.labels) {
+        baseData = window.cxpStandaloneData;
+    }
     const headerEl = document.getElementById('cxpHeader');
     const bodyEl = document.getElementById('cxpBody');
     const periodLabel = document.getElementById('cxpPeriodLabel');
     if (!headerEl || !bodyEl) return;
-    if (!data || !data.labels) {
-        bodyEl.innerHTML = '<tr><td colspan="6" style="text-align:center; color: var(--text-secondary); padding: 24px;">Carga el archivo CXP_Historico.xlsx para visualizar este módulo.</td></tr>';
+    if (!baseData || !baseData.labels) {
+        bodyEl.innerHTML = '<tr><td colspan="6" style="text-align:center;' +
+            'color:var(--text-secondary);padding:24px;">' +
+            'Carga el archivo CXP_Historico.xlsx para visualizar este módulo.' +
+            '</td></tr>';
         return;
+    }
+
+    // Determine target month from globalFinancialData
+    const ms = document.getElementById('monthSelector');
+    let useIdx = globalIdx !== -1 ? globalIdx : (ms ? parseInt(ms.value, 10) : -1);
+    if (isNaN(useIdx)) useIdx = -1;
+    if (useIdx === -1 && globalFinancialData) {
+        useIdx = globalFinancialData.length - 1;
+    }
+
+    let endSliceIdx = baseData.labels.length - 1;
+    let foundIdx = -1;
+    if (useIdx !== -1 && globalFinancialData && globalFinancialData[useIdx]) {
+        if (globalFinancialData[useIdx].sortDate) {
+            const gDate = new Date(globalFinancialData[useIdx].sortDate);
+            const m = gDate.getMonth() + 1;
+            const y = gDate.getFullYear();
+            
+            if (baseData.periods) {
+                for (let i = baseData.periods.length - 1; i >= 0; i--) {
+                    const parts = String(baseData.periods[i]).split('/');
+                    const pM = parseInt(parts[0], 10);
+                    const pY = parseInt(parts[1], 10);
+                    if (pY < y || (pY === y && pM <= m)) {
+                        foundIdx = i;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        if (foundIdx !== -1) {
+            endSliceIdx = foundIdx;
+        }
+    }
+
+    if (globalFinancialData && baseData.periods && baseData.periods.length > 0) {
+        baseData.CostosYTD = baseData.periods.map((p, i) => {
+            const parts = String(p).split('/');
+            const m = parseInt(parts[0], 10);
+            const y = parseInt(parts[1], 10);
+            
+            const gItem = globalFinancialData.find(d => {
+                if (d.sortDate) {
+                    const dt = new Date(d.sortDate);
+                    return dt.getMonth() + 1 === m && dt.getFullYear() === y;
+                }
+                return false;
+            });
+            
+            if (gItem && gItem.wcFullRows) {
+                const r = gItem.wcFullRows.find(rw => {
+                    const c = String(rw.concept).toLowerCase().trim();
+                    return c.includes("total costos") || c.includes("costos ytd") || c.includes("opex + capex") || (c.includes("capex") && c.includes("opex") && c.includes("costo"));
+                });
+                if (r && r.values) {
+                    // Try exact match
+                    if (r.values[gItem.date] !== undefined && r.values[gItem.date] !== null && r.values[gItem.date] !== "") return r.values[gItem.date];
+                    
+                    // Fallback to fuzzy match keys in r.values
+                    for (let key in r.values) {
+                        if (String(key).toLowerCase().trim() === String(gItem.date).toLowerCase().trim()) {
+                            if (Math.abs(Number(r.values[key])) > 0) return r.values[key];
+                        }
+                    }
+                    
+                    // If all fails, fall back to matching month and year string in key
+                    const shortMonths = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+                    const tgtStr = shortMonths[m-1] + "-" + String(y).slice(-2);
+                    for (let key in r.values) {
+                        const kl = String(key).toLowerCase();
+                        if (kl.includes(shortMonths[m-1]) && kl.includes(String(y).slice(-2))) {
+                            if (Math.abs(Number(r.values[key])) > 0) return r.values[key];
+                        }
+                    }
+                }
+            }
+            return baseData.CostosYTD[i]; // fallback to existing
+        });
+        
+        baseData.DPO = baseData.periods.map((p, i) => {
+            const parts = String(p).split('/');
+            const m = parseInt(parts[0], 10);
+            const y = parseInt(parts[1], 10);
+            
+            const gItem = globalFinancialData.find(d => {
+                if (d.sortDate) {
+                    const dt = new Date(d.sortDate);
+                    return dt.getMonth() + 1 === m && dt.getFullYear() === y;
+                }
+                return false;
+            });
+            
+            if (gItem && gItem.wcFullRows) {
+                const r = gItem.wcFullRows.find(rw => {
+                    const c = String(rw.concept).toLowerCase().trim();
+                    return c === "dpo" || c.includes("dpo") || c.includes("días de cuentas") || c.includes("dias de cuentas");
+                });
+                if (r && r.values) {
+                    if (r.values[gItem.date] !== undefined && r.values[gItem.date] !== null && r.values[gItem.date] !== "") return r.values[gItem.date];
+                    
+                    for (let key in r.values) {
+                         if (String(key).toLowerCase().trim() === String(gItem.date).toLowerCase().trim()) {
+                            if (Math.abs(Number(r.values[key])) > 0) return r.values[key];
+                        }
+                    }
+                    
+                    const shortMonths = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+                    for (let key in r.values) {
+                        const kl = String(key).toLowerCase();
+                        if (kl.includes(shortMonths[m-1]) && kl.includes(String(y).slice(-2))) {
+                            if (Math.abs(Number(r.values[key])) > 0) return r.values[key];
+                        }
+                    }
+                }
+            }
+            return baseData.DPO[i]; // fallback to existing
+        });
+    }
+
+    let startSliceIdx = Math.max(0, endSliceIdx - 4);
+    
+    // Create sliced data object
+    const data = {
+        labels: baseData.labels.slice(startSliceIdx, endSliceIdx + 1),
+        periods: baseData.periods.slice(startSliceIdx, endSliceIdx + 1),
+        Corriente: baseData.Corriente.slice(startSliceIdx, endSliceIdx + 1),
+        Aging: {
+            "0_30": baseData.Aging["0_30"].slice(startSliceIdx, endSliceIdx + 1),
+            "31_60": baseData.Aging["31_60"].slice(startSliceIdx, endSliceIdx + 1),
+            "61_90": baseData.Aging["61_90"].slice(startSliceIdx, endSliceIdx + 1),
+            "91_120": baseData.Aging["91_120"].slice(startSliceIdx, endSliceIdx + 1),
+            "121_150": baseData.Aging["121_150"].slice(startSliceIdx, endSliceIdx + 1),
+            "151_180": baseData.Aging["151_180"].slice(startSliceIdx, endSliceIdx + 1),
+            "180Mas": baseData.Aging["180Mas"].slice(startSliceIdx, endSliceIdx + 1)
+        },
+        BalanceGeneral: baseData.BalanceGeneral.slice(startSliceIdx, endSliceIdx + 1),
+        CXP: baseData.CXP.slice(startSliceIdx, endSliceIdx + 1),
+        Provisionales: baseData.Provisionales.slice(startSliceIdx, endSliceIdx + 1),
+        OtrosProveedores: (baseData.OtrosProveedores || []).slice(startSliceIdx, endSliceIdx + 1),
+        Top14Names: baseData.Top14Names || [],
+        Top14Saldos: {},
+        Total: (baseData.Total || []).slice(startSliceIdx, endSliceIdx + 1),
+        CostosYTD: (baseData.CostosYTD || []).slice(startSliceIdx, endSliceIdx + 1),
+        DPO: (baseData.DPO || []).slice(startSliceIdx, endSliceIdx + 1)
+    };
+    
+    if (baseData.Top14Saldos) {
+        for (let k in baseData.Top14Saldos) {
+            data.Top14Saldos[k] = baseData.Top14Saldos[k].slice(startSliceIdx, endSliceIdx + 1);
+        }
     }
 
     if (periodLabel) {
@@ -4402,7 +4574,7 @@ window.renderCxpView = function(overrideData) {
         periodLabel.innerText = `Análisis de Cuentas Por Pagar ${yr}`;
     }
 
-    let headerHTML = '<tr><th>Concepto</th>';
+    let headerHTML = '<tr><th style="white-space: normal; word-wrap: break-word; width: 250px;">Concepto</th>';
     data.labels.forEach((lbl) => {
         headerHTML += `<th style="text-align:right;">${lbl}</th>`;
     });
@@ -4422,7 +4594,7 @@ window.renderCxpView = function(overrideData) {
     const addRow = (label, values, isTotal = false) => {
         const rowStyle = isTotal ? 'font-weight:700; background:rgba(0,0,0,0.02);' : '';
         let h = `<tr style="${rowStyle}">` 
-            + `<td>${label}</td>`;
+            + `<td style="white-space: normal !important; word-break: break-word;">${label}</td>`;
         
         values.forEach((v) => {
             const valNum = parseFloat(v);
@@ -4485,12 +4657,217 @@ window.renderCxpView = function(overrideData) {
     bodyHTML += dpoRow;
 
     bodyEl.innerHTML = bodyHTML;
+
+    // Render Summary view if active or updated
+    if (typeof window.renderCxpResumen === 'function') {
+        window.renderCxpResumen(baseData, endSliceIdx);
+    }
 }
 
+window.renderCxpResumen = function(data, selectedIdx = -1) {
+    const resumenBody = document.getElementById('cxpResumenBody');
+    const chartContainer = document.getElementById('cxpResumenChart');
+    if (!resumenBody || !chartContainer) return;
+
+    if (!data || !data.labels || data.labels.length === 0) {
+        resumenBody.innerHTML = '<tr><td colspan="3" style="text-align: center; padding: 24px; color: var(--text-secondary); font-style: italic;">Carga el archivo CXP_Historico.xlsx para visualizar el resumen.</td></tr>';
+        chartContainer.innerHTML = '';
+        return;
+    }
+
+    let idxLast = selectedIdx !== -1 ? selectedIdx : data.labels.length - 1;
+    if (idxLast < 0) idxLast = 0;
+    if (idxLast >= data.labels.length) idxLast = data.labels.length - 1;
+
+    let idxDec = -1;
+    for (let i = idxLast; i >= 0; i--) {
+        const lbl = String(data.labels[i]).toLowerCase();
+        if ((lbl.includes('dic') || lbl.includes('dec')) && i !== idxLast) {
+            idxDec = i;
+            break;
+        }
+    }
+    if (idxDec === -1) idxDec = 0;
+
+    const lblDec = data.labels[idxDec] || 'dic 2025';
+    const lblLast = data.labels[idxLast] || 'abr 2026';
+
+    // Set headers
+    const headerCol1Select = document.getElementById('cxpResumenCol1');
+    const headerCol2Select = document.getElementById('cxpResumenCol2');
+    if (headerCol1Select) headerCol1Select.textContent = lblDec.toLowerCase();
+    if (headerCol2Select) headerCol2Select.textContent = lblLast.toLowerCase();
+
+    // Helper to format values as integers, empty if undefined or null
+    const formatValInt = (v) => {
+        if (v === undefined || v === null) return '-';
+        return Math.round(v).toLocaleString('en-US');
+    };
+
+    let tableHTML = '';
+    
+    // Top 5 suppliers
+    const top5Names = (data.Top14Names || []).slice(0, 5);
+    let top5SumDec = 0;
+    let top5SumLast = 0;
+
+    top5Names.forEach(name => {
+        const rowSaldos = data.Top14Saldos[name] || [];
+        const valDec = rowSaldos[idxDec] || 0;
+        const valLast = rowSaldos[idxLast] || 0;
+
+        top5SumDec += valDec;
+        top5SumLast += valLast;
+
+        tableHTML += `
+            <tr>
+              <td style="text-align: left; white-space: normal !important; word-break: break-word;">${name}</td>
+              <td style="text-align: right;">${formatValInt(valDec)}</td>
+              <td style="text-align: right;">${formatValInt(valLast)}</td>
+            </tr>
+        `;
+    });
+
+    // Otros Proveedores = Total - top5Sum
+    const totalDec = data.Total[idxDec] || 0;
+    const totalLast = data.Total[idxLast] || 0;
+
+    const otrosDec = Math.max(0, totalDec - top5SumDec);
+    const otrosLast = Math.max(0, totalLast - top5SumLast);
+
+    tableHTML += `
+        <tr>
+          <td style="text-align: left;">Otros Proveedores</td>
+          <td style="text-align: right;">${formatValInt(otrosDec)}</td>
+          <td style="text-align: right;">${formatValInt(otrosLast)}</td>
+        </tr>
+    `;
+
+    // Total Row
+    tableHTML += `
+        <tr class="total-row" style="background-color: var(--row-hover);">
+          <td style="text-align: left;"><strong>Total</strong></td>
+          <td style="text-align: right;"><strong>${formatValInt(totalDec)}</strong></td>
+          <td style="text-align: right;"><strong>${formatValInt(totalLast)}</strong></td>
+        </tr>
+    `;
+
+    // DPO Row
+    const dpoDec = (data.DPO || [])[idxDec] || 0;
+    const dpoLast = (data.DPO || [])[idxLast] || 0;
+
+    tableHTML += `
+        <tr class="total-row" style="background-color: var(--row-hover);">
+          <td style="text-align: left;"><strong>DPO</strong></td>
+          <td style="text-align: right;"><strong>${formatValInt(dpoDec)}</strong></td>
+          <td style="text-align: right;"><strong>${formatValInt(dpoLast)}</strong></td>
+        </tr>
+    `;
+
+    resumenBody.innerHTML = tableHTML;
+
+    // --- CHART GENERATION ---
+    const corrienteDec = data.Corriente[idxDec] || 0;
+    const agingFields = ['0_30', '31_60', '61_90', '91_120', '121_150', '151_180', '180Mas'];
+    const vencidoDec = agingFields.reduce((sum, f) => sum + (data.Aging[f][idxDec] || 0), 0);
+
+    const corrienteLast = data.Corriente[idxLast] || 0;
+    const vencidoLast = agingFields.reduce((sum, f) => sum + (data.Aging[f][idxLast] || 0), 0);
+
+    const baseDec = (corrienteDec + vencidoDec) || 1;
+    const baseLast = (corrienteLast + vencidoLast) || 1;
+
+    const pctCorrienteDec = Math.round((corrienteDec / baseDec) * 100);
+    const pctVencidoDec = Math.round((vencidoDec / baseDec) * 100);
+
+    const pctCorrienteLast = Math.round((corrienteLast / baseLast) * 100);
+    const pctVencidoLast = Math.round((vencidoLast / baseLast) * 100);
+
+    const maxVal = Math.max(baseDec, baseLast, 100) * 1.12; 
+    const svgHeight = 460;
+    const drawHeight = 350; 
+    const baseY = 410; 
+    const pixelsPerUnit = drawHeight / maxVal;
+
+    const hCorrienteDec = corrienteDec * pixelsPerUnit;
+    const hVencidoDec = vencidoDec * pixelsPerUnit;
+
+    const hCorrienteLast = corrienteLast * pixelsPerUnit;
+    const hVencidoLast = vencidoLast * pixelsPerUnit;
+
+    const midYCorrienteDec = baseY - (hCorrienteDec / 2);
+    const midYVencidoDec = baseY - hCorrienteDec - (hVencidoDec / 2);
+
+    const midYCorrienteLast = baseY - (hCorrienteLast / 2);
+    const midYVencidoLast = baseY - hCorrienteLast - (hVencidoLast / 2);
+
+    const barW = 120;
+    const xDec = 140;
+    const xLast = 420;
+
+    const codeSVG = `
+      <svg width="100%" height="100%" viewBox="0 0 580 460" style="font-family: inherit;">
+        <!-- Base line -->
+        <line x1="30" y1="${baseY}" x2="550" y2="${baseY}" stroke="#cbd5e1" stroke-width="2" />
+
+        <!-- ================= DIC BAR ================= -->
+        <!-- Corriente (Blue) -->
+        <rect x="${xDec - barW/2}" y="${baseY - hCorrienteDec}" width="${barW}" height="${hCorrienteDec}" fill="#0070c0" rx="2" />
+        <!-- Vencido (Red) -->
+        <rect x="${xDec - barW/2}" y="${baseY - hCorrienteDec - hVencidoDec}" width="${barW}" height="${hVencidoDec}" fill="#b91c1c" rx="2" />
+
+        <!-- Labels inside Dec Bar -->
+        ${hCorrienteDec > 16 ? `
+        <text x="${xDec}" y="${midYCorrienteDec + 5}" fill="white" font-size="12" font-weight="bold" text-anchor="middle">${Math.round(corrienteDec)}</text>
+        ` : ''}
+        ${hVencidoDec > 16 ? `
+        <text x="${xDec}" y="${midYVencidoDec + 5}" fill="white" font-size="12" font-weight="bold" text-anchor="middle">${Math.round(vencidoDec)}</text>
+        ` : ''}
+
+        <!-- Total on top of Dec Bar -->
+        <text x="${xDec}" y="${baseY - hCorrienteDec - hVencidoDec - 10}" fill="#1e293b" font-size="13" font-weight="bold" text-anchor="middle">${Math.round(totalDec)}</text>
+
+        <!-- Label below Dec Bar -->
+        <text x="${xDec}" y="${baseY + 22}" fill="#475569" font-size="11" font-weight="bold" text-anchor="middle">${lblDec.toUpperCase()}</text>
+
+        <!-- Annotations Dec Bar -->
+        <text x="${xDec + barW/2 + 10}" y="${midYVencidoDec}" fill="#b91c1c" font-size="12" font-weight="bold" text-anchor="start">${pctVencidoDec}% Vencido</text>
+        <text x="${xDec + barW/2 + 10}" y="${midYCorrienteDec}" fill="#0070c0" font-size="12" font-weight="bold" text-anchor="start">${pctCorrienteDec}% Corriente</text>
+
+
+        <!-- ================= LAST BAR ================= -->
+        <!-- Corriente (Blue) -->
+        <rect x="${xLast - barW/2}" y="${baseY - hCorrienteLast}" width="${barW}" height="${hCorrienteLast}" fill="#0070c0" rx="2" />
+        <!-- Vencido (Red) -->
+        <rect x="${xLast - barW/2}" y="${baseY - hCorrienteLast - hVencidoLast}" width="${barW}" height="${hVencidoLast}" fill="#b91c1c" rx="2" />
+
+        <!-- Labels inside Last Bar -->
+        ${hCorrienteLast > 16 ? `
+        <text x="${xLast}" y="${midYCorrienteLast + 5}" fill="white" font-size="12" font-weight="bold" text-anchor="middle">${Math.round(corrienteLast)}</text>
+        ` : ''}
+        ${hVencidoLast > 16 ? `
+        <text x="${xLast}" y="${midYVencidoLast + 5}" fill="white" font-size="12" font-weight="bold" text-anchor="middle">${Math.round(vencidoLast)}</text>
+        ` : ''}
+
+        <!-- Total on top of Last Bar -->
+        <text x="${xLast}" y="${baseY - hCorrienteLast - hVencidoLast - 10}" fill="#1e293b" font-size="13" font-weight="bold" text-anchor="middle">${Math.round(totalLast)}</text>
+
+        <!-- Label below Last Bar -->
+        <text x="${xLast}" y="${baseY + 22}" fill="#475569" font-size="11" font-weight="bold" text-anchor="middle">${lblLast.toUpperCase()}</text>
+
+        <!-- Annotations Last Bar -->
+        <text x="${xLast + barW/2 + 10}" y="${midYVencidoLast}" fill="#b91c1c" font-size="12" font-weight="bold" text-anchor="start">${pctVencidoLast}% Vencido</text>
+        <text x="${xLast + barW/2 + 10}" y="${midYCorrienteLast}" fill="#0070c0" font-size="12" font-weight="bold" text-anchor="start">${pctCorrienteLast}% Corriente</text>
+      </svg>
+    `;
+
+    chartContainer.innerHTML = codeSVG;
+};
+
 // Ensure the old function name works due to previous references if any
-function renderCxpView(overrideData) {
+function renderCxpView(overrideData, globalIdx = -1) {
     if (window.renderCxpView) {
-        window.renderCxpView(overrideData);
+        window.renderCxpView(overrideData, globalIdx);
     }
 }
 
@@ -9727,14 +10104,14 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
     
     let dates = [];
     let curD = new Date(maxDate.getFullYear(), maxDate.getMonth(), 1);
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 24; i++) {
         dates.unshift(new Date(curD.getFullYear(), curD.getMonth(), 1));
         curD.setMonth(curD.getMonth() - 1);
     }
     
     const periods = dates.map(d => d.getMonth() + 1 + "/" + d.getFullYear());
     const shortMonthsList = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
-    const labels = dates.map(d => shortMonthsList[d.getMonth()] + "-" + d.getFullYear().toString().slice(-2));
+    const labels = dates.map(d => shortMonthsList[d.getMonth()] + " " + d.getFullYear());
 
     // --- PASO 2 - HOJA BALANZA ---
     const balRows = sheet_to_json(workbook.Sheets[balanzaName], { header: 1 });
@@ -9772,14 +10149,14 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
     }
 
     // --- PASO 3 - AGING ---
-    let arrCorriente = [0,0,0,0,0];
-    let arr0_30 = [0,0,0,0,0];
-    let arr31_60 = [0,0,0,0,0];
-    let arr61_90 = [0,0,0,0,0];
-    let arr91_120 = [0,0,0,0,0];
-    let arr121_150 = [0,0,0,0,0];
-    let arr151_180 = [0,0,0,0,0];
-    let arr180mas = [0,0,0,0,0];
+    let arrCorriente = Array(periods.length).fill(0);
+    let arr0_30 = Array(periods.length).fill(0);
+    let arr31_60 = Array(periods.length).fill(0);
+    let arr61_90 = Array(periods.length).fill(0);
+    let arr91_120 = Array(periods.length).fill(0);
+    let arr121_150 = Array(periods.length).fill(0);
+    let arr151_180 = Array(periods.length).fill(0);
+    let arr180mas = Array(periods.length).fill(0);
 
     for (let i = 1; i < histRows.length; i++) {
         let p = String(histRows[i][periodColIdx]);
@@ -9824,7 +10201,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
     
     let top14Saldos = {};
     for (let n of top14Names) {
-        top14Saldos[n] = [0,0,0,0,0];
+        top14Saldos[n] = Array(periods.length).fill(0);
     }
     
     for (let i = 1; i < histRows.length; i++) {
@@ -9838,9 +10215,9 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         }
     }
     
-    let arrOtros = [0,0,0,0,0];
-    let arrTotal = [0,0,0,0,0];
-    for (let i = 0; i < 5; i++) {
+    let arrOtros = Array(periods.length).fill(0);
+    let arrTotal = Array(periods.length).fill(0);
+    for (let i = 0; i < periods.length; i++) {
         let sumTop14 = 0;
         for (let n of top14Names) {
             sumTop14 += top14Saldos[n][i];
@@ -9852,9 +10229,26 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
     // --- PASO 5 - COSTOS YTD ---
     const anaRows = sheet_to_json(workbook.Sheets[analisisName], { header: 1 });
     const anaDates = anaRows[2]; // Fila 3, índice 2
-    const anaCostos = anaRows[38]; // Fila 39, índice 38
     
-    let arrCostosYTD = [0,0,0,0,0];
+    let anaCostos = null;
+    let foundCostosRowIdx = -1;
+    for (let r = 0; r < anaRows.length; r++) {
+        if (anaRows[r] && anaRows[r][0]) {
+            let rowStr = String(anaRows[r][0]).toLowerCase().trim();
+            if (rowStr.includes("total costos") || rowStr.includes("costos ytd") || rowStr.includes("opex + capex")) {
+                anaCostos = anaRows[r];
+                foundCostosRowIdx = r;
+                break;
+            }
+        }
+    }
+    
+    // If we didn't find it dynamically by string matching common names, try row 38 as fallback:
+    if (!anaCostos && anaRows[38]) {
+        anaCostos = anaRows[38];
+    }
+    
+    let arrCostosYTD = Array(periods.length).fill(0);
     
     const EXCEL_EPOCH = new Date(1899, 11, 30); // in excel 1= 1900-01-01 but there's leaps
     const getMonthAndYearFromExcel = (cell) => {
@@ -9900,8 +10294,8 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
     }
     
     // --- PASO 6 - DPO ---
-    let arrDPO = [0,0,0,0,0];
-    for (let i = 0; i < 5; i++) {
+    let arrDPO = Array(periods.length).fill(0);
+    for (let i = 0; i < periods.length; i++) {
         let cytd = arrCostosYTD[i];
         if (cytd > 0) {
             arrDPO[i] = Math.round(arrBalGen[i] / (cytd / 30));
@@ -10036,6 +10430,30 @@ window.processCxpFile = async function(file) {
             
             const detailContainer = document.getElementById('balance-detalle-container');
             const resumenContainer = document.getElementById('balance-resumen-container');
+            if(detailContainer) detailContainer.style.display = 'none';
+            if(resumenContainer) resumenContainer.style.display = 'block';
+        });
+
+        document.getElementById('btn-cxp-detalle')?.addEventListener('click', () => {
+            const btnDetalle = document.getElementById('btn-cxp-detalle');
+            const btnResumen = document.getElementById('btn-cxp-resumen');
+            if (btnDetalle) { btnDetalle.style.background = 'white'; btnDetalle.style.color = 'var(--primary)'; btnDetalle.style.boxShadow = '0 1px 2px rgba(0,0,0,0.05)'; }
+            if (btnResumen) { btnResumen.style.background = 'transparent'; btnResumen.style.color = 'var(--text-secondary)'; btnResumen.style.boxShadow = 'none'; }
+            
+            const detailContainer = document.getElementById('cxp-detalle-container');
+            const resumenContainer = document.getElementById('cxp-resumen-container');
+            if(detailContainer) detailContainer.style.display = 'block';
+            if(resumenContainer) resumenContainer.style.display = 'none';
+        });
+
+        document.getElementById('btn-cxp-resumen')?.addEventListener('click', () => {
+            const btnDetalle = document.getElementById('btn-cxp-detalle');
+            const btnResumen = document.getElementById('btn-cxp-resumen');
+            if (btnResumen) { btnResumen.style.background = 'white'; btnResumen.style.color = 'var(--primary)'; btnResumen.style.boxShadow = '0 1px 2px rgba(0,0,0,0.05)'; }
+            if (btnDetalle) { btnDetalle.style.background = 'transparent'; btnDetalle.style.color = 'var(--text-secondary)'; btnDetalle.style.boxShadow = 'none'; }
+            
+            const detailContainer = document.getElementById('cxp-detalle-container');
+            const resumenContainer = document.getElementById('cxp-resumen-container');
             if(detailContainer) detailContainer.style.display = 'none';
             if(resumenContainer) resumenContainer.style.display = 'block';
         });
