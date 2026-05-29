@@ -1,7 +1,7 @@
 
 async function getFinanceDB() {
     return new Promise((resolve, reject) => {
-        const req = indexedDB.open('PlanetaAzulDB', 5);
+        const req = indexedDB.open('PlanetaAzulDB', 7);
         req.onupgradeneeded = (e) => {
             if (!e.target.result.objectStoreNames.contains('finance_cache')) {
                 e.target.result.createObjectStore('finance_cache');
@@ -701,7 +701,8 @@ async function fetchMasterData(token = null) {
                 let runtimeConfig = {};
                 try {
                     const configRes = await fetch("/api/config");
-                    if (configRes.ok) {
+                    const contentType = configRes.headers.get("content-type");
+                    if (configRes.ok && contentType && contentType.includes("application/json")) {
                         runtimeConfig = await configRes.json();
                     }
                 } catch (e) {
@@ -1339,7 +1340,7 @@ async function loadCacheInstant() {
             }
         });
         if (cxpCachedRecord && cxpCachedRecord.data) {
-            window.cachedStandaloneCxp = cxpCachedRecord.data;
+            window.cxpStandaloneData = cxpCachedRecord.data; window.hasCxpAccess = true;
         }
         
         if (ceoCachedRecord && ceoCachedRecord.data && ceoCachedRecord.data.length > 0) {
@@ -1371,6 +1372,9 @@ async function loadCacheInstant() {
             console.log("🚀 Magic Load F5: Renderizando UI alzada instantáneamente.");
             window.isMagicLoaded = true; // 🔥 AÑADE ESTA LÍNEA AQUÍ
             globalFinancialData = cachedRecord.data;
+            if (window.cachedStandaloneCxp && typeof window.applyCachedStandaloneCxp === 'function') {
+                await window.applyCachedStandaloneCxp();
+            }
             renderDashboard(globalFinancialData);
             if (window.updateLastUpdatedTime) {
                 window.updateLastUpdatedTime(cachedRecord.timestamp);
@@ -2315,6 +2319,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             const viewId = id.replace('menu-', 'view-');
             const targetView = document.getElementById(viewId);
             if (targetView) targetView.classList.add('active');
+            window.currentActiveView = viewId;
+
+            // Si se navega a CXP, renderizar directamente con los datos standalone
+            if (id === 'menu-cxp' && typeof window.renderCxpView === 'function') {
+                window.renderCxpView(window.cxpStandaloneData || null);
+            }
 
             // Close mobile sidebar if open
             const sidebar = document.querySelector('.sidebar');
@@ -3314,7 +3324,9 @@ function renderActiveViewLazy(data, index) {
         
         let viewCxp = document.getElementById("view-cxp");
         if (viewCxp && viewCxp.classList.contains("active")) {
-            renderCxpView(data, index);
+            if (typeof window.renderCxpView === 'function') {
+                window.renderCxpView(window.cxpStandaloneData || null);
+            }
             setTimeout(() => {
                 if (typeof buildMobileAccordionsFromTable === 'function') {
                     buildMobileAccordionsFromTable('cxpTable', 'cxpMobileContainer');
@@ -4370,214 +4382,119 @@ function renderWorkingCapital(data, selectedIndex = -1) {
     bodyEl.innerHTML = bodyHTML;
 }
 
-function renderCxpView(data, selectedIndex = -1) {
+window.renderCxpView = function(overrideData) {
+    const data = overrideData || window.cxpStandaloneData;
     const headerEl = document.getElementById('cxpHeader');
     const bodyEl = document.getElementById('cxpBody');
     const periodLabel = document.getElementById('cxpPeriodLabel');
-    if (!headerEl || !bodyEl || !data || data.length === 0) return;
-
-    const endIdx = selectedIndex >= 0 ? selectedIndex : data.length - 1;
-    const currPoint = data[endIdx];
-    const currYear = getSortYear(currPoint);
-
-    // Find December of the previous year
-    const decPrevYearPoint = data.find(d => d.sortDate && getSortYear(d) === (currYear - 1) && d.sortDate.getMonth() === 11);
-    let startIdx = decPrevYearPoint ? data.indexOf(decPrevYearPoint) : -1;
-    if (startIdx === -1) {
-        // Fallback: search for any December 2025 data point, or begin at first index
-        const fallbackDec25 = data.find(d => d.sortDate && d.sortDate.getMonth() === 11 && getSortYear(d) === 2025);
-        startIdx = fallbackDec25 ? data.indexOf(fallbackDec25) : 0;
+    if (!headerEl || !bodyEl) return;
+    if (!data || !data.labels) {
+        bodyEl.innerHTML = '<tr><td colspan="6" style="text-align:center; color: var(--text-secondary); padding: 24px;">Carga el archivo CXP_Historico.xlsx para visualizar este módulo.</td></tr>';
+        return;
     }
 
-    // Ensure we start from dec of previous year up to endIdx
-    const visibleMonths = data.slice(startIdx, endIdx + 1);
-
-    if (periodLabel && visibleMonths.length > 0) {
-        periodLabel.textContent = `Desde ${visibleMonths[0].date} hasta ${currPoint.date}`;
+    if (periodLabel) {
+        let yr = "20XX";
+        if (data.periods && data.periods.length > 0) {
+            let lastP = data.periods[data.periods.length - 1];
+            yr = String(lastP).split('/')[1] || "20XX";
+        }
+        periodLabel.innerText = `Análisis de Cuentas Por Pagar ${yr}`;
     }
 
-    // Prepare table headers
-    let headerHTML = '<tr><th style="text-align: left; padding: 12px; min-width: 280px; font-weight: 600;">Concepto</th>';
-    visibleMonths.forEach(m => {
-        const cxpTotal = m.cxpDetail ? (m.cxpDetail.cxpTotal || 0) : 0;
-        const isProjected = m.cxpDetail && m.cxpDetail.isProjectedDetail;
-        const bg = isProjected ? '#64748b' : 'var(--sidebar)';
-        const label = isProjected ? `${m.date} (Proyectado)` : m.date;
-        headerHTML += `<th style="text-align: right; padding: 12px; font-weight: 600; background: ${bg}; color: white; border-right: 1px solid rgba(255,255,255,0.2);">${label}</th>`;
+    let headerHTML = '<tr><th>Concepto</th>';
+    data.labels.forEach((lbl) => {
+        headerHTML += `<th style="text-align:right;">${lbl}</th>`;
     });
     headerHTML += '</tr>';
     headerEl.innerHTML = headerHTML;
-
-    // Helper to format values
-    const fmt = (val) => {
-        if (val === undefined || val === null || isNaN(val)) return '0';
-        return Math.round(val).toLocaleString('en-US');
+    
+    const formatCurrencyStr = (v, minDec = 2, maxDec = 2) => {
+        if (v === undefined || v === null) return '-';
+        if (typeof v !== 'number') return v;
+        return v.toLocaleString('en-US', { minimumFractionDigits: minDec, maximumFractionDigits: maxDec });
     };
 
-    // Helper to extract values list across visible months
-    const getValuesList = (key) => {
-        return visibleMonths.map(m => m.cxpDetail ? (m.cxpDetail[key] || 0) : 0);
-    };
+    const formatInt = (v) => v !== undefined && v !== null ? Math.round(v).toLocaleString('en-US') : '-';
 
-    // Build Rows
     let bodyHTML = '';
 
-    // --- SECTION 1: BALANCE GENERAL Y AJUSTES ---
-    bodyHTML += `<tr style="background-color: var(--primary-light); font-weight: 700; color: var(--primary);"><td style="padding: 10px; text-align: left; font-weight: 700;">Balance General y Componentes CXP</td>${visibleMonths.map(m => {
-        const cxpTotal = m.cxpDetail ? (m.cxpDetail.balanceGeneral || 0) : 0;
-        const isProjected = m.cxpDetail && m.cxpDetail.isProjectedDetail;
-        return `<td style="padding: 10px; background-color: ${isProjected ? 'rgba(100, 116, 139, 0.08)' : 'transparent'};"></td>`;
-    }).join('')}</tr>`;
-    
-    // Balance General total
-    const bgTotals = getValuesList('balanceGeneral');
-    bodyHTML += `<tr style="font-weight: 700; background-color: rgba(58, 125, 68, 0.05); border-top: 1px solid #ddd; border-bottom: 2px solid #ddd;"><td style="padding: 10px 10px 10px 12px; text-align: left;">Balance General (Total CXP)</td>${visibleMonths.map((m, idx) => {
-        const cxpTotal = m.cxpDetail ? (m.cxpDetail.balanceGeneral || 0) : 0;
-        const isProjected = m.cxpDetail && m.cxpDetail.isProjectedDetail;
-        return `<td style="text-align: right; padding: 10px; background-color: ${isProjected ? 'rgba(100, 116, 139, 0.15)' : 'transparent'};">${fmt(bgTotals[idx])}</td>`;
-    }).join('')}</tr>`;
-    
-    // Cuentas por Pagar (CXP Base)
-    const cxpBaseTotals = getValuesList('cxpBase');
-    bodyHTML += `<tr style="font-weight: 600; background-color: rgba(0, 150, 199, 0.05);"><td style="padding: 10px 10px 10px 24px; text-align: left;">Cuentas por Pagar (CXP)</td>${visibleMonths.map((m, idx) => {
-        const cxpTotal = m.cxpDetail ? (m.cxpDetail.balanceGeneral || 0) : 0;
-        const isProjected = m.cxpDetail && m.cxpDetail.isProjectedDetail;
-        return `<td style="text-align: right; padding: 10px; background-color: ${isProjected ? 'rgba(100, 116, 139, 0.08)' : 'transparent'};">${fmt(cxpBaseTotals[idx])}</td>`;
-    }).join('')}</tr>`;
+    const addRow = (label, values, isTotal = false) => {
+        const rowStyle = isTotal ? 'font-weight:700; background:rgba(0,0,0,0.02);' : '';
+        let h = `<tr style="${rowStyle}">` 
+            + `<td>${label}</td>`;
+        
+        values.forEach((v) => {
+            const valNum = parseFloat(v);
+            const isNegative = !isNaN(valNum) && valNum < -0.009;
+            const textCls = isNegative ? 'negative-val' : '';
+            h += `<td style="text-align:right;" class="${textCls}">${formatCurrencyStr(v)}</td>`;
+        });
+        h += '</tr>';
+        return h;
+    };
 
-    // ALPLA (NO REGISTRADO)
-    const alplaNoRegTotals = getValuesList('alplaNoRegistrado');
-    bodyHTML += `<tr><td style="padding: 8px 10px 8px 24px; text-align: left; color: var(--text-main);">ALPLA (NO REGISTRADO)</td>${visibleMonths.map((m, idx) => {
-        const cxpTotal = m.cxpDetail ? (m.cxpDetail.balanceGeneral || 0) : 0;
-        const isProjected = m.cxpDetail && m.cxpDetail.isProjectedDetail;
-        return `<td style="text-align: right; padding: 8px 10px; background-color: ${isProjected ? 'rgba(100, 116, 139, 0.08)' : 'transparent'};">${fmt(alplaNoRegTotals[idx])}</td>`;
-    }).join('')}</tr>`;
-
-    // --- SECTION 2: ANTIGÜEDAD DE SALDOS (AGING) ---
-    bodyHTML += `<tr style="background-color: var(--primary-light); font-weight: 700; color: var(--primary);"><td style="padding: 10px; text-align: left; font-weight: 700;">Antigüedad de Saldo (Aging)</td>${visibleMonths.map(m => {
-        const cxpTotal = m.cxpDetail ? (m.cxpDetail.balanceGeneral || 0) : 0;
-        const isProjected = m.cxpDetail && m.cxpDetail.isProjectedDetail;
-        return `<td style="padding: 10px; background-color: ${isProjected ? 'rgba(100, 116, 139, 0.08)' : 'transparent'};"></td>`;
-    }).join('')}</tr>`;
+    // Resumen General
+    bodyHTML += addRow('Balance General', data.BalanceGeneral, true);
     
-    const agingRows = [
-        { label: 'Provisión sin factura (exclusión ITBIS)', key: 'provisionSinFactura' },
-        { label: 'Corriente (fardos/al día)', key: 'corriente' },
-        { label: '0 a 30 días', key: 'dias0_30' },
-        { label: '31 a 60 días', key: 'dias31_60' },
-        { label: '61 a 90 días', key: 'dias61_90' },
-        { label: '91 a 120 días', key: 'dias91_120' },
-        { label: '121 a 150 días', key: 'dias121_150' },
-        { label: '151 a 180 días', key: 'dias151_180' },
-        { label: '> 180 días', key: 'dias180Mas' }
-    ];
+    // Aging
+    bodyHTML += `<tr><td colspan="${data.labels.length + 1}" style="font-weight:700; background:rgba(0,0,0,0.04); font-size: 0.85rem; text-transform: uppercase;">Aging</td></tr>`;
+    bodyHTML += addRow('CXP', data.CXP);
+    bodyHTML += addRow('Proveedores provisión sin fact', data.Provisionales);
+    bodyHTML += addRow('Corriente (Saldo No Vencido)', data.Corriente);
+    bodyHTML += addRow('0 a 30', data.Aging['0_30']);
+    bodyHTML += addRow('31 a 60', data.Aging['31_60']);
+    bodyHTML += addRow('61 a 90', data.Aging['61_90']);
+    bodyHTML += addRow('91 a 120', data.Aging['91_120']);
+    bodyHTML += addRow('121 a 150', data.Aging['121_150']);
+    bodyHTML += addRow('151 a 180', data.Aging['151_180']);
+    bodyHTML += addRow('> 180', data.Aging['180Mas']);
 
-    agingRows.forEach(row => {
-        const vals = getValuesList(row.key);
-        bodyHTML += `<tr><td style="padding: 8px 10px 8px 24px; text-align: left; color: var(--text-main);">${row.label}</td>${visibleMonths.map((m, idx) => {
-            const cxpTotal = m.cxpDetail ? (m.cxpDetail.balanceGeneral || 0) : 0;
-            const isProjected = m.cxpDetail && m.cxpDetail.isProjectedDetail;
-            return `<td style="text-align: right; padding: 8px 10px; background-color: ${isProjected ? 'rgba(100, 116, 139, 0.08)' : 'transparent'};">${fmt(vals[idx])}</td>`;
-        }).join('')}</tr>`;
+    // Proveedores Top 14
+    bodyHTML += `<tr style="height:20px"><td colspan="${data.labels.length + 1}"></td></tr>`;
+    
+    let provLine = '<tr><td style="font-weight:700; background:rgba(0,0,0,0.04); font-size: 0.85rem; text-transform: uppercase;">Saldos de Top Proveedores</td>';
+    data.labels.forEach((lbl) => provLine += `<td style="text-align:right; font-weight:700; background:rgba(0,0,0,0.04);">${lbl}</td>`);
+    provLine += '</tr>';
+    bodyHTML += provLine;
+
+    data.Top14Names.forEach((name) => {
+        bodyHTML += addRow(name, data.Top14Saldos[name] || [0,0,0,0,0]);
     });
 
-    // Total Antigüedad (Sum of aging items)
-    const cxpTotals = getValuesList('cxpTotal');
-    bodyHTML += `<tr style="font-weight: 600; background-color: rgba(58, 125, 68, 0.05); border-top: 1px solid #ddd; border-bottom: 2px solid #ddd;"><td style="padding: 10px 10px 10px 24px; text-align: left;">Total Antigüedad</td>${visibleMonths.map((m, idx) => {
-        const cxpTotal = m.cxpDetail ? (m.cxpDetail.balanceGeneral || 0) : 0;
-        const isProjected = m.cxpDetail && m.cxpDetail.isProjectedDetail;
-        return `<td style="text-align: right; padding: 10px; background-color: ${isProjected ? 'rgba(100, 116, 139, 0.15)' : 'transparent'};">${fmt(cxpTotals[idx])}</td>`;
-    }).join('')}</tr>`;
-
-    // --- SECTION 3: RESUMEN DEUDA VENCIDA & CONCILIACIÓN ---
-    bodyHTML += `<tr style="background-color: var(--primary-light); font-weight: 700; color: var(--primary);"><td style="padding: 10px; text-align: left; font-weight: 700;">Resumen Deuda Vencida & Conciliación</td>${visibleMonths.map(m => {
-        const cxpTotal = m.cxpDetail ? (m.cxpDetail.balanceGeneral || 0) : 0;
-        const isProjected = m.cxpDetail && m.cxpDetail.isProjectedDetail;
-        return `<td style="padding: 10px; background-color: ${isProjected ? 'rgba(100, 116, 139, 0.08)' : 'transparent'};"></td>`;
-    }).join('')}</tr>`;
+    bodyHTML += addRow('Otros Proveedores', data.OtrosProveedores);
+    bodyHTML += addRow('Total', data.Total, true);
     
-    const vencidos = getValuesList('vencido');
-    bodyHTML += `<tr><td style="padding: 8px 10px 8px 24px; text-align: left; font-weight: 600; color: var(--danger);">Total Vencido</td>${visibleMonths.map((m, idx) => {
-        const cxpTotal = m.cxpDetail ? (m.cxpDetail.balanceGeneral || 0) : 0;
-        const isProjected = m.cxpDetail && m.cxpDetail.isProjectedDetail;
-        return `<td style="text-align: right; padding: 8px 10px; font-weight: 600; color: var(--danger); background-color: ${isProjected ? 'rgba(100, 116, 139, 0.08)' : 'transparent'};">${fmt(vencidos[idx])}</td>`;
-    }).join('')}</tr>`;
+    bodyHTML += `<tr style="height:20px"><td colspan="${data.labels.length + 1}"></td></tr>`;
     
-    const conciliaciones = getValuesList('conciliacion');
-    bodyHTML += `<tr><td style="padding: 8px 10px 8px 24px; text-align: left; color: var(--text-main);">Conciliación (Diff)</td>${visibleMonths.map((m, idx) => {
-        const cxpTotal = m.cxpDetail ? (m.cxpDetail.balanceGeneral || 0) : 0;
-        const isProjected = m.cxpDetail && m.cxpDetail.isProjectedDetail;
-        const val = conciliaciones[idx];
-        const color = Math.abs(val) > 0.5 ? 'color: var(--danger); font-weight:600;' : 'color: var(--text-main);';
-        return `<td style="text-align: right; padding: 8px 10px; ${color} background-color: ${isProjected ? 'rgba(100, 116, 139, 0.08)' : 'transparent'};">${fmt(val)}</td>`;
-    }).join('')}</tr>`;
-
-    // --- SECTION 4: SALDOS DE TOP PROVEEDORES ---
-    bodyHTML += `<tr style="background-color: var(--primary-light); font-weight: 700; color: var(--primary);"><td style="padding: 10px; text-align: left; font-weight: 700;">Saldos de Top Proveedores</td>${visibleMonths.map(m => {
-        const cxpTotal = m.cxpDetail ? (m.cxpDetail.balanceGeneral || 0) : 0;
-        const isProjected = m.cxpDetail && m.cxpDetail.isProjectedDetail;
-        return `<td style="padding: 10px; background-color: ${isProjected ? 'rgba(100, 116, 139, 0.08)' : 'transparent'};"></td>`;
-    }).join('')}</tr>`;
-    
-    const supplierRows = [
-        { label: 'ALPLA HISPANIOLA, S.R.L', key: 'alplaHispaniola' },
-        { label: 'POLYPLAS DOMINICANA S A', key: 'polyplas' },
-        { label: 'GRUPO ROJAS & CO. SA', key: 'grupoRojas' },
-        { label: 'RAVI CARIBE, S. A.', key: 'raviCaribe' },
-        { label: 'VALCOPACK EIRL', key: 'valcopack' },
-        { label: 'TERMOPACK S.R.L.', key: 'termopack' },
-        { label: 'CARTONERA APOLO S.A.', key: 'cartoneraApolo' },
-        { label: 'MULTIPLAST S.R.L.', key: 'multiplast' },
-        { label: 'FLEXOPACK S.A.', key: 'flexopack' },
-        { label: 'ETIQUETAS Y EMPAQUES (ETIOFSET)', key: 'etiofset' },
-        { label: 'SMURFIT KAPPA S.A.', key: 'smurfit' },
-        { label: 'PLISTICOS DEL CARIBE S.A.', key: 'plasticosCaribe' },
-        { label: 'INDUSTRIAS NACIONALES S.A.', key: 'industriasNacionales' },
-        { label: 'DISTRIBUIDORA CORRIPO', key: 'distribuidoraCorripo' },
-        { label: 'Otros Proveedores', key: 'otrosProveedores' }
-    ];
-
-    supplierRows.forEach(row => {
-        const vals = getValuesList(row.key);
-        bodyHTML += `<tr><td style="padding: 8px 10px 8px 24px; text-align: left; color: var(--text-main);">${row.label}</td>${visibleMonths.map((m, idx) => {
-            const cxpTotal = m.cxpDetail ? (m.cxpDetail.balanceGeneral || 0) : 0;
-            const isProjected = m.cxpDetail && m.cxpDetail.isProjectedDetail;
-            return `<td style="text-align: right; padding: 8px 10px; background-color: ${isProjected ? 'rgba(100, 116, 139, 0.08)' : 'transparent'};">${fmt(vals[idx])}</td>`;
-        }).join('')}</tr>`;
+    // Costos YTD
+    let costosRow = '<tr><td>Costos + Gasto (Opex+Capex) YTD</td>';
+    data.CostosYTD.forEach((v) => {
+        // formatCostos can be up to thousands, we can use 2 decimals
+        costosRow += `<td style="text-align:right;">${formatCurrencyStr(v)}</td>`
     });
-
-    // Total Proveedores (Sum of suppliers)
-    bodyHTML += `<tr style="font-weight: 600; background-color: rgba(58, 125, 68, 0.05); border-top: 1px solid #ddd; border-bottom: 2px solid #ddd;"><td style="padding: 10px 10px 10px 24px; text-align: left;">Total Proveedores</td>${visibleMonths.map((m, idx) => {
-        const cxpTotal = m.cxpDetail ? (m.cxpDetail.balanceGeneral || 0) : 0;
-        const isProjected = m.cxpDetail && m.cxpDetail.isProjectedDetail;
-        return `<td style="text-align: right; padding: 10px; background-color: ${isProjected ? 'rgba(100, 116, 139, 0.15)' : 'transparent'};">${fmt(cxpTotals[idx])}</td>`;
-    }).join('')}</tr>`;
-
-    // --- SECTION 5: INDICADORES COMPLEMENTARIOS ---
-    bodyHTML += `<tr style="background-color: var(--primary-light); font-weight: 700; color: var(--primary);"><td style="padding: 10px; text-align: left; font-weight: 700;">Indicadores Complementarios</td>${visibleMonths.map(m => {
-        const cxpTotal = m.cxpDetail ? (m.cxpDetail.balanceGeneral || 0) : 0;
-        const isProjected = m.cxpDetail && m.cxpDetail.isProjectedDetail;
-        return `<td style="padding: 10px; background-color: ${isProjected ? 'rgba(100, 116, 139, 0.08)' : 'transparent'};"></td>`;
-    }).join('')}</tr>`;
+    costosRow += '</tr>';
+    bodyHTML += costosRow;
     
-    // Costos + Gastos YTD
-    const costosGastoYtds = getValuesList('costosGastoYtd');
-    bodyHTML += `<tr><td style="padding: 8px 10px 8px 24px; text-align: left; color: var(--text-main);">Costos + Gasto (Opex+Capex) YTD</td>${visibleMonths.map((m, idx) => {
-        const cxpTotal = m.cxpDetail ? (m.cxpDetail.balanceGeneral || 0) : 0;
-        const isProjected = m.cxpDetail && m.cxpDetail.isProjectedDetail;
-        return `<td style="text-align: right; padding: 8px 10px; background-color: ${isProjected ? 'rgba(100, 116, 139, 0.08)' : 'transparent'};">${fmt(costosGastoYtds[idx])}</td>`;
-    }).join('')}</tr>`;
-
     // DPO
-    const dpos = getValuesList('dpo');
-    bodyHTML += `<tr style="font-weight: 600; color: var(--primary); background-color: rgba(0, 150, 199, 0.05);"><td style="padding: 10px 10px 10px 24px; text-align: left;">DPO (Days Payable Outstanding)</td>${visibleMonths.map((m, idx) => {
-        const cxpTotal = m.cxpDetail ? (m.cxpDetail.balanceGeneral || 0) : 0;
-        const isProjected = m.cxpDetail && m.cxpDetail.isProjectedDetail;
-        return `<td style="text-align: right; padding: 10px; font-weight: 700; background-color: ${isProjected ? 'rgba(100, 116, 139, 0.15)' : 'transparent'};">${Math.round(dpos[idx])} días</td>`;
-    }).join('')}</tr>`;
+    let dpoRow = '<tr><td>DPO</td>';
+    data.DPO.forEach((v) => {
+        dpoRow += `<td style="text-align:right;">${formatInt(v)}</td>`
+    });
+    dpoRow += '</tr>';
+    bodyHTML += dpoRow;
 
     bodyEl.innerHTML = bodyHTML;
 }
+
+// Ensure the old function name works due to previous references if any
+function renderCxpView(overrideData) {
+    if (window.renderCxpView) {
+        window.renderCxpView(overrideData);
+    }
+}
+
+
 
 function renderDeudaView(data, selectedIndex = -1) {
     if (!data || data.length === 0) return;
@@ -9736,449 +9653,300 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
 
     
     window.processCxpWorkbook = async function(workbook) {
-        let cxpSheetName = workbook.SheetNames.find(n => /cxp|cuentas por pagar|aging|antiguedad|proveedores/i.test(n)) || workbook.SheetNames[0];
-        let sheet = workbook.Sheets[cxpSheetName];
-        let rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+    // 1. Identify sheets
+    const names = workbook.SheetNames;
+    const historicoName = names.find(n => n.includes("Historico") && n.includes("CXP"));
+    const balanzaName = names.find(n => n.includes("Balanza"));
+    const analisisName = names.find(n => n.includes("Analisis") || n.includes("Análisis"));
+    
+    if (!historicoName || !balanzaName || !analisisName) {
+        console.warn("Could not find one of the required sheets (Historico CXP, Balanza, Analisis).");
+        return;
+    }
 
-        const normalizeText = (t) => { if (!t) return ""; return t.toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim(); };
-        const cleanVal = (v) => {
-            if (v === undefined || v === null || v === '') return 0;
-            if (typeof v === 'number') return v;
-            let str = v.toString().replace(/,/g, '');
-            let n = parseFloat(str);
-            return isNaN(n) ? 0 : n;
-        };
+    const { sheet_to_json } = XLSX.utils;
+    const cleanVal = (v) => {
+        if (v === undefined || v === null || v === '') return 0;
+        if (typeof v === 'number') return v;
+        let str = String(v).trim();
+        const isNegative = str.startsWith("'(") || str.startsWith('(');
+        str = str.replace(/[^0-9.-]/g, '');
+        let n = parseFloat(str);
+        if (isNaN(n)) return 0;
+        return isNegative ? -Math.abs(n) : n;
+    };
+    
+    // --- PASO 1 - IDENTIFICAR PERIODO ---
+    const histRows = sheet_to_json(workbook.Sheets[historicoName], { header: 1 });
+    if (histRows.length === 0) return;
+    
+    const histHeaders = histRows[0];
+    let periodColIdx = -1;
+    let nombreSocioColIdx = -1;
+    let totalCxpColIdx = -1;
+    let colNoVencido = -1, col0_30 = -1, col31_60 = -1, col61_90 = -1, col91_120 = -1, col121_150 = -1, col151_180 = -1, col180Mas = -1;
 
-        // Detect if RAW format (has NombreSocio or CodSocio)
-        let isRawFormat = false;
-        let headerRowIdx = -1;
-        for (let i = 0; i < Math.min(rows.length, 10); i++) {
-            if (!rows[i]) continue;
-            let rowStr = rows[i].map(c => normalizeText(c)).join("|");
-            if (rowStr.includes('nombresocio') || rowStr.includes('codsocio') || rowStr.includes('saldo no vencido')) {
-                isRawFormat = true;
-                headerRowIdx = i;
+    for (let i = 0; i < histHeaders.length; i++) {
+        let val = String(histHeaders[i]).toLowerCase().trim();
+        if (val === 'period') periodColIdx = i;
+        if (val === 'nombresocio') nombreSocioColIdx = i;
+        if (val === 'total saldo cxp') totalCxpColIdx = i;
+        if (val === 'saldo no vencido') colNoVencido = i;
+        if (val === '0 a 30') col0_30 = i;
+        if (val === '31 a 60') col31_60 = i;
+        if (val === '61 a 90') col61_90 = i;
+        if (val === '91 a 120') col91_120 = i;
+        if (val === '121 a 150') col121_150 = i;
+        if (val === '151 a 180') col151_180 = i;
+        if (val === '> 180') col180Mas = i;
+    }
+
+    let maxDate = new Date(0);
+    let maxPeriod = "";
+    
+    for (let i = 1; i < histRows.length; i++) {
+        let p = histRows[i][periodColIdx];
+        if (p) {
+            let parts = String(p).split('/');
+            if (parts.length === 2) {
+                let m = parseInt(parts[0], 10);
+                let y = parseInt(parts[1], 10);
+                let d = new Date(y, m - 1, 1);
+                if (d > maxDate) {
+                    maxDate = d;
+                    maxPeriod = String(p);
+                }
+            }
+        }
+    }
+    
+    if (maxPeriod === "") {
+        console.warn("No valid periods found in Historico");
+        return;
+    }
+    
+    let dates = [];
+    let curD = new Date(maxDate.getFullYear(), maxDate.getMonth(), 1);
+    for (let i = 0; i < 5; i++) {
+        dates.unshift(new Date(curD.getFullYear(), curD.getMonth(), 1));
+        curD.setMonth(curD.getMonth() - 1);
+    }
+    
+    const periods = dates.map(d => d.getMonth() + 1 + "/" + d.getFullYear());
+    const shortMonthsList = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+    const labels = dates.map(d => shortMonthsList[d.getMonth()] + "-" + d.getFullYear().toString().slice(-2));
+
+    // --- PASO 2 - HOJA BALANZA ---
+    const balRows = sheet_to_json(workbook.Sheets[balanzaName], { header: 1 });
+    const balYears = balRows[0];
+    const balMonthsName = balRows[1];
+    
+    let balIndices = [];
+    for (let i = 0; i < periods.length; i++) {
+        let y = dates[i].getFullYear();
+        let m = dates[i].getMonth() + 1;
+        let foundIdx = -1;
+        for (let j = 2; j < balYears.length; j++) {
+            if (balYears[j] == y && balMonthsName[j] == m) {
+                foundIdx = j;
                 break;
             }
         }
-
-        if (isRawFormat) {
-            console.log("Detected RAW CxP structure, parsing aggregation...");
-            const headers = rows[headerRowIdx].map(c => normalizeText(c));
-            
-            const getIdx = (k) => headers.findIndex(h => h.includes(k));
-            
-            const idxNombre = getIdx("nombresocio") !== -1 ? getIdx("nombresocio") : getIdx("socio");
-            const idxPeriod = getIdx("period");
-            const idxFecha = getIdx("fechagenerado");
-            
-            // Amount indices
-            const idxTotal = getIdx("total saldo");
-            const idxNoVencido = getIdx("saldo no vencido");
-            const idxVencido = getIdx("saldo vencido");
-            const idx0_30 = headers.findIndex(h => h.match(/^0( a |-)30/));
-            const idx31_60 = headers.findIndex(h => h.match(/^31( a |-)60/));
-            const idx61_90 = headers.findIndex(h => h.match(/^61( a |-)90/));
-            const idx91_120 = headers.findIndex(h => h.match(/^91( a |-)120/));
-            const idx121_150 = headers.findIndex(h => h.match(/^121( a |-)150/));
-            const idx151_180 = headers.findIndex(h => h.match(/^151( a |-)180/));
-            const idx180Mas = headers.findIndex(h => h.match(/> ?180/));
-
-            const aggregatedByPeriod = {};
-
-            const monthNames = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
-
-            for (let i = headerRowIdx + 1; i < rows.length; i++) {
-                const row = rows[i];
-                if (!row || !row.length) continue;
-                
-                let periodKey = "unknown";
-                if (idxPeriod !== -1 && row[idxPeriod]) {
-                    // Custom parsing for 'ene-26' -> '0-2026'
-                    const p = normalizeText(row[idxPeriod]);
-                    const matchedM = monthNames.findIndex(m => p.includes(m));
-                    const yMatch = p.match(/\d{2,4}$/);
-                    if (matchedM !== -1 && yMatch) {
-                        let y = parseInt(yMatch[0]);
-                        if (y < 100) y += 2000;
-                        periodKey = `${matchedM}-${y}`;
-                    }
-                } else if (idxFecha !== -1 && row[idxFecha]) {
-                    // Parse '31/1/2026' or excel date
-                    let dateObj;
-                    let c = row[idxFecha];
-                    if (c instanceof Date) dateObj = c;
-                    else if (typeof c === 'number') dateObj = new Date((c - 25569) * 86400 * 1000);
-                    else {
-                        const parts = c.split(' ')[0].split('/'); // assumed dd/mm/yyyy
-                        if (parts.length >= 3) {
-                            dateObj = new Date(parseInt(parts[2]), parseInt(parts[1])-1, parseInt(parts[0]));
-                        }
-                    }
-                    if (dateObj && !isNaN(dateObj.getTime())) {
-                        periodKey = `${dateObj.getMonth()}-${dateObj.getFullYear()}`;
-                    }
-                }
-                
-                if (periodKey === "unknown") continue;
-
-                if (!aggregatedByPeriod[periodKey]) {
-                    aggregatedByPeriod[periodKey] = {
-                        providerRows: [],
-                        corriente: 0,
-                        dias0_30: 0, dias31_60: 0, dias61_90: 0, dias91_120: 0,
-                        dias121_150: 0, dias151_180: 0, dias180Mas: 0,
-                        cxpTotal: 0, vencido: 0,
-                        
-                        alplaHispaniola: 0, polyplas: 0, grupoRojas: 0, raviCaribe: 0, valcopack: 0,
-                        termopack: 0, cartoneraApolo: 0, multiplast: 0, flexopack: 0, etiofset: 0,
-                        smurfit: 0, plasticosCaribe: 0, industriasNacionales: 0, distribuidoraCorripo: 0,
-                        otrosProveedores: 0,
-                        isProjectedDetail: false
-                    };
-                }
-
-                const agg = aggregatedByPeriod[periodKey];
-                const provider = normalizeText(row[idxNombre]);
-                const total = cleanVal(row[idxTotal]);
-                
-                agg.corriente += cleanVal(row[idxNoVencido]);
-                agg.dias0_30 += idx0_30 !== -1 ? cleanVal(row[idx0_30]) : 0;
-                agg.dias31_60 += idx31_60 !== -1 ? cleanVal(row[idx31_60]) : 0;
-                agg.dias61_90 += idx61_90 !== -1 ? cleanVal(row[idx61_90]) : 0;
-                agg.dias91_120 += idx91_120 !== -1 ? cleanVal(row[idx91_120]) : 0;
-                agg.dias121_150 += idx121_150 !== -1 ? cleanVal(row[idx121_150]) : 0;
-                agg.dias151_180 += idx151_180 !== -1 ? cleanVal(row[idx151_180]) : 0;
-                agg.dias180Mas += idx180Mas !== -1 ? cleanVal(row[idx180Mas]) : 0;
-                agg.cxpTotal += total;
-                agg.vencido += idxVencido !== -1 ? cleanVal(row[idxVencido]) : 0;
-
-                // Match suppliers
-                if (provider.includes('alpla')) agg.alplaHispaniola += total;
-                else if (provider.includes('polyplas')) agg.polyplas += total;
-                else if (provider.includes('rojas')) agg.grupoRojas += total;
-                else if (provider.includes('ravi')) agg.raviCaribe += total;
-                else if (provider.includes('valcopack')) agg.valcopack += total;
-                else if (provider.includes('termopack')) agg.termopack += total;
-                else if (provider.includes('apolo')) agg.cartoneraApolo += total;
-                else if (provider.includes('multiplast')) agg.multiplast += total;
-                else if (provider.includes('flexopack')) agg.flexopack += total;
-                else if (provider.includes('etrefset') || provider.includes('etiquetas') || provider.includes('etiofset')) agg.etiofset += total;
-                else if (provider.includes('smurfit')) agg.smurfit += total;
-                else if (provider.includes('plasticos del caribe') || provider.includes('plisticos del caribe')) agg.plasticosCaribe += total;
-                else if (provider.includes('industrias nacionales')) agg.industriasNacionales += total;
-                else if (provider.includes('corripo')) agg.distribuidoraCorripo += total;
-                else agg.otrosProveedores += total;
-            }
-
-            // Sync with globalFinancialData
-            window.globalFinancialData.forEach(point => {
-                const pKey = `${point.sortDate.getMonth()}-${point.sortDate.getFullYear()}`;
-                if (aggregatedByPeriod[pKey]) {
-                    const agg = aggregatedByPeriod[pKey];
-                    agg.balanceGeneral = agg.cxpTotal;
-                    agg.cxpBase = agg.cxpTotal;
-                    agg.provisionSinFactura = 0; // Not detailed in raw file
-                    agg.conciliacion = 0; // exact match because we sum it
-                    point.cxpDetail = agg;
-                }
-            });
-
-            // Fallback costs calculations
-            let yearlyCostosGastoYTD = {};
-            window.globalFinancialData.forEach(point => {
-                const year = point.sortDate.getFullYear();
-                if (yearlyCostosGastoYTD[year] === undefined) {
-                    yearlyCostosGastoYTD[year] = 0;
-                }
-                
-                if (point.cxpDetail) {
-                    const costos = point.pnl ? (point.pnl.costos || 0) : 0;
-                    const opex = point.pnl ? (point.pnl.opex || 0) : 0;
-                    const capex = point.cashflowDetail ? (point.cashflowDetail.capex || 0) : 0;
-                    const costosGastoMensual = Math.abs(costos) + Math.abs(opex) + Math.abs(capex);
-                    yearlyCostosGastoYTD[year] += costosGastoMensual;
-                    point.cxpDetail.costosGastoYtd = yearlyCostosGastoYTD[year];
-                    
-                    const elapsed_months = (point.sortDate.getMonth() === 11 && year === 2025) ? 12 : (point.sortDate.getMonth() + 1);
-                    const days = elapsed_months * 30.4;
-                    if (point.cxpDetail.costosGastoYtd > 0) {
-                        point.cxpDetail.dpo = Math.round((point.cxpDetail.cxpTotal / point.cxpDetail.costosGastoYtd) * days);
-                    } else {
-                        point.cxpDetail.dpo = 0;
-                    }
-                }
-            });
-
-        } else {
-            // ORIGINAL PIVOT LOGIC HERE
-            // ... I will preserve the original logic dynamically using regex replace
-
-        const cleanVal = (v) => {
-            if (v === null || v === undefined) return 0;
-            if (typeof v === 'number') return v;
-            let str = String(v).replace(/[^0-9.-]/g, '');
-            let n = parseFloat(str);
-            return isNaN(n) ? 0 : n;
-        };
-
-        const indices = {};
-        const monthNames = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
-        const shortMonths = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
-
-        let bestRowIdx = -1;
-        let maxDates = 0;
-        
-        for (let i = 0; i < Math.min(rows.length, 50); i++) {
-            const row = rows[i];
-            if (!row) continue;
-            let count = 0;
-            row.forEach((cell) => {
-                if (cell instanceof Date) count++;
-                else if (typeof cell === 'number' && cell > 40000 && cell < 60000) count++;
-                else if (typeof cell === 'string') {
-                    const val = normalizeText(cell);
-                    if (monthNames.some(m => val.includes(m)) || shortMonths.some(s => val.includes(s))) {
-                        count++;
-                    }
-                }
-            });
-            if (count > maxDates) {
-                maxDates = count;
-                bestRowIdx = i;
-            }
-        }
-
-        if (bestRowIdx !== -1) {
-            const row = rows[bestRowIdx];
-            row.forEach((cell, j) => {
-                let dateObj = null;
-                if (cell instanceof Date) dateObj = cell;
-                else if (typeof cell === 'number' && cell > 40000 && cell < 60000) dateObj = new Date((cell - 25569) * 86400 * 1000);
-                else if (typeof cell === 'string') {
-                    const val = normalizeText(cell);
-                    const mIdx = monthNames.findIndex(m => val.includes(m));
-                    const sIdx = shortMonths.findIndex(s => val.includes(s));
-                    const finalMIdx = mIdx !== -1 ? mIdx : sIdx;
-                    
-                    if (finalMIdx !== -1) {
-                        dateObj = new Date();
-                        dateObj.setDate(1);
-                        dateObj.setMonth(finalMIdx);
-                        const yearMatch = val.match(/\d{2,4}/);
-                        if (yearMatch) {
-                            let y = parseInt(yearMatch[0]);
-                            if (y < 100) y += 2000;
-                            dateObj.setFullYear(y);
-                        }
-                    }
-                }
-                if (dateObj) {
-                    const key = `${dateObj.getMonth()}-${dateObj.getFullYear()}`;
-                    indices[key] = j;
-                }
-            });
-        }
-
-        const helperFindRow = (keywords) => {
-            const nKeywords = keywords.map(k => normalizeText(k).trim().toLowerCase());
-            let bestRow = null;
-            let maxScore = -1;
-            rows.forEach((row) => {
-                if (!row || row.length < 2) return;
-                for (let i = 0; i < Math.min(row.length, 10); i++) {
-                    const cell = row[i];
-                    if (!cell) continue;
-                    const label = normalizeText(cell).trim().toLowerCase();
-                    for (let kIdx = 0; kIdx < nKeywords.length; kIdx++) {
-                        const k = nKeywords[kIdx];
-                        if (label === k) {
-                            bestRow = row;
-                            return;
-                        }
-                        if (k.length > 3 && label.includes(k)) {
-                            if (k === "cuentas por pagar" && label.includes("otras")) continue;
-                            const score = k.length;
-                            if (score > maxScore) {
-                                maxScore = score;
-                                bestRow = row;
-                            }
-                        }
-                    }
-                }
-            });
-            return bestRow;
-        };
-
-        const cxpRows = {
-            balanceGeneral: helperFindRow(["balance general", "total cuentas por pagar"]),
-            cxpBase: helperFindRow(["cxp", "cuentas por pagar"]),
-            alplaNoRegistrado: helperFindRow(["alpla (no registrado)", "alpla no registrado"]),
-            vencido: helperFindRow(["vencido", "total vencido"]),
-            conciliacion: helperFindRow(["diff", "diferencia", "conciliacion"]),
-            provisionSinFactura: helperFindRow(["provision sin factura", "exencion itbis", "proveedores provision sin factura"]),
-            corriente: helperFindRow(["corriente", "al dia"]),
-            dias0_30: helperFindRow(["0 a 30", "0-30"]),
-            dias31_60: helperFindRow(["31 a 60", "31-60"]),
-            dias61_90: helperFindRow(["61 a 90", "61-90"]),
-            dias91_120: helperFindRow(["91 a 120", "91-120"]),
-            dias121_150: helperFindRow(["121 a 150", "121-150"]),
-            dias151_180: helperFindRow(["151 a 180", "151-180"]),
-            dias180Mas: helperFindRow(["> 180", "180+", "mas de 180", ">180"]),
-            
-            alplaHispaniola: helperFindRow(["alpla hispaniola"]),
-            polyplas: helperFindRow(["polyplas"]),
-            grupoRojas: helperFindRow(["grupo rojas"]),
-            raviCaribe: helperFindRow(["ravi caribe"]),
-            valcopack: helperFindRow(["valcopack"]),
-            termopack: helperFindRow(["termopack"]),
-            cartoneraApolo: helperFindRow(["cartonera apolo", "apolo"]),
-            multiplast: helperFindRow(["multiplast"]),
-            flexopack: helperFindRow(["flexopack"]),
-            etiofset: helperFindRow(["etiofset", "etiquetas y empaques"]),
-            smurfit: helperFindRow(["smurfit"]),
-            plasticosCaribe: helperFindRow(["plasticos del caribe", "plasticos caribe"]),
-            industriasNacionales: helperFindRow(["industrias nacionales", "inca"]),
-            distribuidoraCorripo: helperFindRow(["distribuidora corripo", "corripo"]),
-            otrosProveedores: helperFindRow(["otros proveedores"]),
-            
-            costosGastoYtd: helperFindRow(["costos + gasto", "opex + capex", "opex+capex"]),
-            dpo: helperFindRow(["dpo", "days payable outstanding"])
-        };
-
-        if (window.globalFinancialData && window.globalFinancialData.length > 0) {
-            window.cachedStandaloneCxp = { indices, cxpRows, rows };
-            await window.applyCachedStandaloneCxp();
-        } else {
-            window.cachedStandaloneCxp = { indices, cxpRows, rows };
-            try {
-                const db = await getFinanceDB();
-                const tx = db.transaction('finance_cache', 'readwrite');
-                tx.objectStore('finance_cache').put({ data: window.cachedStandaloneCxp, timestamp: Date.now() }, 'CXP_STANDALONE_KEY');
-            } catch(e) {
-                console.error("Error saving standalone CXP to indexedDB:", e);
-            }
-        }
-    };
-
-    window.applyCachedStandaloneCxp = async function() {
-        if (!window.cachedStandaloneCxp || !window.globalFinancialData || window.globalFinancialData.length === 0) return;
-        const { indices, cxpRows, rows } = window.cachedStandaloneCxp;
-        
-        window.globalFinancialData.forEach(point => {
-            const key = `${point.sortDate.getMonth()}-${getSortYear(point)}`;
-            const idx = indices[key];
-            if (idx !== undefined && idx !== -1) {
-                const cleanVal = (val) => {
-                    if (val === undefined || val === null || val === '') return 0;
-                    if (typeof val === 'number') return val;
-                    return parseFloat(val.toString().trim().replace(/,/g, '')) || 0;
-                };
-                const getCxpVal = (row) => row ? cleanVal(row[idx]) : 0;
-                
-                const cxpObj = {
-                    balanceGeneral: getCxpVal(cxpRows.balanceGeneral),
-                    cxpBase: getCxpVal(cxpRows.cxpBase),
-                    alplaNoRegistrado: getCxpVal(cxpRows.alplaNoRegistrado),
-                    vencidoRaw: getCxpVal(cxpRows.vencido),
-                    conciliacionRaw: getCxpVal(cxpRows.conciliacion),
-                    provisionSinFactura: getCxpVal(cxpRows.provisionSinFactura),
-                    corriente: getCxpVal(cxpRows.corriente),
-                    dias0_30: getCxpVal(cxpRows.dias0_30),
-                    dias31_60: getCxpVal(cxpRows.dias31_60),
-                    dias61_90: getCxpVal(cxpRows.dias61_90),
-                    dias91_120: getCxpVal(cxpRows.dias91_120),
-                    dias121_150: getCxpVal(cxpRows.dias121_150),
-                    dias151_180: getCxpVal(cxpRows.dias151_180),
-                    dias180Mas: getCxpVal(cxpRows.dias180Mas),
-                    alplaHispaniola: getCxpVal(cxpRows.alplaHispaniola),
-                    polyplas: getCxpVal(cxpRows.polyplas),
-                    grupoRojas: getCxpVal(cxpRows.grupoRojas),
-                    raviCaribe: getCxpVal(cxpRows.raviCaribe),
-                    valcopack: getCxpVal(cxpRows.valcopack),
-                    termopack: getCxpVal(cxpRows.termopack),
-                    cartoneraApolo: getCxpVal(cxpRows.cartoneraApolo),
-                    multiplast: getCxpVal(cxpRows.multiplast),
-                    flexopack: getCxpVal(cxpRows.flexopack),
-                    etiofset: getCxpVal(cxpRows.etiofset),
-                    smurfit: getCxpVal(cxpRows.smurfit),
-                    plasticosCaribe: getCxpVal(cxpRows.plasticosCaribe),
-                    industriasNacionales: getCxpVal(cxpRows.industriasNacionales),
-                    distribuidoraCorripo: getCxpVal(cxpRows.distribuidoraCorripo),
-                    otrosProveedores: getCxpVal(cxpRows.otrosProveedores),
-                    costosGastoYtd: getCxpVal(cxpRows.costosGastoYtd),
-                    dpo: getCxpVal(cxpRows.dpo)
-                };
-
-                const totalAntiguedad = (cxpObj.provisionSinFactura || 0) + (cxpObj.corriente || 0) + 
-                                        (cxpObj.dias0_30 || 0) + (cxpObj.dias31_60 || 0) + 
-                                        (cxpObj.dias61_90 || 0) + (cxpObj.dias91_120 || 0) + 
-                                        (cxpObj.dias121_150 || 0) + (cxpObj.dias151_180 || 0) + 
-                                        (cxpObj.dias180Mas || 0);
-                                        
-                const totalVencido = (cxpObj.dias0_30 || 0) + (cxpObj.dias31_60 || 0) + 
-                                     (cxpObj.dias61_90 || 0) + (cxpObj.dias91_120 || 0) + 
-                                     (cxpObj.dias121_150 || 0) + (cxpObj.dias151_180 || 0) + 
-                                     (cxpObj.dias180Mas || 0);
-
-                // Use raw parsed values if available, else fallback to calculated
-                cxpObj.vencido = cxpObj.vencidoRaw || totalVencido;
-                cxpObj.cxpTotal = totalAntiguedad;
-                
-                // Conciliacion = (Total Antiguedad excluding Provisión, so just Corriente + Vencido) - CXP Base
-                // As per formula: =SUM(C10:C17)-C8  (10 is Corriente, 17 is >180, C8 is CXP Base)
-                // So Total Vencido + Corriente - cxpBase
-                const conciliacionCalculated = (totalVencido + (cxpObj.corriente || 0)) - (cxpObj.cxpBase || 0);
-                cxpObj.conciliacion = cxpObj.conciliacionRaw !== undefined && cxpObj.conciliacionRaw !== 0 ? cxpObj.conciliacionRaw : conciliacionCalculated;
-                
-                // Fallback for Balance General: -Balanza!C25/1000000 + C18 
-                if (!cxpObj.balanceGeneral && cxpObj.cxpBase) {
-                    cxpObj.balanceGeneral = (cxpObj.cxpBase || 0) + (cxpObj.alplaNoRegistrado || 0); // rough proxy iff missing
-                }
-                point.cxpDetail = cxpObj;
-            }
-        });
-
-        let yearlyCostosGastoYTD = {};
-        window.globalFinancialData.forEach(point => {
-            const year = getSortYear(point);
-            if (yearlyCostosGastoYTD[year] === undefined) {
-                yearlyCostosGastoYTD[year] = 0;
-            }
-            
-            if (point.cxpDetail && point.cxpDetail.costosGastoYtd > 0) {
-            } else if (point.cxpDetail) {
-                const costos = point.pnl ? (point.pnl.costos || 0) : 0;
-                const opex = point.pnl ? (point.pnl.opex || 0) : 0;
-                const capex = point.cashflowDetail ? (point.cashflowDetail.capex || 0) : 0;
-                const costosGastoMensual = Math.abs(costos) + Math.abs(opex) + Math.abs(capex);
-                yearlyCostosGastoYTD[year] += costosGastoMensual;
-                point.cxpDetail.costosGastoYtd = yearlyCostosGastoYTD[year];
-            }
-            
-            if (point.cxpDetail) {
-                const elapsed_months = (point.sortDate.getMonth() === 11 && getSortYear(point) === 2025) ? 12 : (point.sortDate.getMonth() + 1);
-                const days = elapsed_months * 30.4;
-                
-                if (point.cxpDetail.costosGastoYtd > 0) {
-                    point.cxpDetail.dpo = Math.round((point.cxpDetail.cxpTotal / point.cxpDetail.costosGastoYtd) * days);
-                } else {
-                    point.cxpDetail.dpo = 0;
-                }
-            }
-        });
-
-        try {
-            const db = await getFinanceDB();
-            const tx = db.transaction('finance_cache', 'readwrite');
-            tx.objectStore('finance_cache').put({ data: window.globalFinancialData, timestamp: Date.now() }, 'MASTER_FINANCE_KEY');
-        } catch(e) {
-            console.error("Error saving merged CXP to indexedDB:", e);
-        }
-    };
-
-    
+        balIndices.push(foundIdx);
     }
+    
+    const rowCXP = balRows[12];
+    const rowOtrasCXP = balRows[21];
+    const rowBal = balRows[24];
+    
+    let arrBalGen = [], arrCXP = [], arrProveedoresProv = [];
+    for (let i = 0; i < periods.length; i++) {
+        let idx = balIndices[i];
+        if (idx !== -1) {
+            arrBalGen.push(-cleanVal(rowBal[idx]) / 1000000);
+            arrCXP.push(-cleanVal(rowCXP[idx]) / 1000000);
+            arrProveedoresProv.push(-cleanVal(rowOtrasCXP[idx]) / 1000000);
+        } else {
+            arrBalGen.push(0); arrCXP.push(0); arrProveedoresProv.push(0);
+        }
+    }
+
+    // --- PASO 3 - AGING ---
+    let arrCorriente = [0,0,0,0,0];
+    let arr0_30 = [0,0,0,0,0];
+    let arr31_60 = [0,0,0,0,0];
+    let arr61_90 = [0,0,0,0,0];
+    let arr91_120 = [0,0,0,0,0];
+    let arr121_150 = [0,0,0,0,0];
+    let arr151_180 = [0,0,0,0,0];
+    let arr180mas = [0,0,0,0,0];
+
+    for (let i = 1; i < histRows.length; i++) {
+        let p = String(histRows[i][periodColIdx]);
+        let pIdx = periods.indexOf(p);
+        if (pIdx !== -1) {
+            arrCorriente[pIdx] += -cleanVal(histRows[i][colNoVencido]);
+            arr0_30[pIdx] += -cleanVal(histRows[i][col0_30]);
+            arr31_60[pIdx] += -cleanVal(histRows[i][col31_60]);
+            arr61_90[pIdx] += -cleanVal(histRows[i][col61_90]);
+            arr91_120[pIdx] += -cleanVal(histRows[i][col91_120]);
+            arr121_150[pIdx] += -cleanVal(histRows[i][col121_150]);
+            arr151_180[pIdx] += -cleanVal(histRows[i][col151_180]);
+            arr180mas[pIdx] += -cleanVal(histRows[i][col180Mas]);
+        }
+    }
+    
+    const toMM = (arr) => arr.map(v => v / 1000000);
+    arrCorriente = toMM(arrCorriente);
+    arr0_30 = toMM(arr0_30);
+    arr31_60 = toMM(arr31_60);
+    arr61_90 = toMM(arr61_90);
+    arr91_120 = toMM(arr91_120);
+    arr121_150 = toMM(arr121_150);
+    arr151_180 = toMM(arr151_180);
+    arr180mas = toMM(arr180mas);
+    
+    // --- PASO 4 - TOP 14 PROVEEDORES ---
+    let lastMonthProvTotals = {};
+    for (let i = 1; i < histRows.length; i++) {
+        let p = String(histRows[i][periodColIdx]);
+        if (p === maxPeriod) {
+            let prov = String(histRows[i][nombreSocioColIdx] || '');
+            let v = -cleanVal(histRows[i][totalCxpColIdx]) / 1000000;
+            if (!lastMonthProvTotals[prov]) lastMonthProvTotals[prov] = 0;
+            lastMonthProvTotals[prov] += v;
+        }
+    }
+    
+    let provList = Object.keys(lastMonthProvTotals).map(k => ({name: k, val: lastMonthProvTotals[k]}));
+    provList.sort((a,b) => Math.abs(b.val) - Math.abs(a.val));
+    let top14Names = provList.slice(0, 14).map(p => p.name);
+    
+    let top14Saldos = {};
+    for (let n of top14Names) {
+        top14Saldos[n] = [0,0,0,0,0];
+    }
+    
+    for (let i = 1; i < histRows.length; i++) {
+        let p = String(histRows[i][periodColIdx]);
+        let pIdx = periods.indexOf(p);
+        if (pIdx !== -1) {
+            let prov = String(histRows[i][nombreSocioColIdx] || '');
+            if (top14Saldos[prov]) {
+                top14Saldos[prov][pIdx] += -cleanVal(histRows[i][totalCxpColIdx]) / 1000000;
+            }
+        }
+    }
+    
+    let arrOtros = [0,0,0,0,0];
+    let arrTotal = [0,0,0,0,0];
+    for (let i = 0; i < 5; i++) {
+        let sumTop14 = 0;
+        for (let n of top14Names) {
+            sumTop14 += top14Saldos[n][i];
+        }
+        arrOtros[i] = arrBalGen[i] - sumTop14;
+        arrTotal[i] = sumTop14 + arrOtros[i];
+    }
+
+    // --- PASO 5 - COSTOS YTD ---
+    const anaRows = sheet_to_json(workbook.Sheets[analisisName], { header: 1 });
+    const anaDates = anaRows[2]; // Fila 3, índice 2
+    const anaCostos = anaRows[38]; // Fila 39, índice 38
+    
+    let arrCostosYTD = [0,0,0,0,0];
+    
+    const EXCEL_EPOCH = new Date(1899, 11, 30); // in excel 1= 1900-01-01 but there's leaps
+    const getMonthAndYearFromExcel = (cell) => {
+        if (!cell) return null;
+        if (typeof cell === 'number') {
+            let d = new Date(EXCEL_EPOCH.getTime() + cell * 86400000);
+            return { m: d.getMonth() + 1, y: d.getFullYear() };
+        }
+        if (cell instanceof Date) {
+            return { m: cell.getMonth() + 1, y: cell.getFullYear() };
+        }
+        let tk = String(cell).substring(0,10);
+        let d = new Date(tk + 'T12:00:00Z');
+        if (!isNaN(d.getTime())) return { m: d.getMonth() + 1, y: d.getFullYear() };
+        
+        let d2 = new Date(cell);
+        if (!isNaN(d2.getTime())) return { m: d2.getMonth() + 1, y: d2.getFullYear() };
+        return null;
+    };
+    
+    let anaIndices = [];
+    for (let i = 0; i < periods.length; i++) {
+        let y = dates[i].getFullYear();
+        let m = dates[i].getMonth() + 1;
+        let foundIdx = -1;
+        
+        if (anaDates) {
+            for (let j = 1; j < anaDates.length; j++) {
+                let dt = getMonthAndYearFromExcel(anaDates[j]);
+                if (dt && dt.m === m && dt.y === y) {
+                    foundIdx = j; break;
+                }
+            }
+        }
+        anaIndices.push(foundIdx);
+    }
+    
+    for (let i = 0; i < periods.length; i++) {
+        let idx = anaIndices[i];
+        if (idx !== -1 && anaCostos) {
+            arrCostosYTD[i] = cleanVal(anaCostos[idx]); // Ya en MM
+        }
+    }
+    
+    // --- PASO 6 - DPO ---
+    let arrDPO = [0,0,0,0,0];
+    for (let i = 0; i < 5; i++) {
+        let cytd = arrCostosYTD[i];
+        if (cytd > 0) {
+            arrDPO[i] = Math.round(arrBalGen[i] / (cytd / 30));
+        }
+    }
+
+    window.cxpStandaloneData = {
+        labels,
+        periods,
+        BalanceGeneral: arrBalGen,
+        CXP: arrCXP,
+        Provisionales: arrProveedoresProv,
+        Corriente: arrCorriente,
+        Aging: {
+            "0_30": arr0_30,
+            "31_60": arr31_60,
+            "61_90": arr61_90,
+            "91_120": arr91_120,
+            "121_150": arr121_150,
+            "151_180": arr151_180,
+            "180Mas": arr180mas
+        },
+        Top14Names: top14Names,
+        Top14Saldos: top14Saldos,
+        OtrosProveedores: arrOtros,
+        Total: arrTotal,
+        CostosYTD: arrCostosYTD,
+        DPO: arrDPO
+    };
+    
+    try {
+        const db = await getFinanceDB();
+        const tx = db.transaction('finance_cache', 'readwrite');
+        tx.objectStore('finance_cache').put({ data: window.cxpStandaloneData, timestamp: Date.now() }, 'CXP_STANDALONE_KEY');
+    } catch(e) {
+        console.error("Error saving to standalone indexeddb cxp", e);
+    }
+    
+    if (window.currentActiveView === 'view-cxp') { 
+        if (typeof window.renderCxpView === 'function') {
+            window.renderCxpView(window.cxpStandaloneData);
+        }
+    }
+}
+
 window.processCxpFile = async function(file) {
         return new Promise(async (resolve) => {
             try {
@@ -10194,7 +9962,8 @@ window.processCxpFile = async function(file) {
                 
                 if (window.currentActiveView === 'view-cxp-detail') {
                     if (typeof renderCxpView === 'function') {
-                        renderCxpView(window.globalFinancialData, window.globalFinancialSelectedIndex);
+                        const idx = monthSelector ? parseInt(monthSelector.value, 10) : (globalFinancialData ? globalFinancialData.length - 1 : -1);
+                        renderCxpView(globalFinancialData, idx);
                     }
                 }
                 resolve(true);
@@ -11368,9 +11137,9 @@ window.processCxpFile = async function(file) {
             const content = document.getElementById('ai-insights-content');
             
             const monthSelector = document.getElementById('monthSelector');
-            const idx = monthSelector ? parseInt(monthSelector.value, 10) : (window.globalFinancialData ? window.globalFinancialData.length - 1 : 0);
+            const idx = monthSelector ? parseInt(monthSelector.value, 10) : (globalFinancialData ? globalFinancialData.length - 1 : 0);
             
-            const dataToAnalyze = (window.globalFinancialData && window.globalFinancialData.length > 0) ? window.globalFinancialData[idx] : null;
+            const dataToAnalyze = (globalFinancialData && globalFinancialData.length > 0) ? globalFinancialData[idx] : null;
 
             if (!dataToAnalyze) {
                 content.innerHTML = '<span style="color: var(--destructive)">No hay datos disponibles para analizar. Cargue un archivo financiero o espere a que se procese.</span>';

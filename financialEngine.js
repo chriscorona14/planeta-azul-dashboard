@@ -1492,24 +1492,24 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
                 fillIfMissing('grupoRojas', 0.03);
                 fillIfMissing('raviCaribe', 0.025);
                 fillIfMissing('valcopack', 0.005);
-                fillIfMissing('termopack', 0.04);
-                fillIfMissing('cartoneraApolo', 0.035);
-                fillIfMissing('multiplast', 0.03);
-                fillIfMissing('flexopack', 0.02);
-                fillIfMissing('etiofset', 0.015);
-                fillIfMissing('smurfit', 0.025);
-                fillIfMissing('plasticosCaribe', 0.015);
-                fillIfMissing('industriasNacionales', 0.01);
-                fillIfMissing('distribuidoraCorripo', 0.02);
+                fillIfMissing('itGlobal', 0.04);
+                fillIfMissing('caasd', 0.035);
+                fillIfMissing('orox', 0.03);
+                fillIfMissing('proxergia', 0.02);
+                fillIfMissing('sidel', 0.015);
+                fillIfMissing('lifeFlex', 0.025);
+                fillIfMissing('grupoLtr', 0.015);
+                fillIfMissing('dafTrading', 0.01);
+                fillIfMissing('frankenberg', 0.02);
                 fillIfMissing('otrosProveedores', 0.35);
 
                 const sumSuppliers = (cxpObj.alplaHispaniola || 0) + (cxpObj.polyplas || 0) + 
                                      (cxpObj.grupoRojas || 0) + (cxpObj.raviCaribe || 0) + 
-                                     (cxpObj.valcopack || 0) + (cxpObj.termopack || 0) + 
-                                     (cxpObj.cartoneraApolo || 0) + (cxpObj.multiplast || 0) + 
-                                     (cxpObj.flexopack || 0) + (cxpObj.etiofset || 0) + 
-                                     (cxpObj.smurfit || 0) + (cxpObj.plasticosCaribe || 0) + 
-                                     (cxpObj.industriasNacionales || 0) + (cxpObj.distribuidoraCorripo || 0) + 
+                                     (cxpObj.valcopack || 0) + (cxpObj.itGlobal || 0) + 
+                                     (cxpObj.caasd || 0) + (cxpObj.orox || 0) + 
+                                     (cxpObj.proxergia || 0) + (cxpObj.sidel || 0) + 
+                                     (cxpObj.lifeFlex || 0) + (cxpObj.grupoLtr || 0) + 
+                                     (cxpObj.dafTrading || 0) + (cxpObj.frankenberg || 0) + 
                                      (cxpObj.otrosProveedores || 0);
                 const supplierGap = cxpVal - sumSuppliers;
                 cxpObj.otrosProveedores = (cxpObj.otrosProveedores || 0) + supplierGap;
