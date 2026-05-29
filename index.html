@@ -1593,6 +1593,12 @@
           <div class="menu-item">
             <a href="#" id="menu-glosario">Glosario Financiero</a>
           </div>
+          <div class="menu-item">
+            <a href="#" id="menu-instructivo" style="color: #38bdf8 !important; font-weight: 700; border: 1px dashed rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.05);">
+              <i data-lucide="book-open" style="width: 16px; height: 16px; margin-right: 8px;"></i>
+              Guía de Usuario & Tour
+            </a>
+          </div>
         </nav>
         
         <script>
@@ -3961,6 +3967,247 @@
             </div>
           </details>
 
+        </div>
+      </div>
+      <!-- VIEW: Instructivo / Guía de Usuario -->
+      <div id="view-instructivo" class="view-container">
+        <style>
+          .inst-section-card {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-bottom: 20px;
+          }
+          .inst-section-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(0,0,0,0.06);
+          }
+          .inst-nav-link {
+            transition: all 0.2s ease;
+          }
+          .inst-nav-link.active {
+            background: #38bdf8;
+            color: white !important;
+          }
+          .inst-step-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            background: var(--sidebar-accent);
+            color: white;
+            border-radius: 50%;
+            font-size: 0.8rem;
+            font-weight: 700;
+          }
+        </style>
+        
+        <div style="background: white; border-radius: 16px; box-shadow: var(--shadow); padding: 32px; margin-bottom: 24px;">
+          <!-- Header con Acciones -->
+          <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid var(--border); padding-bottom: 20px; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
+            <div>
+              <span style="display: inline-block; background: rgba(56, 189, 248, 0.15); color: #0284c7; font-size: 0.8rem; font-weight: 800; padding: 4px 12px; border-radius: 20px; text-transform: uppercase; margin-bottom: 8px; border: 1px solid rgba(56, 189, 248, 0.3);">
+                Centro de Capacitación y Soporte
+              </span>
+              <h2 style="font-size: 1.8rem; font-weight: 800; color: var(--sidebar); display: flex; align-items: center; gap: 10px; margin: 0;">
+                <i data-lucide="book-open" style="width: 28px; height: 28px; color: var(--sidebar-accent);"></i>
+                Manual del Usuario - Torre de Control Financiero
+              </h2>
+              <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 4px;">Aprende cómo auditar datos reales, navegar periodos y predecir liquidez corporativa.</p>
+            </div>
+            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+              <button id="btn-start-interactive-tour" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: white; border: none; padding: 12px 20px; border-radius: 8px; font-weight: 700; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25); transition: 0.2s;">
+                <i data-lucide="play" style="width: 16px; height: 16px;"></i>
+                Tour Virtual Interactivo (Simuldor de Video)
+              </button>
+              <button id="btn-download-manual-pdf" style="background: #0f172a; color: white; border: none; padding: 12px 20px; border-radius: 8px; font-weight: 700; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15); transition: 0.2s;">
+                <i data-lucide="download" style="width: 16px; height: 16px;"></i>
+                Generar e Imprimir Instructivo PDF
+              </button>
+            </div>
+          </div>
+
+          <div class="instructivo-content" style="display: grid; grid-template-columns: 280px 1fr; gap: 32px; align-items: start;">
+            <!-- Menú Lateral del Instructivo -->
+            <div style="background: #f8fafc; border-radius: 12px; padding: 20px; border: 1px solid var(--border); position: sticky; top: 100px; z-index: 10;">
+              <p style="font-size: 0.75rem; text-transform: uppercase; font-weight: 800; color: var(--text-secondary); margin-bottom: 12px; letter-spacing: 0.05em;">Contenido de la Guía</p>
+              <nav style="display: flex; flex-direction: column; gap: 6px;">
+                <a href="#inst-seccion-1" class="inst-nav-link active" onclick="highlightInstNav(this)" style="display: flex; align-items: center; gap: 8px; text-decoration: none; padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">
+                  <i data-lucide="info" style="width: 16px; height: 16px;"></i> 1. Visión Corporativa
+                </a>
+                <a href="#inst-seccion-2" class="inst-nav-link" onclick="highlightInstNav(this)" style="display: flex; align-items: center; gap: 8px; text-decoration: none; padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);">
+                  <i data-lucide="calendar" style="width: 16px; height: 16px;"></i> 2. Navegación & Periodos
+                </a>
+                <a href="#inst-seccion-3" class="inst-nav-link" onclick="highlightInstNav(this)" style="display: flex; align-items: center; gap: 8px; text-decoration: none; padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);">
+                  <i data-lucide="check-square" style="width: 16px; height: 16px;"></i> 3. Cuadrado P&L e Integridad
+                </a>
+                <a href="#inst-seccion-4" class="inst-nav-link" onclick="highlightInstNav(this)" style="display: flex; align-items: center; gap: 8px; text-decoration: none; padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);">
+                  <i data-lucide="credit-card" style="width: 16px; height: 16px;"></i> 4. Cuentas por Pagar & DPO
+                </a>
+                <a href="#inst-seccion-5" class="inst-nav-link" onclick="highlightInstNav(this)" style="display: flex; align-items: center; gap: 8px; text-decoration: none; padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);">
+                  <i data-lucide="trending-up" style="width: 16px; height: 16px;"></i> 5. Flujo de Caja & Deuda
+                </a>
+                <a href="#inst-seccion-6" class="inst-nav-link" onclick="highlightInstNav(this)" style="display: flex; align-items: center; gap: 8px; text-decoration: none; padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);">
+                  <i data-lucide="sliders" style="width: 16px; height: 16px;"></i> 6. Simulador What-If
+                </a>
+              </nav>
+              <div style="margin-top: 24px; padding: 12px; background: #e0f2fe; border-radius: 8px; border: 1px solid #bae6fd; text-align: center;">
+                <p style="font-size: 0.8rem; color: #0369a1; font-weight: 700; margin-bottom: 4px;">¿Necesitas ayuda rápida?</p>
+                <p style="font-size: 0.72rem; color: #0f172a; opacity: 0.85; line-height: 1.3;">Inicia nuestro Tour Virtual en cualquier momento para ver la plataforma en acción real.</p>
+              </div>
+            </div>
+
+            <!-- Secciones del Manual -->
+            <div style="display: flex; flex-direction: column; gap: 16px;">
+              
+              <!-- Seccion 1 -->
+              <div id="inst-seccion-1" class="inst-section-card">
+                <h3 style="font-size: 1.3rem; font-weight: 800; color: var(--sidebar); display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+                  <span class="inst-step-badge">1</span>
+                  Visión y Objetivo de la Plataforma
+                </h3>
+                <p style="line-height: 1.6; color: var(--text-primary); font-size: 0.95rem; margin-bottom: 12px;">
+                  La <strong>Torre de Control de Finanzas Corporativas (Finance Dashboard Pro)</strong> es una herramienta ejecutiva avanzada de reporte corporativo que consolida la información financiera real histórica, de capital de trabajo, deuda y proyecciones operativas en una interfaz única.
+                </p>
+                <div style="background: #f8fafc; border-left: 4px solid var(--sidebar-accent); padding: 16px; border-radius: 0 8px 8px 0; font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5; margin-bottom: 12px;">
+                  <strong>Objetivo Crítico:</strong> Eliminar las discrepancias en los reportes manuales garantizando que los datos visualizados en la Torre de Control coincidan perfectamente con los libros de contabilidad fiscal auditada mediante procesos de conciliación robustos en tiempo real (P&L Cuadrado).
+                </div>
+                <p style="font-size: 0.9rem; line-height: 1.5; color: var(--text-secondary);">
+                  Esta plataforma te permite evaluar de un vistazo el EBITDA consolidado, auditar variaciones de costos YTD, analizar la evolución y acumulación de saldos de Cuentas por Pagar (CXP), entender la estructura de deuda, el estado del capital de trabajo y modelar escenarios estratégicos hipotéticos.
+                </p>
+              </div>
+
+              <!-- Seccion 2 -->
+              <div id="inst-seccion-2" class="inst-section-card">
+                <h3 style="font-size: 1.3rem; font-weight: 800; color: var(--sidebar); display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+                  <span class="inst-step-badge">2</span>
+                  Navegación Dinámica y el Sistema de Periodos
+                </h3>
+                <p style="line-height: 1.6; color: var(--text-primary); font-size: 0.95rem; margin-bottom: 12px;">
+                  El sistema cuenta con un control de periodos inteligente ubicado en la barra superior. Este selector de meses sincroniza automáticamente de forma instantánea todos los gráficos, KPI badges, tablas de balances y proyecciones del dashboard.
+                </p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                  <div style="padding: 12px; border: 1px dashed #cbd5e1; border-radius: 8px; background: #fafafa;">
+                    <h4 style="font-size: 0.85rem; font-weight: 700; color: var(--sidebar); margin-bottom: 6px;">Consistencia Temporal Continuada</h4>
+                    <p style="font-size: 0.8rem; line-height: 1.4; color: var(--text-secondary);">Para análisis correctos, ciertos reportes estratégicos (como la evolución del Cash Flow y las Carteras de CxP) mantienen fija una columna comparativa de <strong>Diciembre 2025</strong> como punto de partida, permitiendo una visualización de rolling temporal de 2026 impecable.</p>
+                  </div>
+                  <div style="padding: 12px; border: 1px dashed #cbd5e1; border-radius: 8px; background: #fafafa;">
+                    <h4 style="font-size: 0.85rem; font-weight: 700; color: var(--sidebar); margin-bottom: 6px;">Carga Rápida (Caché Instantánea)</h4>
+                    <p style="font-size: 0.8rem; line-height: 1.4; color: var(--text-secondary);">Al inicializar la aplicación, se utiliza un sistema de caché financiero que evita esperas innecesarias, permitiéndote cambiar de pestañas e indicadores de manera fluida y fluir entre meses sin latencia.</p>
+                  </div>
+                </div>
+                <p style="font-size: 0.9rem; line-height: 1.5; color: var(--text-primary);">
+                  <strong>Tip de Navegación:</strong> Para cambiar de pantalla o vista, utiliza los botones en la barra de navegación lateral izquierda en cualquier momento. El mes seleccionado se mantendrá para que puedas estudiar el comportamiento integral del negocio del periodo en los diferentes estados transaccionales.
+                </p>
+              </div>
+
+              <!-- Seccion 3 -->
+              <div id="inst-seccion-3" class="inst-section-card">
+                <h3 style="font-size: 1.3rem; font-weight: 800; color: var(--sidebar); display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+                  <span class="inst-step-badge">3</span>
+                  Conciliación e Integridad: Validando el P&L Cuadrado
+                </h3>
+                <p style="line-height: 1.6; color: var(--text-primary); font-size: 0.95rem; margin-bottom: 12px;">
+                  La piedra angular técnica del dashboard es su distintivo indicador verde <strong>✓ P&L Cuadrado</strong> que verás en la parte superior del Análisis de Periodos.
+                </p>
+                <div style="display: flex; gap: 16px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 16px; margin-bottom: 16px; align-items: flex-start;">
+                  <i data-lucide="shield-check" style="width: 32px; height: 32px; color: #16a34a; flex-shrink: 0; margin-top: 2px;"></i>
+                  <div>
+                    <h4 style="font-size: 0.95rem; font-weight: 800; color: #14532d; margin-bottom: 4px;">Fórmula de Integridad Operativa</h4>
+                    <p style="font-size: 0.85rem; line-height: 1.4; color: #166534;">
+                      El motor verifica que los valores netos clave del consolidado del mes de análisis (Ingresos, EBITDA, Costos, y Gastos Administrativos) sean exactamente consistentes con todos los desgloses subordinados del Estado de Resultados detallado. Si llegase a existir una discrepancia en la subida, la Torre de Control emitirá una alerta visual notificándote de inmediato.
+                    </p>
+                  </div>
+                </div>
+                <p style="font-size: 0.9rem; line-height: 1.5; color: var(--text-secondary);">
+                  Esto previene "falsos positivos" y asegura que la junta directiva y el equipo gerencial tomen decisiones basadas exclusivamente en reportes auditados y estructurados de origen legal.
+                </p>
+              </div>
+
+              <!-- Seccion 4 -->
+              <div id="inst-seccion-4" class="inst-section-card">
+                <h3 style="font-size: 1.3rem; font-weight: 800; color: var(--sidebar); display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+                  <span class="inst-step-badge">4</span>
+                  Módulo de Cuentas por Pagar (Detalle CxP) y DPO
+                </h3>
+                <p style="line-height: 1.6; color: var(--text-primary); font-size: 0.95rem; margin-bottom: 12px;">
+                  La pestaña de <strong>Detalle CxP</strong> te brinda un desglose absoluto de las obligaciones vigentes con los proveedores del negocio. Cuenta con dos sub-vistas altamente potentes:
+                </p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                  <div style="padding: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+                    <h4 style="font-size: 0.9rem; font-weight: 700; color: var(--sidebar); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                      <i data-lucide="bar-chart-2" style="width: 16px; height: 16px; color: var(--sidebar-accent);"></i> Vista Resumen
+                    </h4>
+                    <p style="font-size: 0.8rem; line-height: 1.4; color: var(--text-secondary);">
+                      Presenta un gráfico de evolución continua de pasivos comerciales comparativos. Visualiza el total de obligaciones vigentes y la acumulación de <strong>Días de Pago Pendientes (Days Payable Outstanding - DPO)</strong>.
+                    </p>
+                  </div>
+                  <div style="padding: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+                    <h4 style="font-size: 0.9rem; font-weight: 700; color: var(--sidebar); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                      <i data-lucide="list" style="width: 16px; height: 16px; color: var(--sidebar-accent);"></i> Vista Detalle
+                    </h4>
+                    <p style="font-size: 0.8rem; line-height: 1.4; color: var(--text-secondary);">
+                      Construye una tabla detallada con el <strong>Aging (Antigüedad) de saldos</strong>: clasifica las deudas de 0 a 30 días, 31 a 60 días, hasta más de 180 días de mora, desglosado por los 14 principales proveedores y permite búsquedas directas.
+                    </p>
+                  </div>
+                </div>
+                <div style="background: #fffbeb; border: 1px solid #fef3c7; border-radius: 8px; padding: 12px; margin-bottom: 12px; font-size: 0.85rem; color: #78350f; line-height: 1.4;">
+                  <strong>Definición del DPO:</strong> El motor computa de forma automatizada los días de pago promedio dividiendo el saldo total de cuentas comerciales por pagar entre el costo promedio diario transcurrido del mes analizado. Facilita la toma de decisiones de plazos de pago comercial.
+                </div>
+              </div>
+
+              <!-- Seccion 5 -->
+              <div id="inst-seccion-5" class="inst-section-card">
+                <h3 style="font-size: 1.3rem; font-weight: 800; color: var(--sidebar); display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+                  <span class="inst-step-badge">5</span>
+                  Análisis de Deuda y Flujo de Caja (Cash Flow)
+                </h3>
+                <p style="line-height: 1.6; color: var(--text-primary); font-size: 0.95rem; margin-bottom: 12px;">
+                  El módulo de <strong>Cash Flow</strong> y de <strong>Evolución de Deuda</strong> son clave para evaluar la solvencia y holgura del negocio.
+                </p>
+                <ul style="list-style-type: none; padding: 0; margin-bottom: 16px; display: flex; flex-direction: column; gap: 10px; font-size: 0.85rem;">
+                  <li style="display: flex; align-items: flex-start; gap: 8px;">
+                    <i data-lucide="arrow-right-circle" style="width: 16px; height: 16px; color: var(--sidebar-accent); flex-shrink: 0; margin-top: 2px;"></i>
+                    <span><strong>Cash Flow Operativo, de Inversión y Financiamiento:</strong> Reconstruye el ingreso neto en efectivo, amortización de compromisos, CAPEX y flujos comerciales mes a mes.</span>
+                  </li>
+                  <li style="display: flex; align-items: flex-start; gap: 8px;">
+                    <i data-lucide="arrow-right-circle" style="width: 16px; height: 16px; color: var(--sidebar-accent); flex-shrink: 0; margin-top: 2px;"></i>
+                    <span><strong>Zoom in Deuda:</strong> Desglosa los acreedores financieros del negocio, separando líneas de crédito vigentes, préstamos estructurados amortizables, tasas de interés ponderadas y pagos efectuados.</span>
+                  </li>
+                </ul>
+                <p style="font-size: 0.9rem; line-height: 1.5; color: var(--text-secondary);">
+                  El sistema utiliza representaciones gráficas del saldo final en cuentas de tesorería y analiza desviaciones para asegurar que el balance de operación comercial sea autosuficiente.
+                </p>
+              </div>
+
+              <!-- Seccion 6 -->
+              <div id="inst-seccion-6" class="inst-section-card">
+                <h3 style="font-size: 1.3rem; font-weight: 800; color: var(--sidebar); display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+                  <span class="inst-step-badge">6</span>
+                  Simulador Estratégico What-If (Tu Motor de Proyecciones)
+                </h3>
+                <p style="line-height: 1.6; color: var(--text-primary); font-size: 0.95rem; margin-bottom: 12px;">
+                  Con el <strong>Simulador What-If</strong> puedes convertirlos en decisiones estratégicas cuantificables. Proyecta el impacto en EBITDA y liquidez (Caja) en base a desviaciones numéricas.
+                </p>
+                <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+                  <h4 style="font-size: 0.9rem; font-weight: 700; color: #0369a1; margin-bottom: 8px;">Leyes Matemáticas de Simulación del Motor:</h4>
+                  <ol style="margin-left: 20px; font-size: 0.8rem; color: #0f172a; display: flex; flex-direction: column; gap: 8px; list-style-type: decimal;">
+                    <li><strong>Precio vs. Volumen:</strong> Las variaciones de volumen impactan proporcionalmente tus costos (COGS) y el 40% de los gastos fijos (OPEX). Las alzas de precio, sin embargo, fluyen directo libre de costos al EBITDA consolidado.</li>
+                    <li><strong>Eficiencia / Inflación:</strong> Te permiten ajustar de forma independiente los factores inflacionarios que incrementan costos (COGS) y gastos de nómina u operativos (OPEX).</li>
+                    <li><strong>Desfases Financieros (Días de Cobro/Pago):</strong> Ajustar los plazos de cartera con clientes (DSO) o con proveedores comerciales (DPO) recalcula la velocidad del ciclo de caja, incrementando o disminuyendo la caja neta utilizable al cierre de mes de forma acumulada.</li>
+                  </ol>
+                </div>
+                <p style="font-size: 0.9rem; line-height: 1.5; color: var(--text-secondary);">
+                  Mueve los interruptores de simulación, experimenta con porcentajes y plazos, y descubre cómo optimizar el flujo de efectivo consolidado para el mes de análisis operativo.
+                </p>
+              </div>
+              
+            </div>
+          </div>
         </div>
       </div>
       <!-- VIEW: Simulador What-If -->

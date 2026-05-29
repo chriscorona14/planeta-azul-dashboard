@@ -1206,7 +1206,8 @@ window.syncNavigationUI = function(menuId) {
         'menu-ventas-ceo': "Ventas CEO",
         'menu-resumen-comercial': "Resumen Comercial",
         'menu-config': "Configuración y Auditoría",
-        'menu-glosario': "Glosario de Términos y Metodologías Financieras"
+        'menu-glosario': "Glosario de Términos y Metodologías Financieras",
+        'menu-instructivo': "Manual del Usuario Corporativo"
     };
     if (titles[menuId] && titleLabel) titleLabel.textContent = titles[menuId];
 };
@@ -11769,5 +11770,419 @@ window.processCxpFile = async function(file) {
             }
         });
     }
+
+    // =======================================================
+    // MANUAL DEL USUARIO, IMPRESIÓN PDF & TOUR INTERACTIVO
+    // =======================================================
+
+    // Función para navegación y sombreado
+    window.highlightInstNav = function(element) {
+        document.querySelectorAll('.inst-nav-link').forEach(link => {
+            link.classList.remove('active');
+            link.style.color = 'var(--text-secondary)';
+            link.style.background = 'transparent';
+        });
+        element.classList.add('active');
+        element.style.color = 'white';
+        element.style.background = '#38bdf8';
+    };
+
+    // Estilos personalizados para el Tour Virtual Spotlight
+    const tourStyle = document.createElement('style');
+    tourStyle.innerHTML = `
+        #tour-modal-backdrop {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(15, 23, 42, 0.4);
+            z-index: 10000;
+            pointer-events: none;
+            display: none;
+            transition: opacity 0.3s;
+        }
+        #tour-spotlight-box {
+            position: absolute;
+            border-radius: 8px;
+            box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.7);
+            z-index: 10001;
+            pointer-events: auto;
+            display: none;
+            border: 3px solid #38bdf8;
+            box-sizing: border-box;
+            transition: all 0.3s ease;
+        }
+        #tour-tooltip-box {
+            position: fixed;
+            width: 380px;
+            background: #ffffff;
+            color: #1e293b;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            z-index: 10002;
+            display: none;
+            box-sizing: border-box;
+            border-top: 5px solid #0284c7;
+            transition: all 0.3s ease;
+        }
+        .tour-btn {
+            padding: 8px 16px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            border-radius: 6px;
+            cursor: pointer;
+            border: none;
+            transition: 0.2s;
+        }
+        .tour-btn-primary {
+            background: #0284c7;
+            color: white;
+        }
+        .tour-btn-secondary {
+            background: #f1f5f9;
+            color: #475569;
+        }
+        .tour-btn-primary:hover {
+            background: #0369a1;
+        }
+        .tour-btn-secondary:hover {
+            background: #e2e8f0;
+        }
+    `;
+    document.head.appendChild(tourStyle);
+
+    // Crear elementos del Tour en el DOM si no existen
+    let backdrop = document.getElementById('tour-modal-backdrop');
+    if (!backdrop) {
+        backdrop = document.createElement('div');
+        backdrop.id = 'tour-modal-backdrop';
+        document.body.appendChild(backdrop);
+    }
+    let spotlight = document.getElementById('tour-spotlight-box');
+    if (!spotlight) {
+        spotlight = document.createElement('div');
+        spotlight.id = 'tour-spotlight-box';
+        document.body.appendChild(spotlight);
+    }
+    let tooltip = document.getElementById('tour-tooltip-box');
+    if (!tooltip) {
+        tooltip = document.createElement('div');
+        tooltip.id = 'tour-tooltip-box';
+        document.body.appendChild(tooltip);
+    }
+
+    let currentTourStep = 0;
+    const tourSteps = [
+        {
+            elementId: "monthSelector",
+            title: "🗓️ 1. Filtro de Periodos Unificado",
+            text: "Ubicado arriba a la derecha, este selector cambia instantáneamente la fecha del reporte corporativo. Todos los estados financieros, de cartera e híbridos recalcularán su información al unísono para alinearse a él.",
+            action: () => {}
+        },
+        {
+            elementId: "menu-kpi",
+            title: "📈 2. Torre de Control Financiera",
+            text: "Haz clic en este acceso lateral para monitorear los indicadores de rentabilidad, margen bruto y EBITDA reales consolidados del mes.",
+            action: () => { document.getElementById("menu-kpi")?.click(); }
+        },
+        {
+            elementId: "menu-resumen",
+            title: "📊 3. Resumen Ejecutivo Integrado",
+            text: "Aquí se grafican las variaciones de ingresos del negocio corporativo, márgenes de costos y la conciliación visual del flujo libre de caja final.",
+            action: () => { document.getElementById("menu-resumen")?.click(); }
+        },
+        {
+            elementId: "menu-cxp",
+            title: "💳 4. Cuentas por Pagar e Integridad",
+            text: "Este módulo desglosa obligaciones vigentes. Disfruta de la pestaña 'Resumen' con DPO y la pestaña 'Detalle' con el aging de los 14 principales proveedores. El indicador verde ✓ P&L Cuadrado te asegura total idoneidad tributaria.",
+            action: () => { document.getElementById("menu-cxp")?.click(); }
+        },
+        {
+            elementId: "menu-simulador",
+            title: "🚀 5. Simulador de Escenarios (What-If)",
+            text: "¡El motor estratégico por excelencia! Ajusta sliders interactivos independientes para predecir al instante el EBITDA y saldo de Caja según desviaciones de volumen, precio, inflación de COGS u OPEX y plazos de cartera.",
+            action: () => { document.getElementById("menu-simulador")?.click(); }
+        },
+        {
+            elementId: "btn-download-manual-pdf",
+            title: "🎓 6. ¡Todo Listo!",
+            text: "Has completado la inducción rápida. Haz clic aquí en cualquier momento para exportar de forma instantánea el manual completo a un reporte PDF corporativo de alta costura.",
+            action: () => { document.getElementById("menu-instructivo")?.click(); }
+        }
+    ];
+
+    function renderTourStep() {
+        const step = tourSteps[currentTourStep];
+        if (!step) {
+            endTour();
+            return;
+        }
+
+        // Ejecutar acción del paso (cambio de tab, scroll, etc.)
+        if (typeof step.action === 'function') {
+            step.action();
+        }
+
+        // Dar un breve delay estructurado para permitir renderizados de pestañas
+        setTimeout(() => {
+            const target = document.getElementById(step.elementId);
+            if (!target) {
+                // Si el elemento no existe o está oculto, pasar al siguiente
+                nextStep();
+                return;
+            }
+
+            backdrop.style.display = 'block';
+            tooltip.style.display = 'block';
+            spotlight.style.display = 'block';
+
+            // Configurar contenido del diálogo flotante
+            tooltip.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                    <span style="font-size:0.75rem; text-transform:uppercase; font-weight:800; color:#0284c7; background:rgba(2,132,199,0.1); padding:2px 8px; border-radius:12px;">Paso ${currentTourStep + 1} de ${tourSteps.length}</span>
+                    <button onclick="window.endTour()" style="background:none; border:none; font-size:1.1rem; color:#94a3b8; cursor:pointer;">&times;</button>
+                </div>
+                <h4 style="margin:0 0 8px 0; font-size:1.1rem; font-weight:800; color:#1e293b;">${step.title}</h4>
+                <p style="margin:0 0 20px 0; font-size:0.88rem; line-height:1.5; color:#475569;">${step.text}</p>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <button onclick="window.prevStep()" class="tour-btn tour-btn-secondary" ${currentTourStep === 0 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''}>Anterior</button>
+                    <button onclick="window.nextStep()" class="tour-btn tour-btn-primary">${currentTourStep === tourSteps.length - 1 ? 'Finalizar' : 'Siguiente'}</button>
+                </div>
+            `;
+
+            // Calcular y ajustar Spotlight
+            const rect = target.getBoundingClientRect();
+            spotlight.style.top = (rect.top + window.scrollY - 8) + 'px';
+            spotlight.style.left = (rect.left + window.scrollX - 8) + 'px';
+            spotlight.style.width = (rect.width + 16) + 'px';
+            spotlight.style.height = (rect.height + 16) + 'px';
+
+            // Posicionar tooltip de forma inteligente
+            let tTop = rect.bottom + window.scrollY + 16;
+            let tLeft = rect.left + window.scrollX - 100;
+            
+            if (tLeft < 16) tLeft = 16;
+            if (tLeft + 380 > window.innerWidth) {
+                tLeft = window.innerWidth - 400;
+            }
+            if (tTop + 240 > window.innerHeight + window.scrollY) {
+                tTop = rect.top + window.scrollY - 220;
+            }
+
+            tooltip.style.top = tTop + 'px';
+            tooltip.style.left = tLeft + 'px';
+            
+            // Hacer scroll suave hacia el elemento
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 350);
+    }
+
+    window.nextStep = function() {
+        currentTourStep++;
+        if (currentTourStep >= tourSteps.length) {
+            endTour();
+        } else {
+            renderTourStep();
+        }
+    };
+
+    window.prevStep = function() {
+        if (currentTourStep > 0) {
+            currentTourStep--;
+            renderTourStep();
+        }
+    };
+
+    window.endTour = function() {
+        backdrop.style.display = 'none';
+        tooltip.style.display = 'none';
+        spotlight.style.display = 'none';
+        document.getElementById("menu-instructivo")?.click();
+    };
+
+    // Registrar eventos para arrancar Tour
+    document.getElementById('btn-start-interactive-tour')?.addEventListener('click', () => {
+        currentTourStep = 0;
+        renderTourStep();
+    });
+
+    // Registrar evento de descarga de instructivo PDF corporativo
+    document.getElementById('btn-download-manual-pdf')?.addEventListener('click', () => {
+        const btn = document.getElementById('btn-download-manual-pdf');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = `<i data-lucide="loader" class="spin-icon" style="width:16px; height:16px;"></i> Compilando PDF corporativo...`;
+        lucide.createIcons();
+
+        const pdfContainer = document.createElement('div');
+        pdfContainer.style.background = '#ffffff';
+        pdfContainer.style.color = '#1e293b';
+        pdfContainer.style.fontFamily = "'Segoe UI', Roboto, sans-serif";
+        pdfContainer.style.padding = '0';
+        pdfContainer.style.margin = '0';
+        pdfContainer.style.width = '100%';
+
+        pdfContainer.innerHTML = `
+            <!-- CUBIERTA DEL MANUAL -->
+            <div style="background: linear-gradient(135deg, #012a4a 0%, #014f86 100%); color: #ffffff; padding: 60px 48px; min-height: 297mm; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; page-break-after: always;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid rgba(255,255,255,0.15); padding-bottom: 20px;">
+                    <span style="font-weight: 850; font-size: 1.5rem; color: #38bdf8; letter-spacing: -1px;">FINANCE DASHBOARD PRO</span>
+                    <span style="font-size: 0.85rem; font-weight: 600; text-transform: uppercase; background: rgba(255,255,255,0.12); padding: 4px 12px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.2);">Manual de Usuario</span>
+                </div>
+                
+                <div style="margin: auto 0;">
+                    <span style="background: #0284c7; padding: 4px 12px; border-radius: 4px; font-weight: 800; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 20px; display: inline-block;">Guía de Operaciones Corporativas</span>
+                    <h1 style="font-size: 3.2rem; font-weight: 800; line-height: 1.15; letter-spacing: -1px; margin: 0 0 20px 0; color: #ffffff;">Manual de Usuario & Torre de Control Financiero</h1>
+                    <p style="font-size: 1.25rem; color: #93c5fd; max-width: 650px; line-height: 1.6; margin: 0 0 30px 0;">
+                        Instrucciones analíticas detalladas de Estados de Rentabilidad, Validación ✓ P&L Cuadrado, Optimización de Cuentas por Pagar (CXP) y Simulador Estratégico What-If.
+                    </p>
+                </div>
+                
+                <div style="border-top: 1px solid rgba(255,255,255,0.15); padding-top: 24px; display: flex; justify-content: space-between; align-items: flex-end;">
+                    <div>
+                        <p style="font-size: 0.75rem; opacity: 0.7; text-transform: uppercase; font-weight: 800; margin-bottom: 4px; letter-spacing: 0.05em;">Destinatario Directivo:</p>
+                        <p style="font-size: 1.1rem; font-weight: 700; margin: 0;">Dirección de Finanzas & Junta Administrativa</p>
+                    </div>
+                    <div style="text-align: right;">
+                        <p style="font-size: 0.75rem; opacity: 0.7; text-transform: uppercase; font-weight: 800; margin-bottom: 4px; letter-spacing: 0.05em;">Año Fiscal de Referencia:</p>
+                        <p style="font-size: 1.1rem; font-weight: 700; color: #38bdf8; margin: 0;">2026</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PAGINA 1: INTRODUCCION -->
+            <div style="padding: 60px; max-width: 800px; margin: 0 auto; min-height: 297mm; box-sizing: border-box; page-break-after: always; display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
+                    <h2 style="font-size: 1.8rem; font-weight: 800; color: #012a4a; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 24px; text-transform: uppercase; letter-spacing: -0.5px;">1. Estructura Financiera y Alcance</h2>
+                    <p style="font-size: 1rem; line-height: 1.6; color: #334155; margin-bottom: 16px;">
+                        El <strong>Finance Dashboard Pro</strong> constituye el núcleo unificado de reporting contable y analítica predictiva del negocio. Este sistema elimina la necesidad de compilar múltiples documentos de cálculo en hojas físicas, proveyendo un flujo ordenado y consistente.
+                    </p>
+                    <p style="font-size: 1rem; line-height: 1.6; color: #334155; margin-bottom: 20px;">
+                        Toda la arquitectura del sistema está fundamentada en una navegación intuitiva que permite cruzar informes de rentabilidad operativa, estructura de deudas financieras, flujos corrientes de efectivo netos y simulador interactivo de alta precisión para mitigar riesgos tacticos.
+                    </p>
+                    
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin-top: 30px;">
+                        <h3 style="font-size: 1.15rem; font-weight: 800; color: #012a4a; margin: 0 0 10px 0;">1.1 Peticiones de Integridad Fiscal</h3>
+                        <p style="font-size: 0.9rem; line-height: 1.5; color: #475569; margin: 0;">
+                            La coincidencia matemática exacta entre los desgloses subordinados del Estado de Resultados detallado frente al EBITDA de reportes consolidados (✓ P&L Cuadrado) asegura que cada decisión gerencial esté avalada por balances reales auditados y amparados en principios de contabilidad corporativa.
+                        </p>
+                    </div>
+                </div>
+                <div style="border-top: 1px solid #e2e8f0; padding-top: 16px; text-align: center; font-size: 0.8rem; color: #94a3b8;">
+                    Confidencial — Finance Dashboard Pro — Página 1 de 5
+                </div>
+            </div>
+
+            <!-- PAGINA 2: PERIODOS & CONTROL -->
+            <div style="padding: 60px; max-width: 800px; margin: 0 auto; min-height: 297mm; box-sizing: border-box; page-break-after: always; display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
+                    <h2 style="font-size: 1.8rem; font-weight: 800; color: #012a4a; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 24px; text-transform: uppercase; letter-spacing: -0.5px;">2. Eje Temporal y el Selector de Meses</h2>
+                    <p style="font-size: 1rem; line-height: 1.6; color: #334155; margin-bottom: 16px;">
+                        La Torre de Control gestiona la información agrupándola en un eje histórico continuo. Para simplificar su consulta, la interfaz cuenta con el selector estático arriba de periodos.
+                    </p>
+                    
+                    <h3 style="font-size: 1.25rem; font-weight: 800; color: #0284c7; margin: 24px 0 10px 0;">2.1 Columna Fija Histórica (Diciembre 2025)</h3>
+                    <p style="font-size: 0.95rem; line-height: 1.5; color: #475569; margin-bottom: 16px;">
+                        Para propósitos comparativos y asegurar un correcto análisis de evolución de pasivos o flujo neto acumulado del ejercicio, el sistema de Cuentas por Pagar mantendrá de forma imperativa la columna fija de <strong>Diciembre 2025</strong> como primer valor del año actual.
+                    </p>
+                    
+                    <div style="background: #e0f2fe; border: 1px solid #bae6fd; border-radius: 8px; padding: 16px;">
+                        <p style="font-size: 0.9rem; line-height: 1.5; color: #0369a1; margin: 0;">
+                            <strong>Consejo de Uso:</strong> Al realizar cargas de nuevos meses de ejercicio, el motor financiero asimilará la evolución transaccional, llenando con ceros de forma automatizada y elegante aquellos periodos futuros de 2026 que aún no cuenten con información, garantizando una cuadrícula limpia.
+                        </p>
+                    </div>
+                </div>
+                <div style="border-top: 1px solid #e2e8f0; padding-top: 16px; text-align: center; font-size: 0.8rem; color: #94a3b8;">
+                    Confidencial — Finance Dashboard Pro — Página 2 de 5
+                </div>
+            </div>
+
+            <!-- PAGINA 3: CXP & DPO DETAIL -->
+            <div style="padding: 60px; max-width: 800px; margin: 0 auto; min-height: 297mm; box-sizing: border-box; page-break-after: always; display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
+                    <h2 style="font-size: 1.8rem; font-weight: 800; color: #012a4a; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 24px; text-transform: uppercase; letter-spacing: -0.5px;">3. Cuentas por Pagar (CXP) y Días de Pago</h2>
+                    <p style="font-size: 1rem; line-height: 1.6; color: #334155; margin-bottom: 16px;">
+                        El módulo específico de <strong>Detalle CxP</strong> supervisa los pasivos contractuales consolidados con proveedores comerciales de materias primas y empaques para bebidas.
+                    </p>
+                    
+                    <h3 style="font-size: 1.25rem; font-weight: 800; color: #0284c7; margin: 24px 0 10px 0;">3.1 Cálculo del Days Payable Outstanding (DPO)</h3>
+                    <p style="font-size: 0.95rem; line-height: 1.5; color: #475569; margin-bottom: 12px;">
+                        Para calcular con total precisión los días de pago promedio, el motor corporativo implementa el cociente directo de obligaciones acumuladas entre costos fijos productivos diarios:
+                    </p>
+                    <div style="background: #f1f5f9; border-left: 4px solid #0f172a; padding: 16px; margin: 16px 0; font-family: monospace; font-size: 1rem; font-weight: 700; text-align: center;">
+                        DPO = CXP Totales / ( Costo de Ventas Mensual / 30 )
+                    </div>
+                    
+                    <h3 style="font-size: 1.25rem; font-weight: 800; color: #0284c7; margin: 24px 0 10px 0;">3.2 Portafolio de 14 Proveedores y Aging de Mora</h3>
+                    <p style="font-size: 0.95rem; line-height: 1.5; color: #475569; margin-bottom: 12px;">
+                        La vista secundaria <strong>Detalle de CXP</strong> expone los saldos consolidados estructurándolos de acuerdo a la antigüedad de cartera comercial (0 a 30 días, 31 a 60 días, hasta más de 180 días vencidos). Esto permite calendarizar deudas, evitar penalizaciones comerciales y agilizar compras.
+                    </p>
+                </div>
+                <div style="border-top: 1px solid #e2e8f0; padding-top: 16px; text-align: center; font-size: 0.8rem; color: #94a3b8;">
+                    Confidencial — Finance Dashboard Pro — Página 3 de 5
+                </div>
+            </div>
+
+            <!-- PAGINA 4: CASH FLOW & DEUDA -->
+            <div style="padding: 60px; max-width: 800px; margin: 0 auto; min-height: 297mm; box-sizing: border-box; page-break-after: always; display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
+                    <h2 style="font-size: 1.8rem; font-weight: 800; color: #012a4a; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 24px; text-transform: uppercase; letter-spacing: -0.5px;">4. Estado de Flujo de Efectivo y Deudas</h2>
+                    <p style="font-size: 1rem; line-height: 1.6; color: #334155; margin-bottom: 16px;">
+                        La óptima solvencia del negocio exige vigilar de manera estructurada cómo la caja neta libre transita por las operaciones directas de bebidas.
+                    </p>
+                    
+                    <h3 style="font-size: 1.25rem; font-weight: 800; color: #0284c7; margin: 24px 0 10px 0;">4.1 Análisis del Cash Flow</h3>
+                    <p style="font-size: 0.95rem; line-height: 1.5; color: #475569; margin-bottom: 16px;">
+                        El reporte unifica las entradas y erogaciones dividiéndolas según la naturaleza comercial del gasto fiduciario corporativo:
+                    </p>
+                    <ul style="margin-left: 20px; font-size: 0.9rem; color: #475569; line-height: 1.5; display: flex; flex-direction: column; gap: 8px;">
+                        <li><strong>Flujo Operativo:</strong> Determinado por cobros de ventas y amortizaciones de capital de trabajo a proveedores comerciales directos.</li>
+                        <li><strong>Flujo de Inversión (CAPEX):</strong> Adquisición de activos para mejorar la eficiencia del embotellado y logística.</li>
+                        <li><strong>Flujo Financiero:</strong> Flujo neto correspondiente a la toma de pasivos estructurados amortizables.</li>
+                    </ul>
+                </div>
+                <div style="border-top: 1px solid #e2e8f0; padding-top: 16px; text-align: center; font-size: 0.8rem; color: #94a3b8;">
+                    Confidencial — Finance Dashboard Pro — Página 4 de 5
+                </div>
+            </div>
+
+            <!-- PAGINA 5: WHAT IF MODEL -->
+            <div style="padding: 60px; max-width: 800px; margin: 0 auto; min-height: 297mm; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
+                    <h2 style="font-size: 1.8rem; font-weight: 800; color: #012a4a; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 24px; text-transform: uppercase; letter-spacing: -0.5px;">5. Simulador Estratégico What-If</h2>
+                    <p style="font-size: 1rem; line-height: 1.6; color: #334155; margin-bottom: 16px;">
+                        La herramienta de proyección **What-If** emula los flujos futuros de tesorería permitiendo predecir las consecuencias acumuladas de decisiones comerciales inmediatas.
+                    </p>
+                    
+                    <h3 style="font-size: 1.25rem; font-weight: 800; color: #0284c7; margin: 24px 0 10px 0;">5.1 Mecánica del Margen Volumen-Precio</h3>
+                    <p style="font-size: 0.95rem; line-height: 1.5; color: #475569; margin-bottom: 16px;">
+                        El motor diferencia rigurosamente el impacto de volumen frente a variaciones directas en precio comercial. Los aumentos de volumen jalarán consigo costos variables fijos de producción (COGS) y el 40% de gastos de distribución (OPEX). Las renegociaciones de precios minoristas, sin embargo, ingresan íntegras como margen EBITDA directo para la junta directiva corporativa.
+                    </p>
+
+                    <div style="margin-top: 30px; background: #fafafa; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 16px; font-size: 0.85rem; color: #475569; line-height: 1.4;">
+                        <strong>Soporte Técnico de Finanzas:</strong> Este sistema cuenta con licencias autorizadas para la simulación interna exclusiva en el periodo 2026. Si detectas anomalías de simulación, contacta al administrador técnico.
+                    </div>
+                </div>
+                <div style="border-top: 1px solid #e2e8f0; padding-top: 16px; text-align: center; font-size: 0.8rem; color: #94a3b8;">
+                    Confidencial — Finance Dashboard Pro — Página 5 de 5
+                </div>
+            </div>
+        `;
+
+        // Generar archivo de descarga PDF corporativo
+        const opt = {
+            margin:       [0, 0, 0, 0],
+            filename:     'Instructivo_Finance_Dashboard_Pro_2026.pdf',
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { scale: 2, useCORS: true },
+            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        html2pdf().from(pdfContainer).set(opt).save().then(() => {
+            btn.innerHTML = originalText;
+        }).catch(err => {
+            console.error(err);
+            btn.innerHTML = originalText;
+            alert("No se pudo descargar el archivo PDF. Intenta otorgarle permisos a la página en tu navegador.");
+        });
+    });
 
 });
