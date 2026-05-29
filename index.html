@@ -1859,7 +1859,7 @@
             <option value="">Seleccionar Mes</option>
           </select>
 
-          <div class="view-mode-toggle" style="display: flex; align-items: center; gap: 8px;">
+          <div class="view-mode-toggle" id="ytdToggleContainer" style="display: flex; align-items: center; gap: 8px;">
             <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);" id="label-mensual">Mensual</span>
             <label class="switch">
               <input type="checkbox" id="ytdToggle">
@@ -4079,16 +4079,16 @@
               <div id="inst-seccion-1" class="inst-section-card">
                 <h3 style="font-size: 1.3rem; font-weight: 800; color: var(--sidebar); display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
                   <span class="inst-step-badge">1</span>
-                  Visión y Objetivo de la Plataforma
+                  Interpretación: Lectura Rápida de Indicadores Reales
                 </h3>
                 <p style="line-height: 1.6; color: var(--text-primary); font-size: 0.95rem; margin-bottom: 12px;">
-                  La <strong>Torre de Control de Finanzas Corporativas (Finance Dashboard Pro)</strong> es una herramienta ejecutiva avanzada de reporte corporativo que consolida la información financiera real histórica, de capital de trabajo, deuda y proyecciones operativas en una interfaz única.
+                  No leas los datos como tablas pasivas; enfócate en diagnosticar anomalías de "Tensión Operativa". Evalúa las tarjetas métricas (KPIs) de margen.
                 </p>
                 <div style="background: #f8fafc; border-left: 4px solid var(--sidebar-accent); padding: 16px; border-radius: 0 8px 8px 0; font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5; margin-bottom: 12px;">
-                  <strong>Objetivo Crítico:</strong> Eliminar las discrepancias en los reportes manuales garantizando que los datos visualizados en la Torre de Control coincidan perfectamente con los libros de contabilidad fiscal auditada mediante procesos de conciliación robustos en tiempo real (P&L Cuadrado).
+                  <strong>Alerta Roja de Margen:</strong> Si el ingreso sube (color Verde) pero tu EBITDA baja (color Rojo), experimentas "crecimiento insano". La distribución es más costosa o no aplicaste alzas de precio, inflando ganancias irreales.
                 </div>
                 <p style="font-size: 0.9rem; line-height: 1.5; color: var(--text-secondary);">
-                  Esta plataforma te permite evaluar de un vistazo el EBITDA consolidado, auditar variaciones de costos YTD, analizar la evolución y acumulación de saldos de Cuentas por Pagar (CXP), entender la estructura de deuda, el estado del capital de trabajo y modelar escenarios estratégicos hipotéticos.
+                  Si esto ocurre, revisa el Estado de Resultados "P&L Detallado" de forma inmediata para rastrear exactamente cuál línea generó la variación porcentual de impacto.
                 </p>
               </div>
 
@@ -4096,46 +4096,31 @@
               <div id="inst-seccion-2" class="inst-section-card">
                 <h3 style="font-size: 1.3rem; font-weight: 800; color: var(--sidebar); display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
                   <span class="inst-step-badge">2</span>
-                  Navegación Dinámica y el Sistema de Periodos
+                  Foco Temporal: Mensual vs Acumulado YTD
                 </h3>
                 <p style="line-height: 1.6; color: var(--text-primary); font-size: 0.95rem; margin-bottom: 12px;">
-                  El sistema cuenta con un control de periodos inteligente ubicado en la barra superior. Este selector de meses sincroniza automáticamente de forma instantánea todos los gráficos, KPI badges, tablas de balances y proyecciones del dashboard.
+                  Para entender el modelo de análisis principal de este dashboard frente a un reporte convencional, ubica el interruptor principal en tu barra de control superior.
                 </p>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
                   <div style="padding: 12px; border: 1px dashed #cbd5e1; border-radius: 8px; background: #fafafa;">
-                    <h4 style="font-size: 0.85rem; font-weight: 700; color: var(--sidebar); margin-bottom: 6px;">Consistencia Temporal Continuada</h4>
-                    <p style="font-size: 0.8rem; line-height: 1.4; color: var(--text-secondary);">Para análisis correctos, ciertos reportes estratégicos (como la evolución del Cash Flow y las Carteras de CxP) mantienen fija una columna comparativa de <strong>Diciembre 2025</strong> como punto de partida, permitiendo una visualización de rolling temporal de 2026 impecable.</p>
+                    <h4 style="font-size: 0.85rem; font-weight: 700; color: var(--sidebar); margin-bottom: 6px;">Visualización Mensual</h4>
+                    <p style="font-size: 0.8rem; line-height: 1.4; color: var(--text-secondary);">Toda la plataforma recalcula y muestra exclusivamente el desempeño originado y cerrado dentro de ese único mes seleccionado.</p>
                   </div>
                   <div style="padding: 12px; border: 1px dashed #cbd5e1; border-radius: 8px; background: #fafafa;">
-                    <h4 style="font-size: 0.85rem; font-weight: 700; color: var(--sidebar); margin-bottom: 6px;">Carga Rápida (Caché Instantánea)</h4>
-                    <p style="font-size: 0.8rem; line-height: 1.4; color: var(--text-secondary);">Al inicializar la aplicación, se utiliza un sistema de caché financiero que evita esperas innecesarias, permitiéndote cambiar de pestañas e indicadores de manera fluida y fluir entre meses sin latencia.</p>
+                    <h4 style="font-size: 0.85rem; font-weight: 700; color: var(--sidebar); margin-bottom: 6px;">Acumulado YTD (Year-to-Date)</h4>
+                    <p style="font-size: 0.8rem; line-height: 1.4; color: var(--text-secondary);">El switch integra matemáticamente la sumatoria desde el 1 de Enero hasta el final del mes escogido. Ideal para medir trayectorias de metas contables.</p>
                   </div>
                 </div>
-                <p style="font-size: 0.9rem; line-height: 1.5; color: var(--text-primary);">
-                  <strong>Tip de Navegación:</strong> Para cambiar de pantalla o vista, utiliza los botones en la barra de navegación lateral izquierda en cualquier momento. El mes seleccionado se mantendrá para que puedas estudiar el comportamiento integral del negocio del periodo en los diferentes estados transaccionales.
-                </p>
               </div>
 
               <!-- Seccion 3 -->
               <div id="inst-seccion-3" class="inst-section-card">
                 <h3 style="font-size: 1.3rem; font-weight: 800; color: var(--sidebar); display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
                   <span class="inst-step-badge">3</span>
-                  Conciliación e Integridad: Validando el P&L Cuadrado
+                  Menús Plegables (Agrupadores)
                 </h3>
                 <p style="line-height: 1.6; color: var(--text-primary); font-size: 0.95rem; margin-bottom: 12px;">
-                  La piedra angular técnica del dashboard es su distintivo indicador verde <strong>✓ P&L Cuadrado</strong> que verás en la parte superior del Análisis de Periodos.
-                </p>
-                <div style="display: flex; gap: 16px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 16px; margin-bottom: 16px; align-items: flex-start;">
-                  <i data-lucide="shield-check" style="width: 32px; height: 32px; color: #16a34a; flex-shrink: 0; margin-top: 2px;"></i>
-                  <div>
-                    <h4 style="font-size: 0.95rem; font-weight: 800; color: #14532d; margin-bottom: 4px;">Fórmula de Integridad Operativa</h4>
-                    <p style="font-size: 0.85rem; line-height: 1.4; color: #166534;">
-                      El motor verifica que los valores netos clave del consolidado del mes de análisis (Ingresos, EBITDA, Costos, y Gastos Administrativos) sean exactamente consistentes con todos los desgloses subordinados del Estado de Resultados detallado. Si llegase a existir una discrepancia en la subida, la Torre de Control emitirá una alerta visual notificándote de inmediato.
-                    </p>
-                  </div>
-                </div>
-                <p style="font-size: 0.9rem; line-height: 1.5; color: var(--text-secondary);">
-                  Esto previene "falsos positivos" y asegura que la junta directiva y el equipo gerencial tomen decisiones basadas exclusivamente en reportes auditados y estructurados de origen legal.
+                  Si estás acostumbrado a pestañas simples lado a lado en tus hojas de trabajo, notarás que nuestra barra lateral agrupa su contenido en bloques estratégicos (Ej. <strong>Ventas</strong>, <strong>Modelo de Seguimiento</strong>, <strong>Obligaciones</strong>). Simplemente haz clic sobre el título del bloque que necesitas expandir u ocultar para navegar a los submódulos específicos sin saturar la pantalla.
                 </p>
               </div>
 
@@ -4143,31 +4128,20 @@
               <div id="inst-seccion-4" class="inst-section-card">
                 <h3 style="font-size: 1.3rem; font-weight: 800; color: var(--sidebar); display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
                   <span class="inst-step-badge">4</span>
-                  Módulo de Cuentas por Pagar (Detalle CxP) y DPO
+                  Identificación de Mora (Detalle CxP)
                 </h3>
                 <p style="line-height: 1.6; color: var(--text-primary); font-size: 0.95rem; margin-bottom: 12px;">
-                  La pestaña de <strong>Detalle CxP</strong> te brinda un desglose absoluto de las obligaciones vigentes con los proveedores del negocio. Cuenta con dos sub-vistas altamente potentes:
+                  Evite la confrontación bancaria estudiando cómo está operando la empresa contra sus proveedores comerciales primarios de producción. Uso práctico para la visual:
                 </p>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                <div style="display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 16px;">
                   <div style="padding: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
                     <h4 style="font-size: 0.9rem; font-weight: 700; color: var(--sidebar); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
-                      <i data-lucide="bar-chart-2" style="width: 16px; height: 16px; color: var(--sidebar-accent);"></i> Vista Resumen
+                      <i data-lucide="bar-chart-2" style="width: 16px; height: 16px; color: var(--sidebar-accent);"></i> Diagnóstico del Aging (Mora de Proveedores)
                     </h4>
                     <p style="font-size: 0.8rem; line-height: 1.4; color: var(--text-secondary);">
-                      Presenta un gráfico de evolución continua de pasivos comerciales comparativos. Visualiza el total de obligaciones vigentes y la acumulación de <strong>Días de Pago Pendientes (Days Payable Outstanding - DPO)</strong>.
+                      Busca la zona donde los registros transitan de "+60 días" a "+120 días". Ordena filtrando saldos usando la barra "Buscar proveedor..." . Proveedores ubicados ahí podrían cesar de despacharte empaques corporativos en días y deben resolverse prontamente para habilitar flujo comercial.
                     </p>
                   </div>
-                  <div style="padding: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
-                    <h4 style="font-size: 0.9rem; font-weight: 700; color: var(--sidebar); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
-                      <i data-lucide="list" style="width: 16px; height: 16px; color: var(--sidebar-accent);"></i> Vista Detalle
-                    </h4>
-                    <p style="font-size: 0.8rem; line-height: 1.4; color: var(--text-secondary);">
-                      Construye una tabla detallada con el <strong>Aging (Antigüedad) de saldos</strong>: clasifica las deudas de 0 a 30 días, 31 a 60 días, hasta más de 180 días de mora, desglosado por los 14 principales proveedores y permite búsquedas directas.
-                    </p>
-                  </div>
-                </div>
-                <div style="background: #fffbeb; border: 1px solid #fef3c7; border-radius: 8px; padding: 12px; margin-bottom: 12px; font-size: 0.85rem; color: #78350f; line-height: 1.4;">
-                  <strong>Definición del DPO:</strong> El motor computa de forma automatizada los días de pago promedio dividiendo el saldo total de cuentas comerciales por pagar entre el costo promedio diario transcurrido del mes analizado. Facilita la toma de decisiones de plazos de pago comercial.
                 </div>
               </div>
 
@@ -4175,23 +4149,10 @@
               <div id="inst-seccion-5" class="inst-section-card">
                 <h3 style="font-size: 1.3rem; font-weight: 800; color: var(--sidebar); display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
                   <span class="inst-step-badge">5</span>
-                  Análisis de Deuda y Flujo de Caja (Cash Flow)
+                  El Principio Operacional: Rentabilidad vs Liquidez
                 </h3>
                 <p style="line-height: 1.6; color: var(--text-primary); font-size: 0.95rem; margin-bottom: 12px;">
-                  El módulo de <strong>Cash Flow</strong> y de <strong>Evolución de Deuda</strong> son clave para evaluar la solvencia y holgura del negocio.
-                </p>
-                <ul style="list-style-type: none; padding: 0; margin-bottom: 16px; display: flex; flex-direction: column; gap: 10px; font-size: 0.85rem;">
-                  <li style="display: flex; align-items: flex-start; gap: 8px;">
-                    <i data-lucide="arrow-right-circle" style="width: 16px; height: 16px; color: var(--sidebar-accent); flex-shrink: 0; margin-top: 2px;"></i>
-                    <span><strong>Cash Flow Operativo, de Inversión y Financiamiento:</strong> Reconstruye el ingreso neto en efectivo, amortización de compromisos, CAPEX y flujos comerciales mes a mes.</span>
-                  </li>
-                  <li style="display: flex; align-items: flex-start; gap: 8px;">
-                    <i data-lucide="arrow-right-circle" style="width: 16px; height: 16px; color: var(--sidebar-accent); flex-shrink: 0; margin-top: 2px;"></i>
-                    <span><strong>Zoom in Deuda:</strong> Desglosa los acreedores financieros del negocio, separando líneas de crédito vigentes, préstamos estructurados amortizables, tasas de interés ponderadas y pagos efectuados.</span>
-                  </li>
-                </ul>
-                <p style="font-size: 0.9rem; line-height: 1.5; color: var(--text-secondary);">
-                  El sistema utiliza representaciones gráficas del saldo final en cuentas de tesorería y analiza desviaciones para asegurar que el balance de operación comercial sea autosuficiente.
+                  Las vistas "Cash Flow" evidencian que poseer alto ratio de EBITDA <strong>no es sinónimo de Caja Neta Libre en Cuenta</strong>. Un excelente gerente diagnosticará de inmediato con la barra interactiva que el "Flujo Operacional" se drena en "Aumento de Inventario" para cubrir la falta de flujo o mala contención de pasivo, a pesar de márgenes envidiables.
                 </p>
               </div>
 
@@ -4199,22 +4160,18 @@
               <div id="inst-seccion-6" class="inst-section-card">
                 <h3 style="font-size: 1.3rem; font-weight: 800; color: var(--sidebar); display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
                   <span class="inst-step-badge">6</span>
-                  Simulador Estratégico What-If (Tu Motor de Proyecciones)
+                  Control y Explotación del Motor: Simulador What-If
                 </h3>
                 <p style="line-height: 1.6; color: var(--text-primary); font-size: 0.95rem; margin-bottom: 12px;">
-                  Con el <strong>Simulador What-If</strong> puedes convertirlos en decisiones estratégicas cuantificables. Proyecta el impacto en EBITDA y liquidez (Caja) en base a desviaciones numéricas.
+                  Lídera las juntas previendo los efectos directos al accionar el panel izquierdo inferior interactivo: Desliza las barras laterales ("Sliders") y reajusta la tuerca.
                 </p>
                 <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
-                  <h4 style="font-size: 0.9rem; font-weight: 700; color: #0369a1; margin-bottom: 8px;">Leyes Matemáticas de Simulación del Motor:</h4>
+                  <h4 style="font-size: 0.9rem; font-weight: 700; color: #0369a1; margin-bottom: 8px;">Uso Estratégico - Ejercicio Predictivo</h4>
                   <ol style="margin-left: 20px; font-size: 0.8rem; color: #0f172a; display: flex; flex-direction: column; gap: 8px; list-style-type: decimal;">
-                    <li><strong>Precio vs. Volumen:</strong> Las variaciones de volumen impactan proporcionalmente tus costos (COGS) y el 40% de los gastos fijos (OPEX). Las alzas de precio, sin embargo, fluyen directo libre de costos al EBITDA consolidado.</li>
-                    <li><strong>Eficiencia / Inflación:</strong> Te permiten ajustar de forma independiente los factores inflacionarios que incrementan costos (COGS) y gastos de nómina u operativos (OPEX).</li>
-                    <li><strong>Desfases Financieros (Días de Cobro/Pago):</strong> Ajustar los plazos de cartera con clientes (DSO) o con proveedores comerciales (DPO) recalcula la velocidad del ciclo de caja, incrementando o disminuyendo la caja neta utilizable al cierre de mes de forma acumulada.</li>
+                    <li><strong>Alza Bruta:</strong> Aumenta +4% de Precio y descienda -4% de Volumen en el slide. El tablero reflejará probablemente crecimiento en caja. ¿Motivo? Un incremento neto cae al margen directo bruto; vender unidades evita desgastar insumo y pago de variable.</li>
+                    <li><strong>Desfase Monetizado de Días:</strong> Mueve o aprieta la perilla "Días DSO(Cobranza)" buscando expandir la disponibilidad transitoria al cierre corporativo.</li>
                   </ol>
                 </div>
-                <p style="font-size: 0.9rem; line-height: 1.5; color: var(--text-secondary);">
-                  Mueve los interruptores de simulación, experimenta con porcentajes y plazos, y descubre cómo optimizar el flujo de efectivo consolidado para el mes de análisis operativo.
-                </p>
               </div>
               
             </div>
