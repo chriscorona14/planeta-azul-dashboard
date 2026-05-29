@@ -11949,7 +11949,10 @@ window.processCxpFile = async function(file) {
                 </div>
             `;
 
-            // Calcular y ajustar Spotlight
+            // Hacer scroll instantaneo antes de calcular posiciones para evitar desfases
+            target.scrollIntoView({ behavior: 'auto', block: 'center' });
+
+            // Calcular y ajustar Spotlight asegurando que el DOM y el Scroll ya se actualizaron
             const rect = target.getBoundingClientRect();
             spotlight.style.top = (rect.top + window.scrollY - 8) + 'px';
             spotlight.style.left = (rect.left + window.scrollX - 8) + 'px';
@@ -11970,9 +11973,6 @@ window.processCxpFile = async function(file) {
 
             tooltip.style.top = tTop + 'px';
             tooltip.style.left = tLeft + 'px';
-            
-            // Hacer scroll suave hacia el elemento
-            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }, 350);
     }
 
@@ -12022,7 +12022,7 @@ window.processCxpFile = async function(file) {
 
         pdfContainer.innerHTML = `
             <!-- CUBIERTA DEL MANUAL -->
-            <div style="background: linear-gradient(135deg, #012a4a 0%, #014f86 100%); color: #ffffff; padding: 60px 48px; min-height: 297mm; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; page-break-after: always;">
+            <div style="background: linear-gradient(135deg, #012a4a 0%, #014f86 100%); color: #ffffff; padding: 60px 48px; height: 275mm; overflow: hidden; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; page-break-after: always;">
                 <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid rgba(255,255,255,0.15); padding-bottom: 20px;">
                     <span style="font-weight: 850; font-size: 1.5rem; color: #38bdf8; letter-spacing: -1px;">FINANCE DASHBOARD PRO</span>
                     <span style="font-size: 0.85rem; font-weight: 600; text-transform: uppercase; background: rgba(255,255,255,0.12); padding: 4px 12px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.2);">Manual de Usuario</span>
@@ -12049,7 +12049,7 @@ window.processCxpFile = async function(file) {
             </div>
 
             <!-- PAGINA 1: INTRODUCCION -->
-            <div style="padding: 60px; max-width: 800px; margin: 0 auto; min-height: 297mm; box-sizing: border-box; page-break-after: always; display: flex; flex-direction: column; justify-content: space-between;">
+            <div style="padding: 60px; max-width: 800px; margin: 0 auto; height: 275mm; overflow: hidden; box-sizing: border-box; page-break-after: always; display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
                     <h2 style="font-size: 1.8rem; font-weight: 800; color: #012a4a; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 24px; text-transform: uppercase; letter-spacing: -0.5px;">1. Estructura Financiera y Alcance</h2>
                     <p style="font-size: 1rem; line-height: 1.6; color: #334155; margin-bottom: 16px;">
@@ -12072,7 +12072,7 @@ window.processCxpFile = async function(file) {
             </div>
 
             <!-- PAGINA 2: PERIODOS & CONTROL -->
-            <div style="padding: 60px; max-width: 800px; margin: 0 auto; min-height: 297mm; box-sizing: border-box; page-break-after: always; display: flex; flex-direction: column; justify-content: space-between;">
+            <div style="padding: 60px; max-width: 800px; margin: 0 auto; height: 275mm; overflow: hidden; box-sizing: border-box; page-break-after: always; display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
                     <h2 style="font-size: 1.8rem; font-weight: 800; color: #012a4a; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 24px; text-transform: uppercase; letter-spacing: -0.5px;">2. Eje Temporal y el Selector de Meses</h2>
                     <p style="font-size: 1rem; line-height: 1.6; color: #334155; margin-bottom: 16px;">
@@ -12096,7 +12096,7 @@ window.processCxpFile = async function(file) {
             </div>
 
             <!-- PAGINA 3: CXP & DPO DETAIL -->
-            <div style="padding: 60px; max-width: 800px; margin: 0 auto; min-height: 297mm; box-sizing: border-box; page-break-after: always; display: flex; flex-direction: column; justify-content: space-between;">
+            <div style="padding: 60px; max-width: 800px; margin: 0 auto; height: 275mm; overflow: hidden; box-sizing: border-box; page-break-after: always; display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
                     <h2 style="font-size: 1.8rem; font-weight: 800; color: #012a4a; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 24px; text-transform: uppercase; letter-spacing: -0.5px;">3. Cuentas por Pagar (CXP) y Días de Pago</h2>
                     <p style="font-size: 1rem; line-height: 1.6; color: #334155; margin-bottom: 16px;">
@@ -12122,7 +12122,7 @@ window.processCxpFile = async function(file) {
             </div>
 
             <!-- PAGINA 4: CASH FLOW & DEUDA -->
-            <div style="padding: 60px; max-width: 800px; margin: 0 auto; min-height: 297mm; box-sizing: border-box; page-break-after: always; display: flex; flex-direction: column; justify-content: space-between;">
+            <div style="padding: 60px; max-width: 800px; margin: 0 auto; height: 275mm; overflow: hidden; box-sizing: border-box; page-break-after: always; display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
                     <h2 style="font-size: 1.8rem; font-weight: 800; color: #012a4a; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 24px; text-transform: uppercase; letter-spacing: -0.5px;">4. Estado de Flujo de Efectivo y Deudas</h2>
                     <p style="font-size: 1rem; line-height: 1.6; color: #334155; margin-bottom: 16px;">
@@ -12145,7 +12145,7 @@ window.processCxpFile = async function(file) {
             </div>
 
             <!-- PAGINA 5: WHAT IF MODEL -->
-            <div style="padding: 60px; max-width: 800px; margin: 0 auto; min-height: 297mm; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between;">
+            <div style="padding: 60px; max-width: 800px; margin: 0 auto; height: 275mm; overflow: hidden; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
                     <h2 style="font-size: 1.8rem; font-weight: 800; color: #012a4a; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 24px; text-transform: uppercase; letter-spacing: -0.5px;">5. Simulador Estratégico What-If</h2>
                     <p style="font-size: 1rem; line-height: 1.6; color: #334155; margin-bottom: 16px;">

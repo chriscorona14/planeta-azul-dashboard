@@ -1594,9 +1594,20 @@
             <a href="#" id="menu-glosario">Glosario Financiero</a>
           </div>
           <div class="menu-item">
-            <a href="#" id="menu-instructivo" style="color: #38bdf8 !important; font-weight: 700; border: 1px dashed rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.05);">
-              <i data-lucide="book-open" style="width: 16px; height: 16px; margin-right: 8px;"></i>
-              Guía de Usuario & Tour
+            <style>
+              #menu-instructivo {
+                width: calc(100% - 8px);
+                transition: all 0.2s;
+              }
+              #menu-instructivo:hover, #menu-instructivo.active {
+                transform: translateY(-2px) !important;
+                background: rgba(56, 189, 248, 0.15) !important;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+              }
+            </style>
+            <a href="#" id="menu-instructivo" style="color: #38bdf8 !important; font-weight: 700; border: 1px dashed rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.05); display: flex; align-items: center; gap: 8px; padding: 10px 12px; line-height: 1.2;">
+              <i data-lucide="book-open" style="width: 16px; height: 16px; min-width: 16px;"></i>
+              <span>Guía y Tour Virtual</span>
             </a>
           </div>
         </nav>
