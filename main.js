@@ -86,6 +86,30 @@ Object.defineProperty(window, 'globalFinancialData', {
     configurable: true,
     enumerable: true
 });
+
+function ensureMockFinancialData() {
+    if (!globalFinancialData || globalFinancialData.length === 0) {
+        if (window.hasVentasAccess || window.hasComercialAccess || (ceoData && ceoData.length > 0)) {
+            console.log("⚡ [Fallback] Generando periodos base mockeados...");
+            const fallback = [];
+            const months = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+            for(let i=0; i<12; i++) {
+                fallback.push({
+                    date: `${months[i]} 2026`,
+                    Periodo: `${String(i+1).padStart(2,'0')}-2026`,
+                    sortDate: new Date(2026, i, 1),
+                    kpis: { ingresos: 0, ebitda: 0, cashflow: 0 }
+                });
+            }
+            fallback._isMock = true;
+            globalFinancialData = fallback;
+            if (typeof renderDashboard === 'function') {
+                renderDashboard(globalFinancialData);
+            }
+        }
+    }
+}
+
 let ceoData = null;
 let ventasCeoData = null; // Will hold { columns: [], rows: [] } mapped
 let ventasCeoCurrentMetric = 'Volumen';
@@ -1180,6 +1204,8 @@ async function fetchMasterData(token = null) {
                 console.warn("Fallo procesando Ventas CEO", err);
             }
         }
+        
+        ensureMockFinancialData();
 
     } catch (error) {
         console.error("Error en sincronización:", error);
@@ -1282,7 +1308,7 @@ window.handleZeroState = function() {
         }
         
         if(typeof window.applyRoleBasedUI === 'function') {
-           const inferredMaster = window.hasMasterAccess || (globalFinancialData && globalFinancialData.length > 0) ? true : false;
+           const inferredMaster = window.hasMasterAccess || (globalFinancialData && globalFinancialData.length > 0 && !globalFinancialData._isMock) ? true : false;
            const inferredVentas = window.hasVentasAccess || (typeof ceoData !== 'undefined' && ceoData && ceoData.length > 0) ? true : false;
            const inferredComercial = window.hasComercialAccess || false;
            window.applyRoleBasedUI(inferredMaster, inferredVentas, inferredComercial);
@@ -1403,10 +1429,12 @@ async function loadCacheInstant() {
                 window.updateLastUpdatedTime(cachedRecord.timestamp);
             }
         }
+        
+        ensureMockFinancialData();
 
         if (window.isMagicLoaded) {
             if (typeof window.applyRoleBasedUI === 'function') {
-                const inferredMaster = window.hasMasterAccess || (globalFinancialData && globalFinancialData.length > 0) ? true : false;
+                const inferredMaster = window.hasMasterAccess || (globalFinancialData && globalFinancialData.length > 0 && !globalFinancialData._isMock) ? true : false;
                 const inferredVentas = window.hasVentasAccess || (typeof ceoData !== 'undefined' && ceoData && ceoData.length > 0) ? true : false;
                 const inferredComercial = window.hasComercialAccess || false;
                 window.applyRoleBasedUI(inferredMaster, inferredVentas, inferredComercial);
