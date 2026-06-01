@@ -412,7 +412,12 @@ let CXP_URL = localStorage.getItem('CUSTOM_CXP_URL') || import.meta.env.VITE_CXP
 const encodeUrlM365 = (url) => {
     if (!url || typeof url !== 'string' || url.trim().length === 0) return null;
     try {
-        return btoa(url.trim()).replace(/=/g, '').replace(/\//g, '_').replace(/\+/g, '-');
+        let cleanUrl = url.trim();
+        // Remove &download=1 or ?download=1 which break Graph API URL matching
+        cleanUrl = cleanUrl.replace(/[?&]download=1/gi, '');
+        // Sometimes SharePoint appends action=default etc
+        cleanUrl = cleanUrl.replace(/[?&]action=[^&]+/gi, '');
+        return btoa(cleanUrl).replace(/=/g, '').replace(/\//g, '_').replace(/\+/g, '-');
     } catch(e) {
         console.error("Error base64 encoding url:", url, e);
         return null;
