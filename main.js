@@ -1176,17 +1176,30 @@ async function fetchMasterData(token = null) {
             } else if (window.isMagicLoaded && globalFinancialData && globalFinancialData.length > 0) {
                 // Fallback silencioso: usar caché existente aunque la API haya fallado
                 console.log("⚡ [Fallback] Usando caché local tras fallo de API. Re-renderizando dashboard...");
-                window.hasMasterAccess = true; // Restaurar acceso basado en caché
+                window.hasMasterAccess = !globalFinancialData._isMock;
                 renderDashboard(globalFinancialData);
             }
         }
         
         if (loader) loader.style.display = 'none';
-        if (statusEl) statusEl.innerHTML = "✅ Sincronizado con O365";
-        if (sidebarSyncDot) sidebarSyncDot.style.backgroundColor = 'var(--success)';
-        if (sidebarSyncText) {
-            sidebarSyncText.innerText = 'Sincronizado';
-            sidebarSyncText.style.color = 'var(--success)';
+        if (arrayBuffer || arrayBufferCeo) {
+            if (statusEl) statusEl.innerHTML = "✅ Sincronizado con O365";
+            if (sidebarSyncDot) sidebarSyncDot.style.backgroundColor = 'var(--success)';
+            if (sidebarSyncText) {
+                sidebarSyncText.innerText = 'Sincronizado';
+                sidebarSyncText.style.color = 'var(--success)';
+            }
+        } else if (window.isMagicLoaded) {
+            if (statusEl) {
+                statusEl.innerHTML = "⚠️ Operando con Caché Local / Offline";
+                statusEl.style.background = '#fef3c7';
+                statusEl.style.color = '#92400e';
+            }
+            if (sidebarSyncDot) sidebarSyncDot.style.backgroundColor = 'var(--warning, #f59e0b)';
+            if (sidebarSyncText) {
+                sidebarSyncText.innerText = 'Offline (Caché)';
+                sidebarSyncText.style.color = 'var(--warning, #f59e0b)';
+            }
         }
         if (window.updateLastUpdatedTime) {
             window.updateLastUpdatedTime();
@@ -1239,7 +1252,7 @@ async function fetchMasterData(token = null) {
         
         // Si falló y tenemos caché, restauramos los accesos para que las vistas no desaparezcan
         if (window.isMagicLoaded) {
-            if (!window.hasMasterAccess && (globalFinancialData && globalFinancialData.length > 0)) {
+            if (!window.hasMasterAccess && (globalFinancialData && globalFinancialData.length > 0 && !globalFinancialData._isMock)) {
                 window.hasMasterAccess = true;
             }
             if (!window.hasVentasAccess && (typeof ceoData !== 'undefined' && ceoData && ceoData.length > 0)) {
