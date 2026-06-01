@@ -98,7 +98,26 @@ function ensureMockFinancialData() {
                     date: `${months[i]} 2026`,
                     Periodo: `${String(i+1).padStart(2,'0')}-2026`,
                     sortDate: new Date(2026, i, 1),
-                    kpis: { ingresos: 0, ebitda: 0, cashflow: 0 }
+                    kpis: { ingresos: 0, ebitda: 0, cashflow: 0, utilidadNeta: 0, margenBruto: 0 },
+                    trend: { ingresos: 0, ebitda: 0, cashflow: 0, utilidadNeta: 0 },
+                    balance: { deudaTotal: 0, ebitdaLTM: 0, efectivo: 0, roa: 0, roe: 0, ccc: 0 },
+                    cashflowDetail: { ending: 0, ops: 0, inv: 0, fin: 0 },
+                    pnl: {
+                        categorias: { "Costo de Ventas": 0, "Ingresos": 0, "EBITDA": 0, "OPEX": 0 },
+                        opexDetalle: { "Gastos Administrativos": 0, "Gastos de Mercadeo": 0 },
+                        segments: {},
+                        fullRows: []
+                    },
+                    ppto: { 
+                        kpis: { ingresos: 0, ebitda: 0, cashflow: 0, utilidadNeta: 0, caja: 0 },
+                        pnl: { categorias: {}, opexDetalle: {}, segments: {}, fullRows: [] }
+                    },
+                    ytd: { 
+                        ingresos: 0, ebitda: 0, utilidadNeta: 0, 
+                        ppto: { ingresos: 0, ebitda: 0, utilidadNeta: 0, caja: 0 }, 
+                        trend: { ingresos: 0, ebitda: 0, utilidadNeta: 0 } 
+                    },
+                    estados: { fullRows: [] }
                 });
             }
             fallback._isMock = true;
