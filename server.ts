@@ -87,11 +87,13 @@ Data: ${JSON.stringify(financialData)}`;
       if (!url.includes("sharepoint.com") && !url.includes("onedrive.live.com")) {
         return res.status(400).json({ error: "Invalid Microsoft 365 file URL." });
       }
-      const response = await fetch(url, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-      });
+      const fetchHeaders: any = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      };
+      if (req.headers.authorization) {
+          fetchHeaders["Authorization"] = req.headers.authorization;
+      }
+      const response = await fetch(url, { headers: fetchHeaders });
       
       if (!response.ok) {
         return res.status(response.status).json({ error: `SharePoint rejected the request: ${response.status} ${response.statusText}. Ensure the file is shared publicly.` });
@@ -114,11 +116,13 @@ Data: ${JSON.stringify(financialData)}`;
       if (!url.includes("sharepoint.com") && !url.includes("onedrive.live.com")) {
         return res.status(400).json({ error: "Invalid Microsoft 365 file URL." });
       }
-      const response = await fetch(url, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-      });
+      const fetchHeaders: any = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      };
+      if (req.headers.authorization) {
+          fetchHeaders["Authorization"] = req.headers.authorization;
+      }
+      const response = await fetch(url, { headers: fetchHeaders });
       
       if (!response.ok) {
         return res.status(response.status).json({ error: `SharePoint rejected the request: ${response.status} ${response.statusText}. Ensure the file is shared publicly.` });
@@ -141,11 +145,13 @@ Data: ${JSON.stringify(financialData)}`;
       if (!url.includes("sharepoint.com") && !url.includes("onedrive.live.com")) {
         return res.status(400).json({ error: "Invalid Microsoft 365 file URL." });
       }
-      const response = await fetch(url, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-      });
+      const fetchHeaders: any = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      };
+      if (req.headers.authorization) {
+          fetchHeaders["Authorization"] = req.headers.authorization;
+      }
+      const response = await fetch(url, { headers: fetchHeaders });
       
       if (!response.ok) {
         return res.status(response.status).json({ error: `SharePoint rejected the request: ${response.status} ${response.statusText}. Ensure the file is shared publicly.` });
@@ -168,11 +174,13 @@ Data: ${JSON.stringify(financialData)}`;
       if (!url.includes("sharepoint.com") && !url.includes("onedrive.live.com")) {
         return res.status(400).json({ error: "Invalid Microsoft 365 file URL." });
       }
-      const response = await fetch(url, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-      });
+      const fetchHeaders: any = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      };
+      if (req.headers.authorization) {
+          fetchHeaders["Authorization"] = req.headers.authorization;
+      }
+      const response = await fetch(url, { headers: fetchHeaders });
       
       if (!response.ok) {
         return res.status(response.status).json({ error: `SharePoint rejected the request: ${response.status} ${response.statusText}. Ensure the file is shared publicly.` });
@@ -210,11 +218,13 @@ Data: ${JSON.stringify(financialData)}`;
       if (!url.includes("sharepoint.com") && !url.includes("onedrive.live.com")) {
         return res.status(400).json({ error: "Invalid Microsoft 365 file URL." });
       }
-      const response = await fetch(url, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-      });
+      const fetchHeaders: any = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      };
+      if (req.headers.authorization) {
+          fetchHeaders["Authorization"] = req.headers.authorization;
+      }
+      const response = await fetch(url, { headers: fetchHeaders });
       
       if (!response.ok) {
         return res.status(response.status).json({ error: `SharePoint rejected the request: ${response.status} ${response.statusText}. Ensure the file is shared publicly.` });

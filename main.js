@@ -413,10 +413,14 @@ const encodeUrlM365 = (url) => {
     if (!url || typeof url !== 'string' || url.trim().length === 0) return null;
     try {
         let cleanUrl = url.trim();
-        // Remove &download=1 or ?download=1 which break Graph API URL matching
+        // Remove known query params that break Graph API, but PRESERVE 'sourcedoc'
         cleanUrl = cleanUrl.replace(/[?&]download=1/gi, '');
-        // Sometimes SharePoint appends action=default etc
         cleanUrl = cleanUrl.replace(/[?&]action=[^&]+/gi, '');
+        cleanUrl = cleanUrl.replace(/[?&]e=[^&]+/gi, '');
+        // Fix dangling ? if query string was emptied
+        if (cleanUrl.endsWith('?')) {
+            cleanUrl = cleanUrl.slice(0, -1);
+        }
         return btoa(cleanUrl).replace(/=/g, '').replace(/\//g, '_').replace(/\+/g, '-');
     } catch(e) {
         console.error("Error base64 encoding url:", url, e);
@@ -736,7 +740,7 @@ async function fetchMasterData(token = null) {
     // 2. DESCARGA DEL ARCHIVO (O365 Directo o Intercepción)
     // ==========================================
     try {
-        const SYNC_TIMEOUT = 65000; // Aumentado para tolerar descargas masivas
+        const SYNC_TIMEOUT = 300000; // 5 minutos para tolerar descargas masivas (110k filas)
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), SYNC_TIMEOUT);
         let arrayBuffer = null;
@@ -783,15 +787,25 @@ async function fetchMasterData(token = null) {
                         arrayBuffer = await req.arrayBuffer();
                         window.hasMasterAccess = true;
                     } else {
-                        console.warn("Graph API rejected Master sync. Status:", req.status, req.statusText);
-                        window.hasMasterAccess = false;
-                        if (!window.isMagicLoaded && !(globalFinancialData && globalFinancialData.length > 0)) {
-                            globalFinancialData = null;
-                            try {
-                                const db = await getFinanceDB();
-                                const tx = db.transaction('finance_cache', 'readwrite');
-                                tx.objectStore('finance_cache').delete('MASTER_FINANCE_KEY');
-                            } catch(e) {}
+                        console.warn("Graph API rejected Master sync. Status:", req.status, req.statusText, "- Intentando proxy con token...");
+                        let paramsMaster = SHARPOINT_FILE_URL ? `?url=${encodeURIComponent(SHARPOINT_FILE_URL)}` : '';
+                        const proxyReq = await fetch(`/api/downloadSync${paramsMaster}`, { 
+                            headers: { "Authorization": `Bearer ${token}` },
+                            signal: controller.signal 
+                        });
+                        if (proxyReq.ok) {
+                            arrayBuffer = await proxyReq.arrayBuffer();
+                            window.hasMasterAccess = true;
+                        } else {
+                            window.hasMasterAccess = false;
+                            if (!window.isMagicLoaded && !(globalFinancialData && globalFinancialData.length > 0)) {
+                                globalFinancialData = null;
+                                try {
+                                    const db = await getFinanceDB();
+                                    const tx = db.transaction('finance_cache', 'readwrite');
+                                    tx.objectStore('finance_cache').delete('MASTER_FINANCE_KEY');
+                                } catch(e) {}
+                            }
                         }
                     }
                 }
@@ -809,14 +823,24 @@ async function fetchMasterData(token = null) {
                         arrayBufferCeo = await reqCeo.arrayBuffer();
                         window.hasVentasAccess = true;
                     } else {
-                        console.warn("Graph API rejected Ventas sync. Status:", reqCeo.status, reqCeo.statusText);
-                        window.hasVentasAccess = false;
-                        ceoData = null;
-                        try {
-                            const db = await getFinanceDB();
-                            const tx = db.transaction('finance_cache', 'readwrite');
-                            tx.objectStore('finance_cache').delete('CEO_VENTAS_KEY');
-                        } catch(e) {}
+                        console.warn("Graph API rejected Ventas sync. Status:", reqCeo.status, reqCeo.statusText, "- Intentando proxy...");
+                        let paramsVentas = CEO_FILE_URL ? `?url=${encodeURIComponent(CEO_FILE_URL)}` : '';
+                        const proxyReqVentas = await fetch(`/api/downloadSyncVentas${paramsVentas}`, { 
+                            headers: { "Authorization": `Bearer ${token}` },
+                            signal: controller.signal 
+                        });
+                        if (proxyReqVentas.ok) {
+                            arrayBufferCeo = await proxyReqVentas.arrayBuffer();
+                            window.hasVentasAccess = true;
+                        } else {
+                            window.hasVentasAccess = false;
+                            ceoData = null;
+                            try {
+                                const db = await getFinanceDB();
+                                const tx = db.transaction('finance_cache', 'readwrite');
+                                tx.objectStore('finance_cache').delete('CEO_VENTAS_KEY');
+                            } catch(e) {}
+                        }
                     }
                 }
 
@@ -850,13 +874,40 @@ async function fetchMasterData(token = null) {
                             }
                         }
                     } else {
-                        console.warn("Graph API rejected Resumen Comercial sync. Status:", reqComercial.status, reqComercial.statusText);
-                        window.hasComercialAccess = false;
-                        try {
-                            const db = await getFinanceDB();
-                            const tx = db.transaction('finance_cache', 'readwrite');
-                            tx.objectStore('finance_cache').delete('COMERCIAL_KEY');
-                        } catch(e) {}
+                        console.warn("Graph API rejected Resumen Comercial sync. Status:", reqComercial.status, reqComercial.statusText, "- Intentando proxy...");
+                        let paramsComercial = RESUMEN_COMERCIAL_URL ? `?url=${encodeURIComponent(RESUMEN_COMERCIAL_URL)}` : '';
+                        const proxyReqComercial = await fetch(`/api/downloadSyncComercial${paramsComercial}`, {
+                            headers: { "Authorization": `Bearer ${token}` },
+                            signal: controller.signal
+                        });
+                        if (proxyReqComercial.ok) {
+                            const arrayBufferComercial = await proxyReqComercial.arrayBuffer();
+                            if (!window.resumenComercialEngine) {
+                                try {
+                                    const engine = await import('./resumenComercialEngine.js');
+                                    window.resumenComercialEngine = engine;
+                                } catch (e) {
+                                    console.error("Error importing resumenComercialEngine on demand:", e);
+                                }
+                            }
+                            if (window.resumenComercialEngine) {
+                                try {
+                                    const result = await window.resumenComercialEngine.processManualFile(arrayBufferComercial);
+                                    if (result) {
+                                        window.hasComercialAccess = true;
+                                    }
+                                } catch (e) {
+                                    console.error("Error processing comercial sync:", e);
+                                }
+                            }
+                        } else {
+                            window.hasComercialAccess = false;
+                            try {
+                                const db = await getFinanceDB();
+                                const tx = db.transaction('finance_cache', 'readwrite');
+                                tx.objectStore('finance_cache').delete('COMERCIAL_KEY');
+                            } catch(e) {}
+                        }
                     }
                 }
 
@@ -890,7 +941,35 @@ async function fetchMasterData(token = null) {
                             }
                         }
                     } else {
-                        console.warn("Graph API rejected PG Horizontal sync. Status:", reqPg.status, reqPg.statusText);
+                        console.warn("Graph API rejected PG Horizontal sync. Status:", reqPg.status, reqPg.statusText, "- Intentando proxy...");
+                        let paramsPg = PG_HORIZONTAL_URL ? `?url=${encodeURIComponent(PG_HORIZONTAL_URL)}` : '';
+                        const proxyReqPg = await fetch(`/api/downloadSyncPgHorizontal${paramsPg}`, {
+                            headers: { "Authorization": `Bearer ${token}` },
+                            signal: controller.signal
+                        });
+                        if (proxyReqPg.ok) {
+                            const arrayBufferPg = await proxyReqPg.arrayBuffer();
+                            if (!window.resumenComercialEngine) {
+                                try {
+                                    const engine = await import('./resumenComercialEngine.js');
+                                    window.resumenComercialEngine = engine;
+                                } catch (e) {
+                                    console.error("Error importing resumenComercialEngine on demand:", e);
+                                }
+                            }
+                            if (window.resumenComercialEngine) {
+                                try {
+                                    const dataPg = new Uint8Array(arrayBufferPg);
+                                    const workbookPg = XLSX.read(dataPg, { type: 'array' });
+                                    await window.resumenComercialEngine.processPgHorizontalWorkbook(workbookPg);
+                                    window.hasComercialAccess = true;
+                                } catch (e) {
+                                    console.error("Error processing pg horizontal proxy sync:", e);
+                                }
+                            }
+                        } else {
+                            console.warn("Proxy also rejected PG Horizontal sync. Status:", proxyReqPg.status);
+                        }
                     }
                 }
 
@@ -913,7 +992,24 @@ async function fetchMasterData(token = null) {
                             console.error("Error processing m365 cxp sync:", e);
                         }
                     } else {
-                        console.warn("Graph API rejected CxP sync. Status:", reqCxp.status, reqCxp.statusText);
+                        console.warn("Graph API rejected CxP sync. Status:", reqCxp.status, reqCxp.statusText, "- Intentando proxy...");
+                        let paramsCxp = CXP_URL ? `?url=${encodeURIComponent(CXP_URL)}` : '';
+                        const proxyReqCxp = await fetch(`/api/downloadSyncCxp${paramsCxp}`, {
+                            headers: { "Authorization": `Bearer ${token}` },
+                            signal: controller.signal
+                        });
+                        if (proxyReqCxp.ok) {
+                            const arrayBufferCxp = await proxyReqCxp.arrayBuffer();
+                            try {
+                                const workbookCxp = XLSX.read(new Uint8Array(arrayBufferCxp), { type: 'array' });
+                                await window.processCxpWorkbook(workbookCxp);
+                                window.hasCxpAccess = true;
+                            } catch (e) {
+                                console.error("Error processing m365 cxp proxy sync:", e);
+                            }
+                        } else {
+                            console.warn("Proxy also rejected CxP sync. Status:", proxyReqCxp.status);
+                        }
                     }
                 }
             } else {
