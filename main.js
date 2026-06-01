@@ -838,7 +838,7 @@ async function fetchMasterData(token = null) {
                             try {
                                 const db = await getFinanceDB();
                                 const tx = db.transaction('finance_cache', 'readwrite');
-                                tx.objectStore('finance_cache').delete('CEO_VENTAS_KEY');
+                                tx.objectStore('finance_cache').delete('CEO_VENTAS_KEY_V3');
                             } catch(e) {}
                         }
                     }
@@ -1476,7 +1476,7 @@ async function loadCacheInstant() {
             await new Promise((resolve, reject) => {
                 const tx = db.transaction('finance_cache', 'readwrite');
                 tx.objectStore('finance_cache').delete('MASTER_FINANCE_KEY');
-                tx.objectStore('finance_cache').delete('CEO_VENTAS_KEY');
+                tx.objectStore('finance_cache').delete('CEO_VENTAS_KEY_V3');
                 tx.objectStore('finance_cache').delete('COMERCIAL_KEY');
                 tx.oncomplete = resolve;
                 tx.onerror = reject;
@@ -1504,7 +1504,7 @@ async function loadCacheInstant() {
         // Also load Ventas CEO data
         const ceoCachedRecord = await new Promise((resolve) => {
             try {
-                const req = db.transaction('finance_cache', 'readonly').objectStore('finance_cache').get('CEO_VENTAS_KEY');
+                const req = db.transaction('finance_cache', 'readonly').objectStore('finance_cache').get('CEO_VENTAS_KEY_V3');
                 req.onsuccess = () => resolve(req.result);
                 req.onerror = () => resolve(null);
             } catch (e) {
@@ -1605,7 +1605,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 await new Promise((resolve, reject) => {
                     const tx = db.transaction('finance_cache', 'readwrite');
                     tx.objectStore('finance_cache').delete('MASTER_FINANCE_KEY');
-                    tx.objectStore('finance_cache').delete('CEO_VENTAS_KEY');
+                    tx.objectStore('finance_cache').delete('CEO_VENTAS_KEY_V3');
                     tx.objectStore('finance_cache').delete('COMERCIAL_KEY');
                     tx.oncomplete = resolve;
                     tx.onerror = reject;
@@ -5248,10 +5248,10 @@ function renderDeudaView(data, selectedIndex = -1) {
     if (banksHeader && banksBody) {
         banksHeader.innerHTML = `
             <tr>
-                <th style="background: var(--sidebar); color: white;">Banco</th>
-                <th style="background: var(--sidebar); color: white; text-align: right;">${dic2025.date}</th>
-                <th style="background: var(--sidebar); color: white; text-align: right;">${curr.date}</th>
-                <th style="background: var(--sidebar); color: white; text-align: right;">Tasa Promedio</th>
+                <th style="background: var(--sidebar); color: white; text-align: left; padding: 12px 16px;">Banco</th>
+                <th style="background: var(--sidebar); color: white; text-align: right; padding: 12px 16px;">${dic2025.date}</th>
+                <th style="background: var(--sidebar); color: white; text-align: right; padding: 12px 16px;">${curr.date}</th>
+                <th style="background: var(--sidebar); color: white; text-align: right; padding: 12px 16px;">Tasa Promedio</th>
             </tr>
         `;
         
@@ -5275,20 +5275,20 @@ function renderDeudaView(data, selectedIndex = -1) {
             
             banksHTML += `
                 <tr>
-                    <td style="font-weight: 600;">${b.label}</td>
-                    <td class="num">${vDic === 0 ? "" : formatNum(vDic)}</td>
-                    <td class="num">${vCurr === 0 ? "" : formatNum(vCurr)}</td>
-                    <td class="num">${tCurr === undefined || tCurr === null || tCurr === 0 ? "" : formatPercent(tCurr)}</td>
+                    <td style="font-weight: 600; text-align: left; padding: 12px 16px;">${b.label}</td>
+                    <td class="num" style="text-align: right; padding: 12px 16px;">${vDic === 0 ? "" : formatNum(vDic)}</td>
+                    <td class="num" style="text-align: right; padding: 12px 16px;">${vCurr === 0 ? "" : formatNum(vCurr)}</td>
+                    <td class="num" style="text-align: right; padding: 12px 16px;">${tCurr === undefined || tCurr === null || tCurr === 0 ? "" : formatPercent(tCurr)}</td>
                 </tr>
             `;
         });
         
         banksHTML += `
             <tr style="background: var(--sidebar); color: white; font-weight: bold;">
-                <td style="font-weight: bold;">Total</td>
-                <td class="num" style="font-weight: bold;">${totDic === 0 ? "" : formatNum(totDic)}</td>
-                <td class="num" style="font-weight: bold;">${totCurr === 0 ? "" : formatNum(totCurr)}</td>
-                <td class="num"></td>
+                <td style="font-weight: bold; text-align: left; padding: 12px 16px;">Total</td>
+                <td class="num" style="font-weight: bold; text-align: right; padding: 12px 16px;">${totDic === 0 ? "" : formatNum(totDic)}</td>
+                <td class="num" style="font-weight: bold; text-align: right; padding: 12px 16px;">${totCurr === 0 ? "" : formatNum(totCurr)}</td>
+                <td class="num" style="text-align: right; padding: 12px 16px;"></td>
             </tr>
         `;
         banksBody.innerHTML = banksHTML;
@@ -5300,9 +5300,9 @@ function renderDeudaView(data, selectedIndex = -1) {
     if (indHeader && indBody) {
         indHeader.innerHTML = `
             <tr>
-                <th style="background: var(--sidebar); color: white;">Indicador</th>
-                <th style="background: var(--sidebar); color: white; text-align: right;">${dic2025.date}</th>
-                <th style="background: var(--sidebar); color: white; text-align: right;">${curr.date}</th>
+                <th style="background: var(--sidebar); color: white; text-align: left; padding: 12px 16px;">Indicador</th>
+                <th style="background: var(--sidebar); color: white; text-align: right; padding: 12px 16px;">${dic2025.date}</th>
+                <th style="background: var(--sidebar); color: white; text-align: right; padding: 12px 16px;">${curr.date}</th>
             </tr>
         `;
         
@@ -5316,47 +5316,47 @@ function renderDeudaView(data, selectedIndex = -1) {
         const iCurr = currD;
         
         indBody.innerHTML = `
-            <tr style="background: #e2e8f0; border-bottom: 2px solid #cbd5e1;"><td colspan="3" style="font-weight: 800; color: var(--sidebar); font-size: 0.9rem; padding-top: 12px; padding-bottom: 12px;">Tasa de Interés y Tipo de Cambio</td></tr>
+            <tr style="background: #e2e8f0; border-bottom: 2px solid #cbd5e1;"><td colspan="3" style="font-weight: 800; color: var(--sidebar); font-size: 0.9rem; padding-top: 12px; padding-bottom: 12px; text-align: left; padding-left: 16px;">Tasa de Interés y Tipo de Cambio</td></tr>
             <tr>
-                <td style="font-weight: 600;">Tasa DOP</td>
-                <td class="num">${formatPercent(iDic.tasaDop)}</td>
-                <td class="num">${formatPercent(iCurr.tasaDop)}</td>
+                <td style="font-weight: 600; text-align: left; padding: 12px 16px;">Tasa DOP</td>
+                <td class="num" style="text-align: right; padding: 12px 16px;">${formatPercent(iDic.tasaDop)}</td>
+                <td class="num" style="text-align: right; padding: 12px 16px;">${formatPercent(iCurr.tasaDop)}</td>
             </tr>
             <tr>
-                <td style="font-weight: 600;">Tasa USD</td>
-                <td class="num">${iDic.tasaUsd !== null && iDic.tasaUsd !== undefined && iDic.tasaUsd !== 0 ? formatPercent(iDic.tasaUsd) : formatFx(iDic.tasaCambio)}</td>
-                <td class="num">${iCurr.tasaUsd !== null && iCurr.tasaUsd !== undefined && iCurr.tasaUsd !== 0 ? formatPercent(iCurr.tasaUsd) : formatFx(iCurr.tasaCambio)}</td>
+                <td style="font-weight: 600; text-align: left; padding: 12px 16px;">Tasa USD</td>
+                <td class="num" style="text-align: right; padding: 12px 16px;">${iDic.tasaUsd !== null && iDic.tasaUsd !== undefined && iDic.tasaUsd !== 0 ? formatPercent(iDic.tasaUsd) : formatFx(iDic.tasaCambio)}</td>
+                <td class="num" style="text-align: right; padding: 12px 16px;">${iCurr.tasaUsd !== null && iCurr.tasaUsd !== undefined && iCurr.tasaUsd !== 0 ? formatPercent(iCurr.tasaUsd) : formatFx(iCurr.tasaCambio)}</td>
             </tr>
-            <tr style="background: #e2e8f0; border-bottom: 2px solid #cbd5e1;"><td colspan="3" style="font-weight: 800; color: var(--sidebar); font-size: 0.9rem; padding-top: 12px; padding-bottom: 12px;">Indicadores</td></tr>
+            <tr style="background: #e2e8f0; border-bottom: 2px solid #cbd5e1;"><td colspan="3" style="font-weight: 800; color: var(--sidebar); font-size: 0.9rem; padding-top: 12px; padding-bottom: 12px; text-align: left; padding-left: 16px;">Indicadores</td></tr>
             <tr>
-                <td style="font-weight: 600;">Deuda Neta USD <span style="font-size:0.75rem; color:var(--text-secondary);">(M USD)</span></td>
-                <td class="num">${formatNum(iDic.deudaNetaUsd, 1)}</td>
-                <td class="num">${formatNum(iCurr.deudaNetaUsd, 1)}</td>
-            </tr>
-            <tr>
-                <td style="font-weight: 600;">Deuda Neta Bancaria USD <span style="font-size:0.75rem; color:var(--text-secondary);">(M USD)</span></td>
-                <td class="num">${formatNum(iDic.deudaNetaBancUSD, 1)}</td>
-                <td class="num">${formatNum(iCurr.deudaNetaBancUSD, 1)}</td>
+                <td style="font-weight: 600; text-align: left; padding: 12px 16px;">Deuda Neta USD <span style="font-size:0.75rem; color:var(--text-secondary);">(M USD)</span></td>
+                <td class="num" style="text-align: right; padding: 12px 16px;">${formatNum(iDic.deudaNetaUsd, 1)}</td>
+                <td class="num" style="text-align: right; padding: 12px 16px;">${formatNum(iCurr.deudaNetaUsd, 1)}</td>
             </tr>
             <tr>
-                <td style="font-weight: 600;">Deuda Neta Bancaria / EBITDA R12 (&lt;=4.0x)</td>
-                <td class="num">${highlightStyle(formatRatio(iDic.covenantLean), iDic.covenantLean > 4)}</td>
-                <td class="num">${highlightStyle(formatRatio(iCurr.covenantLean), iCurr.covenantLean > 4)}</td>
+                <td style="font-weight: 600; text-align: left; padding: 12px 16px;">Deuda Neta Bancaria USD <span style="font-size:0.75rem; color:var(--text-secondary);">(M USD)</span></td>
+                <td class="num" style="text-align: right; padding: 12px 16px;">${formatNum(iDic.deudaNetaBancUSD, 1)}</td>
+                <td class="num" style="text-align: right; padding: 12px 16px;">${formatNum(iCurr.deudaNetaBancUSD, 1)}</td>
             </tr>
             <tr>
-                <td style="font-weight: 600;">Apalancamiento (&lt;=2.0x)</td>
-                <td class="num">${highlightStyle(formatRatio(iDic.apalancamiento), iDic.apalancamiento > 2)}</td>
-                <td class="num">${highlightStyle(formatRatio(iCurr.apalancamiento), iCurr.apalancamiento > 2)}</td>
+                <td style="font-weight: 600; text-align: left; padding: 12px 16px;">Deuda Neta Bancaria / EBITDA R12 (&lt;=4.0x)</td>
+                <td class="num" style="text-align: right; padding: 12px 16px;">${highlightStyle(formatRatio(iDic.covenantLean), iDic.covenantLean > 4)}</td>
+                <td class="num" style="text-align: right; padding: 12px 16px;">${highlightStyle(formatRatio(iCurr.covenantLean), iCurr.covenantLean > 4)}</td>
             </tr>
             <tr>
-                <td style="font-weight: 600;">Capacidad de Pago</td>
-                <td class="num">${formatRatio(iDic.capacidadPago)}</td>
-                <td class="num">${formatRatio(iCurr.capacidadPago)}</td>
+                <td style="font-weight: 600; text-align: left; padding: 12px 16px;">Apalancamiento (&lt;=2.0x)</td>
+                <td class="num" style="text-align: right; padding: 12px 16px;">${highlightStyle(formatRatio(iDic.apalancamiento), iDic.apalancamiento > 2)}</td>
+                <td class="num" style="text-align: right; padding: 12px 16px;">${highlightStyle(formatRatio(iCurr.apalancamiento), iCurr.apalancamiento > 2)}</td>
             </tr>
             <tr>
-                <td style="font-weight: 600;">Razón Corriente (&gt;=1.5x)</td>
-                <td class="num">${highlightStyle(formatRatio(iDic.razonCorriente), iDic.razonCorriente !== null && iDic.razonCorriente < 1.5)}</td>
-                <td class="num">${highlightStyle(formatRatio(iCurr.razonCorriente), iCurr.razonCorriente !== null && iCurr.razonCorriente < 1.5)}</td>
+                <td style="font-weight: 600; text-align: left; padding: 12px 16px;">Capacidad de Pago</td>
+                <td class="num" style="text-align: right; padding: 12px 16px;">${formatRatio(iDic.capacidadPago)}</td>
+                <td class="num" style="text-align: right; padding: 12px 16px;">${formatRatio(iCurr.capacidadPago)}</td>
+            </tr>
+            <tr>
+                <td style="font-weight: 600; text-align: left; padding: 12px 16px;">Razón Corriente (&gt;=1.5x)</td>
+                <td class="num" style="text-align: right; padding: 12px 16px;">${highlightStyle(formatRatio(iDic.razonCorriente), iDic.razonCorriente !== null && iDic.razonCorriente < 1.5)}</td>
+                <td class="num" style="text-align: right; padding: 12px 16px;">${highlightStyle(formatRatio(iCurr.razonCorriente), iCurr.razonCorriente !== null && iCurr.razonCorriente < 1.5)}</td>
             </tr>
         `;
     }
@@ -9357,7 +9357,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 const db = await getFinanceDB();
                 await new Promise((resolve, reject) => {
                     const tx = db.transaction('finance_cache', 'readwrite');
-                    tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'CEO_VENTAS_KEY');
+                    tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'CEO_VENTAS_KEY_V3');
                     tx.oncomplete = resolve;
                     tx.onerror = reject;
                 });
@@ -9411,7 +9411,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                     const db = await getFinanceDB();
                     await new Promise((resolve, reject) => {
                         const tx = db.transaction('finance_cache', 'readwrite');
-                        tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'CEO_VENTAS_KEY');
+                        tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'CEO_VENTAS_KEY_V2');
                         tx.oncomplete = resolve;
                         tx.onerror = reject;
                     });
@@ -9660,7 +9660,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                }
             });
             
-            // Dividir el Volumen entre 1000 para llevar a miles (k)
+        // Dividir el Volumen entre 1000 para llevar a miles (k)
             finalData.forEach(row => {
                 if (row.Tipo === 'Volumen') {
                     if (row.values) {
@@ -9669,11 +9669,30 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                     if (row.pptoValues) {
                         Object.keys(row.pptoValues).forEach(k => row.pptoValues[k] /= 1000);
                     }
-                    ['FY2024', 'PO25', 'PO26'].forEach(y => {
+                    ['PO25', 'PO26'].forEach(y => {
                         if(row[y] !== undefined) row[y] /= 1000;
                     });
+                     // FY2024 will be restored below, so no need to divide it here
                 }
             });
+
+        // Restaurar FY2024 desde Tablas Consejo para TODOS los productos y tipos
+        // ya que el valor allí es un promedio anual y debe mantenerse fijo, 
+        // y ya viene formateado en la escala correcta (k, o MM DOP)
+        finalData.forEach(row => {
+            let consejoRow = tempParsedRows.find(d => {
+                if (d.Producto !== row.Producto) return false;
+                if (row.Tipo === 'Monto (MM DOP)') {
+                    let cType = String(d.Tipo).toUpperCase();
+                    return cType.includes('MONTO') || cType.includes('VALOR') || cType.includes('VENTAS') || d.Tipo === row.Tipo;
+                }
+                return d.Tipo === row.Tipo;
+            });
+            if (consejoRow && consejoRow['FY2024'] !== undefined) {
+                row['FY2024'] = consejoRow['FY2024'];
+                row.__real24 = consejoRow['FY2024'];
+            }
+        });
 
             ceoData = finalData;
             console.log("Ventas CEO data loaded.", ceoData.length);
@@ -9683,7 +9702,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 const db = await getFinanceDB();
                 await new Promise((resolve, reject) => {
                     const tx = db.transaction('finance_cache', 'readwrite');
-                    tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'CEO_VENTAS_KEY');
+                    tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'CEO_VENTAS_KEY_V2');
                     tx.oncomplete = resolve;
                     tx.onerror = reject;
                 });
@@ -9916,6 +9935,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         let parsedRows = [];
         let currentType = "Volumen";
         let currentParentId = null;
+        let totalCount = 0;
         
         objects.forEach(r => {
             const keys = Object.keys(r);
@@ -9928,9 +9948,18 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             let prodVal = String(r[prodKey] || '').trim();
             if(!prodVal || prodVal === '0') return; // Skip empty rows
             
-            prodVal = prodVal.replace(/\s*\(\s*ZUMOS\s*\)\s*/i, ' ').replace(/\s{2,}/g, ' ').trim();
-            
             let firstCell = prodVal.toUpperCase();
+            if(firstCell.includes("PRECIO UNITARIO") && firstCell.length < 20) return; // Ignore headers
+            if(firstCell === 'TOTAL') {
+                totalCount++;
+                if (totalCount === 1) currentType = "Volumen";
+                else if (totalCount === 2) currentType = "Monto (MM DOP)";
+                else if (totalCount === 3) currentType = "Precio Unitario";
+            }
+            
+            prodVal = prodVal.replace(/\s*\(\s*ZUMOS\s*\)\s*/i, ' ').replace(/\s{2,}/g, ' ').trim();
+            firstCell = prodVal.toUpperCase();
+            
             if(firstCell.includes("PRECIO UNITARIO")) return;
             
             let isParent = false;
@@ -10120,8 +10149,17 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             
             let parsedRows = [];
             let currentType = "Volumen"; 
+            let tableCount = 0;
             
             data.forEach(d => {
+                const dProdStr = String(d.Producto || '').toUpperCase().trim();
+                if (dProdStr === 'TOTAL') {
+                    tableCount++;
+                    if (tableCount === 1) currentType = "Volumen";
+                    else if (tableCount === 2) currentType = "Monto (MM DOP)";
+                    else if (tableCount === 3) currentType = "Precio Unitario";
+                }
+                
                 let cellValues = Object.values(d).map(v => String(v).toUpperCase().trim());
                 if (cellValues.some(v => v.includes('VOLUMEN') && !v.includes('PRECIO'))) {
                     currentType = 'Volumen';
@@ -10133,7 +10171,6 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                     currentType = String(d.Tipo).trim();
                 }
                 
-                const dProdStr = String(d.Producto || '').toUpperCase().trim();
                 if (dProdStr.includes('VOLUMEN') && !dProdStr.includes('PRECIO')) currentType = 'Volumen';
                 if (dProdStr.includes('VENTAS') || dProdStr === 'MONTO' || dProdStr.includes('NETAS DOP')) currentType = 'Ventas Netas DOP';
 
@@ -11146,7 +11183,7 @@ window.processCxpFile = async function(file) {
         };
         
         // Static columns
-        addTh(`Real ${currYear}`, 'var(--sidebar)', 'white');
+        addTh(`Real 2024`, 'var(--sidebar)', 'white');
         addTh('<span title="Prom. Mensual Año Ant." style="cursor:help;">REAL AÑO ANT.</span>', 'var(--sidebar)', 'white');
         addTh('Var %', 'var(--sidebar)', 'white');
         addTh('PPTO', 'var(--sidebar)', 'white');
@@ -11196,7 +11233,7 @@ window.processCxpFile = async function(file) {
             // Assume upcoming year is reqY + 2
             const poStrKey = `${reqY + 2}-${reqM}`;
             
-            let real24 = row.values[currKey] || 0;
+            let real24 = row.FY2024 || 0;
             
             let prevYearSum = 0;
             let prevYearCount = 12;
@@ -11304,7 +11341,7 @@ window.processCxpFile = async function(file) {
                         ${row.hasChildren ? `<span>${isExpanded ? '▼' : '►'}</span>` : ''}
                     </div>
                     <div class="ceo-card-metric">
-                        <span class="ceo-card-metric-label">Actual (${currYear})</span>
+                        <span class="ceo-card-metric-label">Actual (2024)</span>
                         <span class="ceo-card-metric-value">${formatVal(currMonthVal)}</span>
                     </div>
                     <div class="ceo-card-metric">
@@ -11341,7 +11378,7 @@ window.processCxpFile = async function(file) {
                         <span>TOTAL</span>
                     </div>
                     <div class="ceo-card-metric">
-                        <span class="ceo-card-metric-label">Actual (${currYear})</span>
+                        <span class="ceo-card-metric-label">Actual (2024)</span>
                         <span class="ceo-card-metric-value">${formatVal(totalRow.__real24)}</span>
                     </div>
                     <div class="ceo-card-metric">
@@ -11376,7 +11413,7 @@ window.processCxpFile = async function(file) {
                         <span>TOTAL SIN BON</span>
                     </div>
                     <div class="ceo-card-metric">
-                        <span class="ceo-card-metric-label">Actual (${currYear})</span>
+                        <span class="ceo-card-metric-label">Actual (2024)</span>
                         <span class="ceo-card-metric-value" style="color: #10b981;">${formatVal(tsbRow.__real24)}</span>
                     </div>
                     <div class="ceo-card-metric">
@@ -11619,17 +11656,19 @@ window.processCxpFile = async function(file) {
                 return "";
             });
 
-        g.selectAll("text.total-label")
-            .data(chartData)
-            .enter().append("text")
-            .attr("class", "total-label")
-            .attr("x", d => x(d.label) + x.bandwidth() / 2)
-            .attr("y", d => y(d.total) - 8)
-            .attr("text-anchor", "middle")
-            .style("font-size", "13px")
-            .style("font-weight", "bold")
-            .style("fill", "var(--text-primary)")
-            .text(d => formatter.format(d.total));
+        if (!isPrecio) {
+            g.selectAll("text.total-label")
+                .data(chartData)
+                .enter().append("text")
+                .attr("class", "total-label")
+                .attr("x", d => x(d.label) + x.bandwidth() / 2)
+                .attr("y", d => y(d.total) - 8)
+                .attr("text-anchor", "middle")
+                .style("font-size", "13px")
+                .style("font-weight", "bold")
+                .style("fill", "var(--text-primary)")
+                .text(d => formatter.format(d.total));
+        }
 
         g.append("g")
             .attr("transform", `translate(0,${boundedHeight})`)
@@ -12095,7 +12134,7 @@ window.processCxpFile = async function(file) {
         {
             elementId: "btn-comercial-mom",
             title: "📈 6. Perspectiva: Tendencia Secuencial (MoM)",
-            text: "Uso: Haz clic aquí para evaluar las variaciones mes a mes secuenciales. Te ayuda a detectar instantáneamente tendencias dinámicas de crecimiento sostenido o caídas de volumen quincena a quincena.",
+            text: "Uso: Haz clic aquí para evaluar las variaciones mes a mes secuenciales. Te ayuda a detectar instantáneamente tendencias dinámicas de crecimiento sostenido o caídas de volumen mes a mes.",
             action: () => { 
                document.getElementById("menu-resumen-comercial")?.click(); 
                setTimeout(() => {
@@ -12115,8 +12154,27 @@ window.processCxpFile = async function(file) {
             }
         },
         {
+            elementId: "tour-alert-target",
+            title: "🚨 8. Alertas de Desviación",
+            text: "Lógica: Los indicadores visuales intermitentes en el Estado de Resultados son alertas de desviación (solo parpadean si la desviación excede un 15% por encima o por debajo). Si están en ROJO y parpadean indican que el valor está por debajo del presupuesto o margen esperado. Si están en VERDE parpadeante, el desempeño superó fuertemente la meta definida.",
+            action: () => { 
+               document.getElementById("menu-pnl")?.click(); 
+               setTimeout(() => {
+                   let pulseTarget = document.querySelector('#pnlDetailedTable .pulse-neg') || document.querySelector('#pnlDetailedTable .pulse-pos');
+                   if (pulseTarget) {
+                       pulseTarget.id = 'tour-alert-target';
+                   } else {
+                       let tbody = document.getElementById('pnlDetailedBody');
+                       if (tbody && tbody.rows.length > 0) {
+                           tbody.rows[0].cells[0].id = 'tour-alert-target';
+                       }
+                   }
+               }, 100);
+            }
+        },
+        {
             elementId: "menu-simulador",
-            title: "🚀 8. Operando el Simulador (What-If)",
+            title: "🚀 9. Operando el Simulador (What-If)",
             text: "Uso: Tu campo de juego interactivo. Mueve los deslizadores de Precio, Costo o Ventas y observa inmediatamente el marcador de EBITDA/Caja ubicado arriba a la derecha para predecir impactos.",
             action: () => { document.getElementById("menu-simulador")?.click(); }
         },
