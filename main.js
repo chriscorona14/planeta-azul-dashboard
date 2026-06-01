@@ -530,8 +530,12 @@ window.applyRoleBasedUI = function(hasMaster, hasVentas, hasComercial = false) {
         if (contentHeader) contentHeader.style.display = '';
         if (headerActions) headerActions.style.display = 'flex';
         if (headerInfo) headerInfo.style.display = '';
-        if (monthSelector) monthSelector.style.display = 'block';
-        if (viewModeToggle) viewModeToggle.style.display = 'flex';
+        if (monthSelector) {
+            monthSelector.style.display = (globalFinancialData && globalFinancialData.length > 0) ? 'block' : 'none';
+        }
+        if (viewModeToggle) {
+            viewModeToggle.style.display = (globalFinancialData && globalFinancialData.length > 0) ? 'flex' : 'none';
+        }
         if (dropZone) {
             const isConfigActive = document.getElementById('view-config')?.classList.contains('active');
             dropZone.style.display = isConfigActive ? 'block' : 'none';
@@ -1329,16 +1333,8 @@ async function loadCacheInstant() {
             const req = db.transaction('finance_cache', 'readonly').objectStore('finance_cache').get(CACHE_KEY);
             req.onsuccess = () => {
                 const result = req.result;
-                if (result && result.timestamp && Date.now() - result.timestamp < 86400000) {
+                if (result) {
                     resolve(result);
-                } else if (result) {
-                    // Limpieza Automática: borrar si los datos tienen más de 24 horas
-                    try {
-                        const deleteTx = db.transaction('finance_cache', 'readwrite');
-                        deleteTx.objectStore('finance_cache').delete(CACHE_KEY);
-                        console.log("🧹 Caché antigua eliminada (>24h)");
-                    } catch(e) {}
-                    resolve(null);
                 } else {
                     resolve(null);
                 }
