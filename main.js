@@ -6361,12 +6361,12 @@ function renderPreliminaryView(data, selectedIndex = -1) {
         html += `<tr ${idAttr} style="${bgRow} ${displayStyle}">
             <td style="border-right: 1px solid rgba(0,0,0,0.05); padding: 5px; text-align: center; vertical-align: middle;">${collapseBtn}</td>
             <td style="border-right: 1px solid rgba(0,0,0,0.05); padding: 14px 16px; padding-left: ${paddingLeft}; font-size: 1.05em; ${styleText}">${formatSegmentName(row.label)}</td>
-            <td style="text-align:right; padding: 14px 16px; font-size: 1.05em; ${styleText}">${formatRowVal(prevVal)}</td>
-            <td style="text-align:right; color:var(--text-secondary); font-size:0.95em; padding: 14px 16px;">${(isTasa || hidePct) ? '' : (Math.abs(pPrev)*100).toFixed(0)+'%'}</td>
-            <td style="text-align:right; border-left: 2px solid var(--sidebar-accent); background:rgba(0, 150, 199, 0.05); padding: 14px 16px; font-size: 1.05em; ${styleText}"><div ${innerClassStr}>${formatRowVal(currVal)}</div></td>
-            <td style="text-align:right; background:rgba(0, 150, 199, 0.05); font-weight:600; font-size:0.95em; padding: 14px 16px;">${(isTasa || hidePct) ? '' : (Math.abs(pCurr)*100).toFixed(0)+'%'}</td>
-            <td style="text-align:right; border-left: 1px solid rgba(0,0,0,0.05); padding: 14px 16px; font-size: 1.05em; ${styleText}">${formatRowVal(pptoVal)}</td>
-            <td style="text-align:right; color:var(--text-secondary); font-size:0.95em; padding: 14px 16px;">${(isTasa || hidePct) ? '' : (Math.abs(pPpto)*100).toFixed(0)+'%'}</td>
+            <td style="text-align:right; padding: 14px 16px; font-size: 1.25em; ${styleText}">${formatRowVal(prevVal)}</td>
+            <td style="text-align:right; color:var(--text-secondary); font-size:1.05em; padding: 14px 16px;">${(isTasa || hidePct) ? '' : (Math.abs(pPrev)*100).toFixed(0)+'%'}</td>
+            <td style="text-align:right; border-left: 2px solid var(--sidebar-accent); background:rgba(0, 150, 199, 0.05); padding: 14px 16px; font-size: 1.25em; ${styleText}"><div ${innerClassStr}>${formatRowVal(currVal)}</div></td>
+            <td style="text-align:right; background:rgba(0, 150, 199, 0.05); font-weight:600; font-size:1.05em; padding: 14px 16px;">${(isTasa || hidePct) ? '' : (Math.abs(pCurr)*100).toFixed(0)+'%'}</td>
+            <td style="text-align:right; border-left: 1px solid rgba(0,0,0,0.05); padding: 14px 16px; font-size: 1.25em; ${styleText}">${formatRowVal(pptoVal)}</td>
+            <td style="text-align:right; color:var(--text-secondary); font-size:1.05em; padding: 14px 16px;">${(isTasa || hidePct) ? '' : (Math.abs(pPpto)*100).toFixed(0)+'%'}</td>
         </tr>`;
     });
 
@@ -11256,7 +11256,7 @@ window.processCxpFile = async function(file) {
             
             const varPct = realAnoAnt ? ((realAnoAnt - real24)/real24) : 0;
             
-            const cellStyle = isTotal ? "font-weight:800;" : "";
+            const cellStyle = isTotal ? "font-weight:800; font-size:0.85rem;" : "font-size:0.95rem;";
             
             html += `<td style="text-align:right; ${cellStyle}">${formatVal(real24)}</td>`;
             html += `<td style="text-align:right; ${cellStyle}">${formatVal(realAnoAnt)}</td>`;
@@ -11273,7 +11273,7 @@ window.processCxpFile = async function(file) {
             });
             const prevAvg = prevCount ? (prevSum/prevCount) : 0;
             row.__prevAvg = prevAvg;
-            html += `<td style="text-align:right; font-weight:600; background:rgba(115,165,198,0.1);">${formatVal(prevAvg)}</td>`;
+            html += `<td style="text-align:right; font-weight:600; font-size:0.95rem; background:rgba(115,165,198,0.1);">${formatVal(prevAvg)}</td>`;
             
             let currSum = 0, currCount = 0;
             currMonths.forEach(m => {
@@ -11285,10 +11285,10 @@ window.processCxpFile = async function(file) {
             });
             const currAvg = currCount ? (currSum/currCount) : 0;
             row.__currAvg = currAvg;
-            html += `<td style="text-align:right; font-weight:600; background:rgba(115,165,198,0.1);">${formatVal(currAvg)}</td>`;
+            html += `<td style="text-align:right; font-weight:600; font-size:0.95rem; background:rgba(115,165,198,0.1);">${formatVal(currAvg)}</td>`;
             
             const varAvg = prevAvg ? ((currAvg - prevAvg)/prevAvg) : 0;
-            html += `<td style="text-align:right; font-weight:600;">${formatPct(varAvg)}</td>`;
+            html += `<td style="text-align:right; font-weight:600; font-size:0.95rem;">${formatPct(varAvg)}</td>`;
             
             return html;
         };
