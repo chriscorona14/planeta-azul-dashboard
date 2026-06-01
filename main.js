@@ -733,12 +733,14 @@ async function fetchMasterData(token = null) {
                     } else {
                         console.warn("Graph API rejected Master sync. Status:", req.status, req.statusText);
                         window.hasMasterAccess = false;
-                        globalFinancialData = null;
-                        try {
-                            const db = await getFinanceDB();
-                            const tx = db.transaction('finance_cache', 'readwrite');
-                            tx.objectStore('finance_cache').delete('MASTER_FINANCE_KEY');
-                        } catch(e) {}
+                        if (!window.isMagicLoaded && !(globalFinancialData && globalFinancialData.length > 0)) {
+                            globalFinancialData = null;
+                            try {
+                                const db = await getFinanceDB();
+                                const tx = db.transaction('finance_cache', 'readwrite');
+                                tx.objectStore('finance_cache').delete('MASTER_FINANCE_KEY');
+                            } catch(e) {}
+                        }
                     }
                 }
 
@@ -1020,8 +1022,21 @@ async function fetchMasterData(token = null) {
 
         // Si operamos con caché (ya se cargaron los datos), restauramos los permisos que se perdieron con el reset
         if (window.isMagicLoaded) {
-            if (!window.hasMasterAccess && (globalFinancialData && globalFinancialData.length > 0)) {
-                window.hasMasterAccess = true;
+            // Restaurar hasMasterAccess ANTES de verificar globalFinancialData
+            if (!window.hasMasterAccess) {
+                const db = await getFinanceDB().catch(() => null);
+                if (db) {
+                    const cached = await new Promise(resolve => {
+                        const tx = db.transaction('finance_cache', 'readonly');
+                        const req = tx.objectStore('finance_cache').get('MASTER_FINANCE_KEY');
+                        req.onsuccess = () => resolve(req.result);
+                        req.onerror = () => resolve(null);
+                    });
+                    if (cached && cached.data && cached.data.length > 0) {
+                        globalFinancialData = cached.data;
+                        window.hasMasterAccess = true;
+                    }
+                }
             }
             if (!window.hasVentasAccess && (typeof ceoData !== 'undefined' && ceoData && ceoData.length > 0)) {
                 window.hasVentasAccess = true;
@@ -1111,6 +1126,11 @@ async function fetchMasterData(token = null) {
                 if (window.hasMasterAccess || window.isMagicLoaded) {
                     renderDashboard(globalFinancialData);
                 }
+            } else if (window.isMagicLoaded && globalFinancialData && globalFinancialData.length > 0) {
+                // Fallback silencioso: usar caché existente aunque la API haya fallado
+                console.log("⚡ [Fallback] Usando caché local tras fallo de API. Re-renderizando dashboard...");
+                window.hasMasterAccess = true; // Restaurar acceso basado en caché
+                renderDashboard(globalFinancialData);
             }
         }
         
