@@ -10997,6 +10997,17 @@ window.processCxpFile = async function(file) {
         window.resumenComercialEngine.renderResumenComercial(m, isYTD, window.comercialCurrentView);
         setTimeout(() => {
             applyMobileDataLabels('resumen-comercial-table', 'resumen-comercial-thead');
+            
+            // Dynamic sticky header adjustment to prevent overlaps
+            const thead = document.getElementById('resumen-comercial-thead');
+            if (thead) {
+                const firstRowTh = thead.querySelector('tr:first-child th:nth-child(2)');
+                if (firstRowTh) {
+                    const h = firstRowTh.getBoundingClientRect().height;
+                    const secondRowThs = thead.querySelectorAll('tr:nth-child(2) th');
+                    secondRowThs.forEach(th => th.style.top = `${h - 0.5}px`);
+                }
+            }
         }, 10);
 
         // Sync Mobile Accordions
@@ -11038,7 +11049,7 @@ window.processCxpFile = async function(file) {
         window.renderVentasCEO();
     };
 
-    window.renderVentasCEO = function() {
+    window.renderVentasCEO = function(skipChart = false) {
         if(!ceoData) return;
 
         const isMobile = window.innerWidth <= 768;
@@ -11211,7 +11222,9 @@ window.processCxpFile = async function(file) {
         addTh(currAvgLabel, '#73A5C6', 'white');
         addTh('Var %', 'var(--sidebar)', 'white');
         
-        thead.innerHTML = `<tr>${thHtml}</tr>`;
+        if (!isMobile) {
+            thead.innerHTML = `<tr>${thHtml}</tr>`;
+        }
         
         const formatVal = (val) => {
             return parseFloat(val || 0).toLocaleString('es-DO', {minimumFractionDigits: decimals, maximumFractionDigits: decimals});
@@ -11319,13 +11332,8 @@ window.processCxpFile = async function(file) {
                 rowStyle += "font-weight: 500; ";
             }
 
-            tbHtml += `<tr data-group="${row.parentId || ''}" id="ventasceo-row-${row.id}" ${rowOnclick} ${rowHover}>
-                          <td style="width: 24px; min-width: 24px; max-width: 24px; text-align: center; vertical-align: middle; border-right: 1px solid rgba(0,0,0,0.05); padding: 0; cursor: ${row.hasChildren ? 'pointer':'default'};">${collapseBtn}</td>
-                          <td style="text-align:left; border-right: 1px solid rgba(0,0,0,0.05); padding: 12px 16px; ${rowStyle}">${formatSegmentName(row.Producto)}</td>`;
-            tbHtml += renderRowContent(row, false);
-            tbHtml += '</tr>';
-            
             if (isMobile) {
+                renderRowContent(row, false); // Calculate data properties
                 let currMonthVal = row.__real24;
                 let varPct = row.__realAnoAnt ? ((row.__real24 - row.__realAnoAnt)/row.__realAnoAnt) : 0;
                 let avgVal = row.__currAvg;
@@ -11334,25 +11342,47 @@ window.processCxpFile = async function(file) {
                 let clickAttr = row.hasChildren ? `onclick="toggleVentasCeoGroup('${row.id}')" style="cursor:pointer;"` : '';
                 let titleMargin = row.parentId ? "margin-left: 16px; border-left: 2px solid var(--border); padding-left: 8px;" : "";
                 
+                let selectedMonthLabel = formatM(currYear, currMonth);
+
                 cardsHtml += `
                 <div class="ceo-card" ${clickAttr}>
                     <div class="ceo-card-title" style="${titleMargin}">
                         <span>${formatSegmentName(row.Producto)}</span>
                         ${row.hasChildren ? `<span>${isExpanded ? '▼' : '►'}</span>` : ''}
                     </div>
-                    <div class="ceo-card-metric">
-                        <span class="ceo-card-metric-label">Actual (2024)</span>
-                        <span class="ceo-card-metric-value">${formatVal(currMonthVal)}</span>
-                    </div>
-                    <div class="ceo-card-metric">
-                        <span class="ceo-card-metric-label">Promedio (${currMonths && currMonths.length > 0 && currMonths[0].label ? currMonths[0].label.split('-')[0] : ''} - ${currMonths && currMonths.length > 0 && currMonths[currMonths.length-1].label ? currMonths[currMonths.length-1].label.split('-')[0] : ''})</span>
-                        <span class="ceo-card-metric-value">${formatVal(avgVal)}</span>
-                    </div>
-                    <div class="ceo-card-metric" style="margin-bottom: 0;">
-                        <span class="ceo-card-metric-label">YoY %</span>
-                        <span class="ceo-card-metric-value" style="color: ${pctColor}">${formatPct(varPct)}</span>
+                    <div class="ceo-card-metrics-grid">
+                        <div class="ceo-card-metric">
+                            <span class="ceo-card-metric-label">Real 2024</span>
+                            <span class="ceo-card-metric-value">${formatVal(currMonthVal)}</span>
+                        </div>
+                        <div class="ceo-card-metric">
+                            <span class="ceo-card-metric-label">Real Año Ant.</span>
+                            <span class="ceo-card-metric-value">${formatVal(row.__realAnoAnt)}</span>
+                        </div>
+                        <div class="ceo-card-metric">
+                            <span class="ceo-card-metric-label">Var %</span>
+                            <span class="ceo-card-metric-value" style="color: ${pctColor}">${formatPct(varPct)}</span>
+                        </div>
+                        <div class="ceo-card-metric">
+                            <span class="ceo-card-metric-label">PPTO</span>
+                            <span class="ceo-card-metric-value">${formatVal(row.__po26)}</span>
+                        </div>
+                        <div class="ceo-card-metric">
+                            <span class="ceo-card-metric-label">${selectedMonthLabel}</span>
+                            <span class="ceo-card-metric-value">${formatVal(currMonthVal)}</span>
+                        </div>
+                        <div class="ceo-card-metric">
+                            <span class="ceo-card-metric-label">Prom. 4M actual</span>
+                            <span class="ceo-card-metric-value">${formatVal(avgVal)}</span>
+                        </div>
                     </div>
                 </div>`;
+            } else {
+                tbHtml += `<tr data-group="${row.parentId || ''}" id="ventasceo-row-${row.id}" ${rowOnclick} ${rowHover}>
+                              <td style="width: 24px; min-width: 24px; max-width: 24px; text-align: center; vertical-align: middle; border-right: 1px solid rgba(0,0,0,0.05); padding: 0; cursor: ${row.hasChildren ? 'pointer':'default'};">${collapseBtn}</td>
+                              <td style="text-align:left; border-right: 1px solid rgba(0,0,0,0.05); padding: 12px 16px; ${rowStyle}">${formatSegmentName(row.Producto)}</td>`;
+                tbHtml += renderRowContent(row, false);
+                tbHtml += '</tr>';
             }
         });
         
@@ -11362,34 +11392,51 @@ window.processCxpFile = async function(file) {
         });
         
         if(totalRow) {
-             const tRowHtml = renderRowContent(totalRow, true);
-             tbHtml = `<tr style="background:#eef2f5;">
-                          <td style="width: 24px; min-width: 24px; max-width: 24px; text-align: center; border-right: 1px solid rgba(0,0,0,0.05); padding: 0;"></td>
-                          <td style="text-align:left; font-weight:800; border-right: 1px solid rgba(0,0,0,0.05); padding: 12px 16px;">TOTAL</td>` 
-                           + tRowHtml + 
-                       '</tr>' + tbHtml;
-                       
              if (isMobile) {
+                renderRowContent(totalRow, true);
                 let varPct = totalRow.__realAnoAnt ? ((totalRow.__real24 - totalRow.__realAnoAnt)/totalRow.__realAnoAnt) : 0;
                 let pctColor = varPct > 0 ? '#10b981' : (varPct < 0 ? '#ef4444' : 'var(--text-secondary)');
+                let selectedMonthLabel = formatM(currYear, currMonth);
+                
                 cardsHtml = `
                 <div class="ceo-card" style="background: #eef2f5; border: 2px solid var(--border);">
                     <div class="ceo-card-title">
                         <span>TOTAL</span>
                     </div>
-                    <div class="ceo-card-metric">
-                        <span class="ceo-card-metric-label">Actual (2024)</span>
-                        <span class="ceo-card-metric-value">${formatVal(totalRow.__real24)}</span>
-                    </div>
-                    <div class="ceo-card-metric">
-                        <span class="ceo-card-metric-label">Promedio</span>
-                        <span class="ceo-card-metric-value">${formatVal(totalRow.__currAvg)}</span>
-                    </div>
-                    <div class="ceo-card-metric" style="margin-bottom: 0;">
-                        <span class="ceo-card-metric-label">YoY %</span>
-                        <span class="ceo-card-metric-value" style="color: ${pctColor}">${formatPct(varPct)}</span>
+                    <div class="ceo-card-metrics-grid">
+                        <div class="ceo-card-metric">
+                            <span class="ceo-card-metric-label">Real 2024</span>
+                            <span class="ceo-card-metric-value">${formatVal(totalRow.__real24)}</span>
+                        </div>
+                        <div class="ceo-card-metric">
+                            <span class="ceo-card-metric-label">Real Año Ant.</span>
+                            <span class="ceo-card-metric-value">${formatVal(totalRow.__realAnoAnt)}</span>
+                        </div>
+                        <div class="ceo-card-metric">
+                            <span class="ceo-card-metric-label">Var %</span>
+                            <span class="ceo-card-metric-value" style="color: ${pctColor}">${formatPct(varPct)}</span>
+                        </div>
+                        <div class="ceo-card-metric">
+                            <span class="ceo-card-metric-label">PPTO</span>
+                            <span class="ceo-card-metric-value">${formatVal(totalRow.__po26)}</span>
+                        </div>
+                        <div class="ceo-card-metric">
+                            <span class="ceo-card-metric-label">${selectedMonthLabel}</span>
+                            <span class="ceo-card-metric-value">${formatVal(totalRow.__real24)}</span>
+                        </div>
+                        <div class="ceo-card-metric">
+                            <span class="ceo-card-metric-label">Prom. 4M actual</span>
+                            <span class="ceo-card-metric-value">${formatVal(totalRow.__currAvg)}</span>
+                        </div>
                     </div>
                 </div>` + cardsHtml;
+             } else {
+                 const tRowHtml = renderRowContent(totalRow, true);
+                 tbHtml = `<tr style="background:#eef2f5;">
+                              <td style="width: 24px; min-width: 24px; max-width: 24px; text-align: center; border-right: 1px solid rgba(0,0,0,0.05); padding: 0;"></td>
+                              <td style="text-align:left; font-weight:800; border-right: 1px solid rgba(0,0,0,0.05); padding: 12px 16px;">TOTAL</td>` 
+                               + tRowHtml + 
+                           '</tr>' + tbHtml;
              }
         }
         
@@ -11398,37 +11445,56 @@ window.processCxpFile = async function(file) {
             return d.Tipo === ventasCeoCurrentMetric && (p === 'TOTAL SIN BON' || p === 'TOTAL SIN BON.');
         });
         if(tsbRow) {
-             tbHtml += `<tr style="background:#eef2f5;">
-                           <td style="width: 24px; min-width: 24px; max-width: 24px; text-align: center; border-right: 1px solid rgba(0,0,0,0.05); padding: 0;"></td>
-                           <td style="text-align:left; font-weight:800; color: #10b981; border-right: 1px solid rgba(0,0,0,0.05); padding: 12px 16px;">${formatSegmentName('TOTAL SIN BON')}</td>` 
-                           + renderRowContent(tsbRow, true).replace(/<td/g, '<td style="color: #10b981;"') + 
-                       '</tr>';
-                       
              if (isMobile) {
+                renderRowContent(tsbRow, true);
                 let varPct = tsbRow.__realAnoAnt ? ((tsbRow.__real24 - tsbRow.__realAnoAnt)/tsbRow.__realAnoAnt) : 0;
                 let pctColor = varPct > 0 ? '#10b981' : (varPct < 0 ? '#ef4444' : 'var(--text-secondary)');
+                let selectedMonthLabel = formatM(currYear, currMonth);
+                
                 cardsHtml += `
                 <div class="ceo-card" style="background: #eef2f5; border: 2px solid #10b981;">
                     <div class="ceo-card-title" style="color: #10b981;">
                         <span>TOTAL SIN BON</span>
                     </div>
-                    <div class="ceo-card-metric">
-                        <span class="ceo-card-metric-label">Actual (2024)</span>
-                        <span class="ceo-card-metric-value" style="color: #10b981;">${formatVal(tsbRow.__real24)}</span>
-                    </div>
-                    <div class="ceo-card-metric">
-                        <span class="ceo-card-metric-label">Promedio</span>
-                        <span class="ceo-card-metric-value" style="color: #10b981;">${formatVal(tsbRow.__currAvg)}</span>
-                    </div>
-                    <div class="ceo-card-metric" style="margin-bottom: 0;">
-                        <span class="ceo-card-metric-label">YoY %</span>
-                        <span class="ceo-card-metric-value" style="color: ${pctColor}">${formatPct(varPct)}</span>
+                    <div class="ceo-card-metrics-grid">
+                        <div class="ceo-card-metric">
+                            <span class="ceo-card-metric-label">Real 2024</span>
+                            <span class="ceo-card-metric-value" style="color: #10b981;">${formatVal(tsbRow.__real24)}</span>
+                        </div>
+                        <div class="ceo-card-metric">
+                            <span class="ceo-card-metric-label">Real Año Ant.</span>
+                            <span class="ceo-card-metric-value" style="color: #10b981;">${formatVal(tsbRow.__realAnoAnt)}</span>
+                        </div>
+                        <div class="ceo-card-metric">
+                            <span class="ceo-card-metric-label">Var %</span>
+                            <span class="ceo-card-metric-value" style="color: ${pctColor}">${formatPct(varPct)}</span>
+                        </div>
+                        <div class="ceo-card-metric">
+                            <span class="ceo-card-metric-label">PPTO</span>
+                            <span class="ceo-card-metric-value" style="color: #10b981;">${formatVal(tsbRow.__po26)}</span>
+                        </div>
+                        <div class="ceo-card-metric">
+                            <span class="ceo-card-metric-label">${selectedMonthLabel}</span>
+                            <span class="ceo-card-metric-value" style="color: #10b981;">${formatVal(tsbRow.__real24)}</span>
+                        </div>
+                        <div class="ceo-card-metric">
+                            <span class="ceo-card-metric-label">Prom. 4M actual</span>
+                            <span class="ceo-card-metric-value" style="color: #10b981;">${formatVal(tsbRow.__currAvg)}</span>
+                        </div>
                     </div>
                 </div>`;
+             } else {
+                 tbHtml += `<tr style="background:#eef2f5;">
+                               <td style="width: 24px; min-width: 24px; max-width: 24px; text-align: center; border-right: 1px solid rgba(0,0,0,0.05); padding: 0;"></td>
+                               <td style="text-align:left; font-weight:800; color: #10b981; border-right: 1px solid rgba(0,0,0,0.05); padding: 12px 16px;">${formatSegmentName('TOTAL SIN BON')}</td>` 
+                               + renderRowContent(tsbRow, true).replace(/<td/g, '<td style="color: #10b981;"') + 
+                           '</tr>';
              }
         }
 
-        tbody.innerHTML = tbHtml;
+        if (!isMobile) {
+            tbody.innerHTML = tbHtml;
+        }
         if (isMobile) {
             const container = document.getElementById('ventas-ceo-cards-container');
             if (container) container.innerHTML = cardsHtml;
@@ -11476,6 +11542,8 @@ window.processCxpFile = async function(file) {
             return d.values !== undefined;
         });
         
+        if (skipChart) return;
+
         renderVentasCeoChart(chartDataRows, chartMonths, chartLabels, dividers);
         updateVentasButtons();
     }
@@ -11489,7 +11557,7 @@ window.processCxpFile = async function(file) {
         } else {
             window.expandedVentasCeoGroups.add(groupId);
         }
-        window.renderVentasCEO();
+        window.renderVentasCEO(true);
     };
     
     document.getElementById('btn-ventas-expandir')?.addEventListener('click', () => {
@@ -11497,12 +11565,12 @@ window.processCxpFile = async function(file) {
         (ceoData || []).forEach(d => {
             if(d.hasChildren && d.id) window.expandedVentasCeoGroups.add(d.id);
         });
-        window.renderVentasCEO();
+        window.renderVentasCEO(true);
     });
     
     document.getElementById('btn-ventas-colapsar')?.addEventListener('click', () => {
         if(window.expandedVentasCeoGroups) window.expandedVentasCeoGroups.clear();
-        window.renderVentasCEO();
+        window.renderVentasCEO(true);
     });
     
     function renderVentasCeoChart(displayData, dateCols, dateLabels, dividers) {
@@ -11533,7 +11601,8 @@ window.processCxpFile = async function(file) {
             chartData.push(item);
         });
         
-        const margin = { top: 40, right: 300, bottom: 140, left: 70 };
+        const isMobile = window.innerWidth <= 768;
+        const margin = isMobile ? { top: 24, right: 12, bottom: 64, left: 42 } : { top: 40, right: 300, bottom: 140, left: 70 };
         const width = container.clientWidth;
         const height = container.clientHeight;
         const boundedWidth = width - margin.left - margin.right;
@@ -11647,6 +11716,7 @@ window.processCxpFile = async function(file) {
             .style("font-weight", "600")
             .style("pointer-events", "none")
             .text(function(d) {
+                if (isMobile) return ""; // Hide internal stack labels on mobile
                 const subName = d3.select(this.parentNode).datum().key;
                 const top3 = top3PerDate[d.data.label] || [];
                 const heightPx = y(d[0]) - y(d[1]);
@@ -11755,68 +11825,69 @@ window.processCxpFile = async function(file) {
                 .attr("stroke-dasharray", "4,4")
                 .attr("opacity", 0.5);
                 
-            const annotG = g.append("g")
-                .attr("transform", `translate(${lineX + 10}, 0)`);
+            if (!isMobile) {
+                const annotG = g.append("g")
+                    .attr("transform", `translate(${lineX + 10}, 0)`);
+                    
+                annotG.append("text")
+                    .attr("x", 0)
+                    .attr("y", 10)
+                    .attr("fill", "var(--sidebar)")
+                    .style("font-size", "13px")
+                    .style("font-weight", "bold")
+                    .html(`<tspan x="0" dy="0">Ult. 4 meses</tspan><tspan x="0" dy="16">% vs. AA</tspan>`);
+                    
+                let totalPct = prevItem.total !== 0 ? (currItem.total - prevItem.total) / prevItem.total : (currItem.total > 0 ? 1 : 0);
                 
-            annotG.append("text")
-                .attr("x", 0)
-                .attr("y", 10)
-                .attr("fill", "var(--sidebar)")
-                .style("font-size", "13px")
-                .style("font-weight", "bold")
-                .html(`<tspan x="0" dy="0">Ult. 4 meses</tspan><tspan x="0" dy="16">% vs. AA</tspan>`);
+                annotG.append("text")
+                    .attr("x", 0)
+                    .attr("y", 55)
+                    .attr("fill", "var(--primary)")
+                    .style("font-size", "14px")
+                    .style("font-weight", "bold")
+                    .text(`Total: ${formatterPct.format(totalPct)}`);
                 
-            let totalPct = prevItem.total !== 0 ? (currItem.total - prevItem.total) / prevItem.total : (currItem.total > 0 ? 1 : 0);
-            
-            annotG.append("text")
-                .attr("x", 0)
-                .attr("y", 55)
-                .attr("fill", "var(--primary)")
-                .style("font-size", "14px")
-                .style("font-weight", "bold")
-                .text(`Total: ${formatterPct.format(totalPct)}`);
-            
-            // Build pct map
-            const pctMap = {};
-            seriesKeys.forEach(k => {
-                let prev = prevItem[k] || 0;
-                let curr = currItem[k] || 0;
-                pctMap[k] = prev !== 0 ? (curr - prev) / prev : (curr > 0 ? 1 : 0);
-            });
-
-            // Put legend exactly here
-            const legend = annotG.append("g")
-                .attr("font-family", "sans-serif")
-                .attr("font-size", 12)
-                .attr("text-anchor", "start")
-                .selectAll("g")
-                .data(seriesKeys)
-                .enter().append("g")
-                .attr("transform", (d, i) => `translate(0,${i * 20 + 80})`);
-
-            legend.append("rect")
-                .attr("x", 0)
-                .attr("width", 15)
-                .attr("height", 15)
-                .attr("fill", colorScale);
-
-            legend.append("text")
-                .attr("x", 20)
-                .attr("y", 7.5)
-                .attr("dy", "0.32em")
-                .style("font-size", "12px")
-                .attr("fill", "var(--text-primary)")
-                .html(d => {
-                    let shortName = getShortName(d);
-                    let pctValue = pctMap[d];
-                    // Make the percentage bold and colored
-                    let color = pctValue >= 0 ? "var(--success)" : "var(--destructive)";
-                    let pctStr = formatterPct.format(pctValue);
-                    let displayStr = `${shortName}: `;
-                    return `<tspan>${displayStr}</tspan><tspan fill="${color}" font-weight="bold">${pctStr}</tspan>`;
+                // Build pct map
+                const pctMap = {};
+                seriesKeys.forEach(k => {
+                    let prev = prevItem[k] || 0;
+                    let curr = currItem[k] || 0;
+                    pctMap[k] = prev !== 0 ? (curr - prev) / prev : (curr > 0 ? 1 : 0);
                 });
-
-        } else {
+    
+                // Put legend exactly here
+                const legend = annotG.append("g")
+                    .attr("font-family", "sans-serif")
+                    .attr("font-size", 12)
+                    .attr("text-anchor", "start")
+                    .selectAll("g")
+                    .data(seriesKeys)
+                    .enter().append("g")
+                    .attr("transform", (d, i) => `translate(0,${i * 20 + 80})`);
+    
+                legend.append("rect")
+                    .attr("x", 0)
+                    .attr("width", 15)
+                    .attr("height", 15)
+                    .attr("fill", colorScale);
+    
+                legend.append("text")
+                    .attr("x", 20)
+                    .attr("y", 7.5)
+                    .attr("dy", "0.32em")
+                    .style("font-size", "12px")
+                    .attr("fill", "var(--text-primary)")
+                    .html(d => {
+                        let shortName = getShortName(d);
+                        let pctValue = pctMap[d];
+                        // Make the percentage bold and colored
+                        let color = pctValue >= 0 ? "var(--success)" : "var(--destructive)";
+                        let pctStr = formatterPct.format(pctValue);
+                        let displayStr = `${shortName}: `;
+                        return `<tspan>${displayStr}</tspan><tspan fill="${color}" font-weight="bold">${pctStr}</tspan>`;
+                    });
+            }
+        } else if (!isMobile) {
             // standard legend
             const legend = svg.append("g")
                 .attr("font-family", "sans-serif")
@@ -12091,19 +12162,19 @@ window.processCxpFile = async function(file) {
         {
             elementId: "monthSelector",
             title: "🗓️ 1. Panel Global de Periodos",
-            text: "Uso: Selecciona aquí el mes de análisis. A diferencia de un archivo estático, cambiar este mes actualiza simultáneamente todas las vistas, gráficas y tablas de la plataforma.",
+            text: "Selector global del periodo de análisis. A diferencia de un archivo estático, modificar el mes aquí actualiza en tiempo real todas las vistas, gráficas y tablas de la plataforma.",
             action: () => { document.getElementById("menu-kpi")?.click(); }
         },
         {
             elementId: "ytdToggleContainer",
             title: "🔄 2. Selector Temporal (Mensual vs Acumulado)",
-            text: "Uso: Haz clic en este interruptor para cambiar el enfoque de los reportes. Puedes visualizar los resultados analizando exclusivamente el mes individual (Mensual) o desde Enero hasta dicho mes (Acumulado YTD).",
+            text: "Alterna el foco de análisis con un clic. Visualiza el desempeño aislado del mes seleccionado (Mensual) o el acumulado contable desde enero hasta dicho periodo (Acumulado YTD).",
             action: () => { document.getElementById("menu-kpi")?.click(); }
         },
         {
             elementId: "icon-seguimiento",
             title: "📂 3. Navegación Agrupada",
-            text: "Uso: Las secciones están organizadas de forma plegable para no saturar tu pantalla. Haz clic en las etiquetas como 'Modelo de Seguimiento' o 'Ventas' para desplegar sus menús internos. Explora libremente.",
+            text: "Los módulos corporativos están agrupados estratégicamente. Haz clic en encabezados como 'Modelo de Seguimiento' o 'Ventas' para desplegar u ocultar tableros sin saturar el entorno visual.",
             action: () => { 
                // Forzar visualmente que al menos la sección este visible
                const grupo = document.getElementById('grupo-seguimiento');
@@ -12115,7 +12186,7 @@ window.processCxpFile = async function(file) {
         {
             elementId: "cxp-view-toggles",
             title: "🗂️ 4. Sub-vistas Internas (Detalles y Resúmenes)",
-            text: "Uso: Varias pantallas (como Detalle CxP o P&G Horizontal) cuentan con sus propias pestañas internas en la zona superior derecha para alternar entre formatos de resumen gráfico o tablas de datos analíticos detallados, sin salir de la vista actual.",
+            text: "Maximiza el análisis en pantallas complejas (ej. Detalle CxP, P&G Horizontal) utilizando las pestañas superiores derechas, permitiendo transiciones fluidas entre resúmenes gráficos y data analítica dura.",
             action: () => { 
                document.getElementById("menu-cxp")?.click(); 
             }
@@ -12123,7 +12194,7 @@ window.processCxpFile = async function(file) {
         {
             elementId: "btn-comercial-resumen",
             title: "📊 5. Perspectiva: Resumen de Ventas",
-            text: "Uso: Dentro del Resumen Comercial, este botón activa la vista base que consolida las columnas de Volumen, Precio promedio unitario y Ventas de cada categoría versus el presupuesto o periodo anterior.",
+            text: "Despliega el consolidado base. Identifica inmediatamente desviaciones en volumen, precio promedio unitario neto y recaudación de ventas por categoría, contrastado frente al presupuesto (PPTO) o año anterior.",
             action: () => { 
                document.getElementById("menu-resumen-comercial")?.click(); 
                setTimeout(() => {
@@ -12134,7 +12205,7 @@ window.processCxpFile = async function(file) {
         {
             elementId: "btn-comercial-mom",
             title: "📈 6. Perspectiva: Tendencia Secuencial (MoM)",
-            text: "Uso: Haz clic aquí para evaluar las variaciones mes a mes secuenciales. Te ayuda a detectar instantáneamente tendencias dinámicas de crecimiento sostenido o caídas de volumen mes a mes.",
+            text: "Habilita la evaluación secuencial mes a mes (Month-over-Month). Fundamental para detectar cambios dinámicos de mercado, crecimientos sostenidos o caídas inusuales en ciclos cortos.",
             action: () => { 
                document.getElementById("menu-resumen-comercial")?.click(); 
                setTimeout(() => {
@@ -12145,7 +12216,7 @@ window.processCxpFile = async function(file) {
         {
             elementId: "btn-comercial-variacion",
             title: "🔍 7. Perspectiva: Análisis de Variación",
-            text: "Uso: Desglosa matemáticamente la desviación comercial en Efecto Volumen y Efecto Precio. Te permite saber con rigor científico si el margen creció debido a un incremento de tarifas o a mayor penetración en volumen físico.",
+            text: "Aísla matemáticamente la varianza comercial. El sistema disgrega si una mejora en los ingresos netos fue el resultado directo de una agresiva estrategia de Precios o de una mayor penetración física (Volumen).",
             action: () => { 
                document.getElementById("menu-resumen-comercial")?.click(); 
                setTimeout(() => {
@@ -12156,7 +12227,7 @@ window.processCxpFile = async function(file) {
         {
             elementId: "tour-alert-target",
             title: "🚨 8. Alertas de Desviación",
-            text: "Lógica: Los indicadores visuales intermitentes en el Estado de Resultados son alertas de desviación (solo parpadean si la desviación excede un 15% por encima o por debajo). Si están en ROJO y parpadean indican que el valor está por debajo del presupuesto o margen esperado. Si están en VERDE parpadeante, el desempeño superó fuertemente la meta definida.",
+            text: "Lógica: Los indicadores visuales intermitentes en el Estado de Resultados son alertas de desviación. Rojo intermitente señala déficit agudo y Verde intermitente señala superávit extraordinario en la ejecución (>15% vs meta).",
             action: () => { 
                document.getElementById("menu-pnl")?.click(); 
                setTimeout(() => {
@@ -12175,13 +12246,13 @@ window.processCxpFile = async function(file) {
         {
             elementId: "menu-simulador",
             title: "🚀 9. Operando el Simulador (What-If)",
-            text: "Uso: Tu campo de juego interactivo. Mueve los deslizadores de Precio, Costo o Ventas y observa inmediatamente el marcador de EBITDA/Caja ubicado arriba a la derecha para predecir impactos.",
+            text: "Entorno de proyección prospectivo. Ajusta los parámetros interactivos (Sliders de Precio, Costos, Volumen) para modelar su efecto instantáneo en la rentabilidad u operativa (EBITDA) y previsiones de liquidity.",
             action: () => { document.getElementById("menu-simulador")?.click(); }
         },
         {
             elementId: "btn-download-manual-pdf",
-            title: "🎓 9. Guía de Interpretación",
-            text: "¡Felicidades, dominas los controles! Utiliza este botón para descargar el reporte PDF corporativo que te guiará hoja por hoja sobre cómo interpretar los balances.",
+            title: "🎓 10. Guía de Interpretación",
+            text: "¡Ha completado el preámbulo funcional! Utilice este botón para exportar la Guía Corporativa PDF, la cual asiste en cómo interpretar los balances financieros clínicamente a profundidad.",
             action: () => { document.getElementById("menu-instructivo")?.click(); }
         }
     ];
@@ -12308,7 +12379,7 @@ window.processCxpFile = async function(file) {
                     <span style="background: #0284c7; padding: 4px 12px; border-radius: 4px; font-weight: 800; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 20px; display: inline-block;">Interpretación Clínica del Desempeño</span>
                     <h1 style="font-size: 3.2rem; font-weight: 800; line-height: 1.15; letter-spacing: -1px; margin: 0 0 20px 0; color: #ffffff;">Guía de Análisis e Interpretación Gerencial</h1>
                     <p style="font-size: 1.25rem; color: #93c5fd; max-width: 650px; line-height: 1.6; margin: 0 0 30px 0;">
-                        No más tablas tediosas. Aprende a descifrar rápidamente a través de la herramienta las señales de alerta de liquidez, rentabilidad y deuda del negocio en tiempo real.
+                        No más tablas tediosas. Aprende a descifrar rápidamente las señales de alerta de liquidez, rentabilidad y deuda del negocio en tiempo real.
                     </p>
                 </div>
                 
@@ -12323,19 +12394,19 @@ window.processCxpFile = async function(file) {
             <!-- PAGINA 1: MODULO DE VENTAS -->
             <div style="padding: 60px; max-width: 800px; margin: 0 auto; height: 275mm; overflow: hidden; box-sizing: border-box; page-break-after: always; display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
-                    <h2 style="font-size: 1.8rem; font-weight: 800; color: #012a4a; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 24px; text-transform: uppercase; letter-spacing: -0.5px;">1. Comercialización y Ventas</h2>
+                    <h2 style="font-size: 1.8rem; font-weight: 800; color: #012a4a; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 24px; text-transform: uppercase; letter-spacing: -0.5px;">1. Desempeño Comercial y Ventas</h2>
                     <p style="font-size: 1rem; line-height: 1.6; color: #334155; margin-bottom: 16px;">
-                        Dentro del primer grupo de navegación lateral (<strong>Ventas</strong>), encontrarás los tableros vitales para entender la tracción del mercado inicial.
+                        El módulo de <strong>Ventas</strong> proporciona los tableros esenciales para evaluar la tracción en el mercado, el volumen de operaciones y la composición del ingreso bruto.
                     </p>
                     
                     <h3 style="font-size: 1.25rem; font-weight: 800; color: #0284c7; margin: 24px 0 10px 0;">1.1 P&G Horizontal</h3>
                     <p style="font-size: 0.95rem; line-height: 1.5; color: #475569; margin-bottom: 16px;">
-                        Diseñado para la comparación visual horizontal de los canales o filiales lado a lado, mostrando de forma ordenada quién está impulsando la facturación consolidada global del periodo. Activa "Mensual" o "Acumulado YTD" para analizar qué formato de tiempo se evalúa.
+                        Diseñado para la comparación visual y financiera de canales, marcas o filiales. Permite identificar los principales impulsores de la facturación consolidada del periodo. Utilice los filtros "Mensual" o "Acumulado YTD" para ajustar el contexto temporal del análisis.
                     </p>
 
                     <h3 style="font-size: 1.25rem; font-weight: 800; color: #0284c7; margin: 24px 0 10px 0;">1.2 Ventas CEO & Resumen Comercial</h3>
                     <p style="font-size: 0.95rem; line-height: 1.5; color: #475569; margin-bottom: 16px;">
-                        Aquí se miden los ingresos brutos, volumen comercial. Las mediciones te indican instantáneamente si la facturación supera al <strong>Año Anterior</strong> o si se cumplió con el <strong>Presupuesto</strong> estipulado (Verde vs Rojo).
+                        Monitor de alto nivel que mide los ingresos brutos y el volumen de comercialización. Los indicadores visuales (Verde/Rojo) permiten evaluar instantáneamente el desempeño frente a un <strong>Año Base (Anterior)</strong> o frente al <strong>Presupuesto Aprobado (PPTO)</strong>.
                     </p>
                 </div>
                 <div style="border-top: 1px solid #e2e8f0; padding-top: 16px; text-align: center; font-size: 0.8rem; color: #94a3b8;">
@@ -12346,19 +12417,19 @@ window.processCxpFile = async function(file) {
             <!-- PAGINA 2: SEGUIMIENTO -->
             <div style="padding: 60px; max-width: 800px; margin: 0 auto; height: 275mm; overflow: hidden; box-sizing: border-box; page-break-after: always; display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
-                    <h2 style="font-size: 1.8rem; font-weight: 800; color: #012a4a; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 24px; text-transform: uppercase; letter-spacing: -0.5px;">2. Modelo de Seguimiento</h2>
+                    <h2 style="font-size: 1.8rem; font-weight: 800; color: #012a4a; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 24px; text-transform: uppercase; letter-spacing: -0.5px;">2. Rentabilidad y Modelo de Seguimiento</h2>
                     <p style="font-size: 1rem; line-height: 1.6; color: #334155; margin-bottom: 16px;">
-                        Al desplegar el menú <strong>Modelo de Seguimiento</strong>, ingresas al análisis de rentabilidad real corporativa.
+                        Este módulo central desglosa la estructura de costos operativos y permite analizar la rentabilidad real de la corporación a diferentes niveles de margen.
                     </p>
                     
                     <h3 style="font-size: 1.25rem; font-weight: 800; color: #0284c7; margin: 24px 0 10px 0;">2.1 KPI Dashboard y Resumen Ejecutivo</h3>
                     <p style="font-size: 0.95rem; line-height: 1.5; color: #475569; margin-bottom: 12px;">
-                        Visualizarás las tarjetas informativas claves. La lectura es inmediata: Verde es superávit frente al año evaluado, Rojo señala déficit operativo transitorio.
+                        Presenta un panel de control con métricas críticas (EBITDA, Margen Bruto, Gastos de Operación). Los indicadores visuales facilitan la lectura inmediata: el color Verde denota superávit o mejora, mientras que el Rojo alerta sobre un déficit o deterioro operativo.
                     </p>
                     
                     <h3 style="font-size: 1.25rem; font-weight: 800; color: #0284c7; margin: 24px 0 10px 0;">2.2 P&L Detallado y el Validador de Integridad</h3>
                     <p style="font-size: 0.95rem; line-height: 1.5; color: #475569; margin-bottom: 12px;">
-                        Para rastrear de dónde proviene la erosión, la matriz de <strong>P&L Detallado</strong> desgrana cada cuenta. Notarás la validación técnica en pantalla; el sistema te indicará en la zona superior un "Cuadradre" que avala matemáticamente si la carga empató con el sistema del CFO maestro.
+                        Matriz de resultados que desgrana cada cuenta contable para localizar el origen exacto de las variaciones o volatilidades de márgenes. Incorpora un Validador de Integridad en la parte superior que certifica que los datos cargados cuadran matemáticamente con el sistema ERP matriz.
                     </p>
                 </div>
                 <div style="border-top: 1px solid #e2e8f0; padding-top: 16px; text-align: center; font-size: 0.8rem; color: #94a3b8;">
@@ -12369,19 +12440,19 @@ window.processCxpFile = async function(file) {
             <!-- PAGINA 3: BALANCE Y CAJA -->
             <div style="padding: 60px; max-width: 800px; margin: 0 auto; height: 275mm; overflow: hidden; box-sizing: border-box; page-break-after: always; display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
-                    <h2 style="font-size: 1.8rem; font-weight: 800; color: #012a4a; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 24px; text-transform: uppercase; letter-spacing: -0.5px;">3. Balance y Flujo de Caja</h2>
+                    <h2 style="font-size: 1.8rem; font-weight: 800; color: #012a4a; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 24px; text-transform: uppercase; letter-spacing: -0.5px;">3. Balance General y Posición de Caja Libre</h2>
                     <p style="font-size: 1rem; line-height: 1.6; color: #334155; margin-bottom: 16px;">
-                        El directorio de <strong>Balance y Caja</strong> expone el capital vital (flujo/dinero).
+                        Evalúa la salud patrimonial y la liquidez corporativa. Una alta rentabilidad no siempre se traduce en flujo de caja positivo; este módulo explica visualmente por qué.
                     </p>
                     
                     <h3 style="font-size: 1.25rem; font-weight: 800; color: #0284c7; margin: 24px 0 10px 0;">3.1 Cash Flow (Cascada de Efectivo)</h3>
                     <p style="font-size: 0.95rem; line-height: 1.5; color: #475569; margin-bottom: 12px;">
-                        En esta pestaña, observa por qué la rentabilidad no es igual a "liquidez en bancos". El módulo desglosa visualmente si los montos se atascaron antes en "Flujo Operacional" (Ej. clientes sin cobrar) o "Flujo Inversión" (compraste activos con excedentes).
+                        Desglosa la conversión de EBITDA a Caja Libre. Muestra gráficamente cómo los requerimientos de Capital de Trabajo (aumentos de inventario, cuentas por cobrar) o las Inversiones (CAPEX) absorben o liberan liquidez durante el periodo.
                     </p>
 
-                    <h3 style="font-size: 1.25rem; font-weight: 800; color: #0284c7; margin: 24px 0 10px 0;">3.2 Capital de Trabajo y Balance General</h3>
+                    <h3 style="font-size: 1.25rem; font-weight: 800; color: #0284c7; margin: 24px 0 10px 0;">3.2 Capital de Trabajo y Ciclo de Efectivo</h3>
                     <p style="font-size: 0.95rem; line-height: 1.5; color: #475569; margin-bottom: 16px;">
-                        Revisa "Balance General" para las cuotas macro. Emplea "Capital de Trabajo" para exponer cómo la sincronización de cobro comercial se desfasa versus los días concedidos por la industria (DSO vs DPO/DII).
+                        Proporciona un diagnóstico de la sincronización entre los ciclos de cobro a clientes (DSO), pago a proveedores (DPO) e inventarios (DII). Analiza las grandes cuentas patrimoniales del Balance General para identificar riesgos inmediatos de liquidez.
                     </p>
                 </div>
                 <div style="border-top: 1px solid #e2e8f0; padding-top: 16px; text-align: center; font-size: 0.8rem; color: #94a3b8;">
@@ -12392,19 +12463,19 @@ window.processCxpFile = async function(file) {
             <!-- PAGINA 4: DEUDA Y OBLIGACIONES -->
             <div style="padding: 60px; max-width: 800px; margin: 0 auto; height: 275mm; overflow: hidden; box-sizing: border-box; page-break-after: always; display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
-                    <h2 style="font-size: 1.8rem; font-weight: 800; color: #012a4a; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 24px; text-transform: uppercase; letter-spacing: -0.5px;">4. Deuda y Obligaciones</h2>
+                    <h2 style="font-size: 1.8rem; font-weight: 800; color: #012a4a; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 24px; text-transform: uppercase; letter-spacing: -0.5px;">4. Estructura de Deuda y Obligaciones (CxP)</h2>
                     <p style="font-size: 1rem; line-height: 1.6; color: #334155; margin-bottom: 16px;">
-                        Los agrupadores de <strong>Obligaciones</strong> y <strong>Zoom in Deuda</strong> separan acreedores en rangos.
+                        Monitorea los pasivos exigibles de la empresa, subdivididos tanto a nivel operativo (proveedores comerciales) como a nivel financiero (entidades bancarias e inversores).
                     </p>
                     
                     <h3 style="font-size: 1.25rem; font-weight: 800; color: #0284c7; margin: 24px 0 10px 0;">4.1 Detalle CxP (Aging de Proveedores)</h3>
                      <p style="font-size: 0.95rem; line-height: 1.5; color: #475569; margin-bottom: 16px;">
-                        La pestaña de Detalle cuenta con una barra de búsqueda para filtrar la mora operativa de la cadena productiva, mostrando carteras subdividas (0 a 30, 31 a 60, hasta +120 días).
+                        Panel detallado de antigüedad de saldos (aging). Permite filtrar cuentas por pagar en tramos de mora (0-30, 31-60, +120 días). Esencial para anticipar tensiones operativas, cortes de suministro logístico o planificar negociaciones de pago con proveedores críticos.
                     </p>
                     
-                     <h3 style="font-size: 1.25rem; font-weight: 800; color: #0284c7; margin: 24px 0 10px 0;">4.2 Estructura Bancaria</h3>
+                     <h3 style="font-size: 1.25rem; font-weight: 800; color: #0284c7; margin: 24px 0 10px 0;">4.2 Estructura Bancaria (Zoom in Deuda)</h3>
                     <p style="font-size: 0.95rem; line-height: 1.5; color: #475569; margin-bottom: 16px;">
-                        En <em>Zoom in Deuda</em>, evalúa si el dinero circulante le pertenece predominantemente a "Líneas de Corto Plazo" (alto riesgo, corto vencimiento) o a estructuras seguras de Largo Plazo fiduciario.
+                        Permite clasificar el perfil de vencimiento de la deuda. Ayuda a diagnosticar si la empresa está expuesta a un alto riesgo de refinanciamiento por concentración en "Líneas de Corto Plazo" versus una estructura más sólida apoyada en deuda estructurada de "Largo Plazo".
                     </p>
                 </div>
                 <div style="border-top: 1px solid #e2e8f0; padding-top: 16px; text-align: center; font-size: 0.8rem; color: #94a3b8;">
@@ -12415,19 +12486,19 @@ window.processCxpFile = async function(file) {
             <!-- PAGINA 5: SIMULADOR -->
             <div style="padding: 60px; max-width: 800px; margin: 0 auto; height: 275mm; overflow: hidden; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
-                    <h2 style="font-size: 1.8rem; font-weight: 800; color: #012a4a; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 24px; text-transform: uppercase; letter-spacing: -0.5px;">5. Proyecciones Empresariales</h2>
+                    <h2 style="font-size: 1.8rem; font-weight: 800; color: #012a4a; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 24px; text-transform: uppercase; letter-spacing: -0.5px;">5. Proyecciones Financieras Estratégicas</h2>
                     <p style="font-size: 1rem; line-height: 1.6; color: #334155; margin-bottom: 16px;">
-                        El bloque de <strong>Proyecciones</strong> despliega el Simulador Financiero (What-If).
+                        Despliega nuestro Simulador Financiero avanzado (What-If Analysis). Es el motor prospectivo de la plataforma.
                     </p>
                     
-                    <h3 style="font-size: 1.25rem; font-weight: 800; color: #0284c7; margin: 24px 0 10px 0;">5.1 Sensibilidad y Deslizadores</h3>
+                    <h3 style="font-size: 1.25rem; font-weight: 800; color: #0284c7; margin: 24px 0 10px 0;">5.1 Simulador (What-If) y Sensibilidad</h3>
                     <p style="font-size: 0.95rem; line-height: 1.5; color: #475569; margin-bottom: 12px;">
-                        Utilice el <em>slider</em> interactivo de "Volumen" deslizándolo a un caso negativo o positivo de proyección (-10% / +10%). Verás cómo el marcador general verde recalcula el posible golpe a tu rentabilidad final.
+                        Herramienta interactiva para predecir escenarios alternativos. Ajuste los deslizadores paramétricos (-10% / +10%) sobre el Volumen, Precios y Costos. El modelo recalculará en tiempo real el impacto final estimado sobre el EBITDA y la Caja Neta.
                     </p>
 
-                    <h3 style="font-size: 1.25rem; font-weight: 800; color: #0284c7; margin: 24px 0 10px 0;">5.2 Tensión de Costos y OPEX</h3>
+                    <h3 style="font-size: 1.25rem; font-weight: 800; color: #0284c7; margin: 24px 0 10px 0;">5.2 Tensión de Costos e Inflación operativa</h3>
                     <p style="font-size: 0.95rem; line-height: 1.5; color: #475569; margin-bottom: 16px;">
-                        Experimente simulando inflaciones inminentes en salarios (Sliders de OPEX) o materia prima (COGS). Las resoluciones simuladas aquí permitirán adelantar subidas en Precio Comercial o ahorros preventivos.
+                        Proyecte escenarios adversos como incrementos en materia prima (COGS) o incrementos salariales generalizados (OPEX). Esta vista faculta a la alta dirección para calibrar estrategias preventivas, como el aumento anticipado de precios de venta o programas de austeridad.
                     </p>
                 </div>
                 <div style="border-top: 1px solid #e2e8f0; padding-top: 16px; text-align: center; font-size: 0.8rem; color: #94a3b8;">

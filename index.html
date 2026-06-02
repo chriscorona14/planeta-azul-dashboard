@@ -929,23 +929,62 @@
         font-size: 0.65rem;
         letter-spacing: 0.05em;
         border-bottom: 2px solid var(--border);
+      }
+      
+      .pnl-detail-table thead {
+        position: sticky;
+        top: 0;
+        z-index: 50;
+      }
+
+      .pnl-detail-table th {
         position: sticky;
         top: 0;
         z-index: 5;
       }
       
       .pnl-detail-table th:first-child {
-        z-index: 15;
+        position: sticky;
+        top: 0;
+        left: 0;
+        z-index: 60;
       }
       
+      /* Specific settings for Resumen Comercial to ensure both rows stay fixed properly */
+      #resumen-comercial-thead {
+        position: sticky;
+        top: 0;
+        z-index: 50;
+      }
+      
+      #resumen-comercial-thead tr:first-child th {
+        position: sticky;
+        top: 0;
+        z-index: 51;
+      }
+
+      #resumen-comercial-thead tr:first-child th:first-child {
+        position: sticky !important;
+        top: 0 !important;
+        left: 0 !important;
+        z-index: 60 !important;
+        background: #0f172a !important;
+      }
+
+      #resumen-comercial-thead tr:nth-child(2) th {
+        position: sticky;
+        top: 61px; /* approximate height of first row */
+        z-index: 50;
+      }
+
       #resumen-comercial-thead tr:nth-child(2) th:first-child {
-        position: static !important;
+        position: sticky !important;
         left: auto !important;
         background: #334155 !important;
         min-width: auto !important;
         width: auto !important;
         box-shadow: none !important;
-        z-index: 5 !important;
+        z-index: 10 !important;
         text-align: right !important;
         border-right: 1px solid rgba(255,255,255,0.1) !important;
       }
@@ -1321,26 +1360,29 @@
       }
       
       @media (max-width: 768px) {
-        /* 2. Solución para revivir la Gráfica de Ventas CEO en móvil */
-        #ventas-ceo-chart-container {
-          position: relative;
-          height: 300px !important; /* Fuerza una altura mínima para que Chart.js pueda dibujar */
-          width: 100% !important;
+        /* 2. Solución para móviles - Ventas CEO */
+        #view-ventas-ceo .chart-box {
+          height: 360px !important;
           margin-bottom: 20px;
+        }
+        #ventas-ceo-chart {
+          height: 100% !important;
+          width: 100% !important;
         }
         
         .ceo-cards-container {
           display: flex;
           flex-direction: column;
           gap: 12px;
-          margin-top: 16px;
+          margin-bottom: 24px;
         }
         .ceo-card {
           background: #ffffff;
           border: 1px solid var(--border);
           border-radius: 12px;
-          padding: 16px;
+          padding: 12px;
           box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+          font-variant-numeric: tabular-nums;
         }
         .ceo-card-title {
           font-weight: 600;
@@ -1351,20 +1393,54 @@
           justify-content: space-between;
           align-items: center;
         }
+        .ceo-card-metrics-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px;
+        }
         .ceo-card-metric {
           display: flex;
-          justify-content: space-between;
-          margin-bottom: 8px;
-          font-size: 0.9rem;
+          flex-direction: column;
+          font-size: 0.85rem;
         }
         .ceo-card-metric-label {
           color: var(--text-secondary);
+          margin-bottom: 2px;
+          font-size: 0.75rem;
         }
         .ceo-card-metric-value {
           font-weight: 600;
           color: var(--text);
         }
-      }
+
+        /* Responsive controls */
+        #view-ventas-ceo > div:first-child {
+          flex-direction: column;
+          align-items: stretch !important;
+          gap: 12px;
+        }
+        #view-ventas-ceo > div:first-child .pnl-controls {
+          justify-content: space-between;
+        }
+        #view-ventas-ceo > div:first-child .pnl-controls button {
+          flex: 1;
+          min-height: 44px;
+        }
+        #view-ventas-ceo > div:first-child > div:first-child {
+          flex-direction: column;
+          align-items: stretch !important;
+        }
+        #view-ventas-ceo > div:first-child > div:first-child > div {
+          display: flex;
+          overflow-x: auto;
+          white-space: nowrap;
+          padding-bottom: 4px;
+        }
+        #view-ventas-ceo > div:first-child > div:first-child > div button {
+          flex-shrink: 0;
+          min-height: 44px;
+        }
+      } /* Close @media */
 
       /* CSS animations for P&L deviation pulses */
       @keyframes pulse-pos {
@@ -4081,16 +4157,16 @@
               <div id="inst-seccion-1" class="inst-section-card">
                 <h3 style="font-size: 1.3rem; font-weight: 800; color: var(--sidebar); display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
                   <span class="inst-step-badge">1</span>
-                  Interpretación: Lectura Rápida de Indicadores Reales
+                  Interpretación: Diagnóstico Rápido de Tensión Operativa
                 </h3>
                 <p style="line-height: 1.6; color: var(--text-primary); font-size: 0.95rem; margin-bottom: 12px;">
-                  No leas los datos como tablas pasivas; enfócate en diagnosticar anomalías de "Tensión Operativa". Evalúa las tarjetas métricas (KPIs) de margen.
+                  No utilice los datos como reportes pasivos; enfóquese en diagnosticar anomalías de "Tensión Operativa" evaluando la salud transversal (Volumen vs Precio vs OPEX). Las tarjetas de métricas (KPIs) ofrecen lecturas instantáneas.
                 </p>
                 <div style="background: #f8fafc; border-left: 4px solid var(--sidebar-accent); padding: 16px; border-radius: 0 8px 8px 0; font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5; margin-bottom: 12px;">
-                  <strong>Alerta Roja de Margen:</strong> Si el ingreso sube (color Verde) pero tu EBITDA baja (color Rojo), experimentas "crecimiento insano". La distribución es más costosa o no aplicaste alzas de precio, inflando ganancias irreales.
+                  <strong>Alerta de Crecimiento Insano:</strong> Si el ingreso neto crece (Color Verde) pero su EBITDA decrece (Color Rojo), está experimentando un estrangulamiento de los márgenes. Sus costos variables o de distribución se han incrementado por encima de la compensación marginal del volumen físico despachado.
                 </div>
                 <p style="font-size: 0.9rem; line-height: 1.5; color: var(--text-secondary);">
-                  Si esto ocurre, revisa el Estado de Resultados "P&L Detallado" de forma inmediata para rastrear exactamente cuál línea generó la variación porcentual de impacto.
+                  <strong>Acción Recomendada:</strong> Navegue inmediatamente hacia el "P&L Detallado" para identificar la partida contable exacta (OPEX, Flete, Marketing) responsable de la erosión del margen de maniobra.
                 </p>
               </div>
 
@@ -4098,19 +4174,19 @@
               <div id="inst-seccion-2" class="inst-section-card">
                 <h3 style="font-size: 1.3rem; font-weight: 800; color: var(--sidebar); display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
                   <span class="inst-step-badge">2</span>
-                  Foco Temporal: Mensual vs Acumulado YTD
+                  Reconocimiento Temporal: Mensual vs Acumulado (YTD)
                 </h3>
                 <p style="line-height: 1.6; color: var(--text-primary); font-size: 0.95rem; margin-bottom: 12px;">
-                  Para entender el modelo de análisis principal de este dashboard frente a un reporte convencional, ubica el interruptor principal en tu barra de control superior.
+                  Para comprender el modelo de análisis frente a la contabilidad convencional, ubique el "Interruptor Direccional" (YTD Toggle) en la barra de ejecución superior.
                 </p>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
                   <div style="padding: 12px; border: 1px dashed #cbd5e1; border-radius: 8px; background: #fafafa;">
-                    <h4 style="font-size: 0.85rem; font-weight: 700; color: var(--sidebar); margin-bottom: 6px;">Visualización Mensual</h4>
-                    <p style="font-size: 0.8rem; line-height: 1.4; color: var(--text-secondary);">Toda la plataforma recalcula y muestra exclusivamente el desempeño originado y cerrado dentro de ese único mes seleccionado.</p>
+                    <h4 style="font-size: 0.85rem; font-weight: 700; color: var(--sidebar); margin-bottom: 6px;">Evaluación Mensual (Stand-Alone)</h4>
+                    <p style="font-size: 0.8rem; line-height: 1.4; color: var(--text-secondary);">Mide exclusivamente el desempeño originado y cerrado dentro del mes de calendario activo. Facilita la detección de crisis locales de 30 días.</p>
                   </div>
                   <div style="padding: 12px; border: 1px dashed #cbd5e1; border-radius: 8px; background: #fafafa;">
-                    <h4 style="font-size: 0.85rem; font-weight: 700; color: var(--sidebar); margin-bottom: 6px;">Acumulado YTD (Year-to-Date)</h4>
-                    <p style="font-size: 0.8rem; line-height: 1.4; color: var(--text-secondary);">El switch integra matemáticamente la sumatoria desde el 1 de Enero hasta el final del mes escogido. Ideal para medir trayectorias de metas contables.</p>
+                    <h4 style="font-size: 0.85rem; font-weight: 700; color: var(--sidebar); margin-bottom: 6px;">Desempeño Acumulado (Year-to-Date)</h4>
+                    <p style="font-size: 0.8rem; line-height: 1.4; color: var(--text-secondary);">Integra la sumatoria ejecutada desde el 1 de enero hasta el cierre del mes consultado. Provee la trayectoria global hacia el cierre fiscal.</p>
                   </div>
                 </div>
               </div>
@@ -4119,10 +4195,10 @@
               <div id="inst-seccion-3" class="inst-section-card">
                 <h3 style="font-size: 1.3rem; font-weight: 800; color: var(--sidebar); display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
                   <span class="inst-step-badge">3</span>
-                  Menús Plegables (Agrupadores)
+                  Gobernanza Visual: Las Pestañas Condensadas
                 </h3>
                 <p style="line-height: 1.6; color: var(--text-primary); font-size: 0.95rem; margin-bottom: 12px;">
-                  Si estás acostumbrado a pestañas simples lado a lado en tus hojas de trabajo, notarás que nuestra barra lateral agrupa su contenido en bloques estratégicos (Ej. <strong>Ventas</strong>, <strong>Modelo de Seguimiento</strong>, <strong>Obligaciones</strong>). Simplemente haz clic sobre el título del bloque que necesitas expandir u ocultar para navegar a los submódulos específicos sin saturar la pantalla.
+                  Usted notará que los tableros densos (Ej. P&G Horizontal o Detalle CxP) incorporan pestañas contextuales en la zona derecha de la ventana. Éstas funcionan como "Capas de Análisis" que aglutinan visualizaciones secuenciales, comparativas Vs Presupuesto (PPTO), o vistas analíticas (Variación y Unitarios) sin requerir saltos inter-pantallas ni desbordes en el escritorio.
                 </p>
               </div>
 
@@ -4130,18 +4206,18 @@
               <div id="inst-seccion-4" class="inst-section-card">
                 <h3 style="font-size: 1.3rem; font-weight: 800; color: var(--sidebar); display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
                   <span class="inst-step-badge">4</span>
-                  Identificación de Mora (Detalle CxP)
+                  Identificación de Riesgos Pasivos (CxP Aging)
                 </h3>
                 <p style="line-height: 1.6; color: var(--text-primary); font-size: 0.95rem; margin-bottom: 12px;">
-                  Evite la confrontación bancaria estudiando cómo está operando la empresa contra sus proveedores comerciales primarios de producción. Uso práctico para la visual:
+                  Prevenga el cese de operaciones productivas estudiando su mora concentrada contra sus proveedores (Vendor Management). Utilice analítica forense en:
                 </p>
                 <div style="display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 16px;">
                   <div style="padding: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
                     <h4 style="font-size: 0.9rem; font-weight: 700; color: var(--sidebar); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
-                      <i data-lucide="bar-chart-2" style="width: 16px; height: 16px; color: var(--sidebar-accent);"></i> Diagnóstico del Aging (Mora de Proveedores)
+                      <i data-lucide="bar-chart-2" style="width: 16px; height: 16px; color: var(--sidebar-accent);"></i> Proyección de Impacto (Tramos de Mora)
                     </h4>
                     <p style="font-size: 0.8rem; line-height: 1.4; color: var(--text-secondary);">
-                      Busca la zona donde los registros transitan de "+60 días" a "+120 días". Ordena filtrando saldos usando la barra "Buscar proveedor..." . Proveedores ubicados ahí podrían cesar de despacharte empaques corporativos en días y deben resolverse prontamente para habilitar flujo comercial.
+                      Emplee la vista "Detalle CxP". Filtre la zona de tránsito en columnas de <strong>"61-90 días" a "+120 días"</strong>. Aquellos proveedores operando predominantemente en esa zona podrían cesar despachos en cuestión de días y desencadenar choques sobre los inventarios de cadena primaria.
                     </p>
                   </div>
                 </div>
@@ -4151,10 +4227,10 @@
               <div id="inst-seccion-5" class="inst-section-card">
                 <h3 style="font-size: 1.3rem; font-weight: 800; color: var(--sidebar); display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
                   <span class="inst-step-badge">5</span>
-                  El Principio Operacional: Rentabilidad vs Liquidez
+                  Tópico Corporativo: Rentabilidad (EBIT) ≠ Liquidez (Free Cash)
                 </h3>
                 <p style="line-height: 1.6; color: var(--text-primary); font-size: 0.95rem; margin-bottom: 12px;">
-                  Las vistas "Cash Flow" evidencian que poseer alto ratio de EBITDA <strong>no es sinónimo de Caja Neta Libre en Cuenta</strong>. Un excelente gerente diagnosticará de inmediato con la barra interactiva que el "Flujo Operacional" se drena en "Aumento de Inventario" para cubrir la falta de flujo o mala contención de pasivo, a pesar de márgenes envidiables.
+                  El apartado de "Cash Flow" constata que un ratio alcista en el EBITDA <strong>jamás representa garantías de Caja Consolidada Libre</strong>. Diagnostique inmediatamente en las gráficas de cascada cómo su "Flujos Operacionales" sufren embargos si sus Cuentas Por Cobrar o Inventarios crecen de forma descoordinada al negocio.
                 </p>
               </div>
 
@@ -4162,10 +4238,10 @@
               <div id="inst-seccion-6" class="inst-section-card">
                 <h3 style="font-size: 1.3rem; font-weight: 800; color: var(--sidebar); display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
                   <span class="inst-step-badge">6</span>
-                  Control y Explotación del Motor: Simulador What-If
+                  Motor de Predicción Inmediata (What-If)
                 </h3>
                 <p style="line-height: 1.6; color: var(--text-primary); font-size: 0.95rem; margin-bottom: 12px;">
-                  Lídera las juntas previendo los efectos directos al accionar el panel izquierdo inferior interactivo: Desliza las barras laterales ("Sliders") y reajusta la tuerca.
+                  Posiciónese por delante de los mercados y lideré comités previendo desviaciones. Abra el despliegue del "Simulador Estratégico", recalibre los deslizadores paramétricos frente a crisis supuestas, y compruebe instantes después el pronóstico base para sus líneas corporativas vitales.
                 </p>
                 <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
                   <h4 style="font-size: 0.9rem; font-weight: 700; color: #0369a1; margin-bottom: 8px;">Uso Estratégico - Ejercicio Predictivo</h4>
