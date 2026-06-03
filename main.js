@@ -404,10 +404,11 @@ if (window.msal) {
 }
 
 let SHARPOINT_FILE_URL = localStorage.getItem('CUSTOM_ONEDRIVE_FILE_URL') || import.meta.env.VITE_ONEDRIVE_FILE_URL || import.meta.env.VITE_ONEDRIVE_ITEM_ID;
-let SHARPOINT_VENTAS_FILE_URL = localStorage.getItem('CUSTOM_ONEDRIVE_VENTAS_URL') || import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID;
+let SHARPOINT_VENTAS_FILE_URL = localStorage.getItem('CUSTOM_ONEDRIVE_VENTAS_URL') || import.meta.env.VITE_CEO_FILE_URL;
 let RESUMEN_COMERCIAL_URL = localStorage.getItem('CUSTOM_RESUMEN_COMERCIAL_URL') || import.meta.env.VITE_RESUMEN_COMERCIAL_URL;
 let PG_HORIZONTAL_URL = localStorage.getItem('CUSTOM_PG_HORIZONTAL_URL') || import.meta.env.VITE_PG_HORIZONTAL_URL;
 let CXP_URL = localStorage.getItem('CUSTOM_CXP_URL') || import.meta.env.VITE_CXP_URL;
+let COSTO_UNITARIO_URL = import.meta.env.VITE_COSTO_UNITARIO_URL;
 
 const encodeUrlM365 = (url) => {
     if (!url || typeof url !== 'string' || url.trim().length === 0) return null;
@@ -431,29 +432,35 @@ const encodeUrlM365 = (url) => {
 const resolveSharepointUrlClient = (inputUrl) => {
     if (!inputUrl) return inputUrl;
     
-    // Extract sourcedoc GUID if present in a URL
-    const sourcedocMatch = inputUrl.match(/sourcedoc=([^&]+)/i);
-    let guid = sourcedocMatch ? decodeURIComponent(sourcedocMatch[1]) : inputUrl;
+    let resolved = String(inputUrl).trim().replace(/&amp;/g, "&");
     
     // Clean braces of the guid if needed for check
-    const cleanGuid = guid.replace(/^\{|\}$/g, "");
-    if (/^[0-9a-fA-F\-]{36}$/.test(cleanGuid)) {
-        return `https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc={${cleanGuid}}&download=1`;
+    const cleanInput = resolved.replace(/^\{|\}$/g, "");
+    if (/^[0-9a-fA-F\-]{36}$/.test(cleanInput)) {
+        return `https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc={${cleanInput}}&download=1`;
     }
     
-    // For general SharePoint URLs, convert embed/action view to direct download
-    if (inputUrl.includes("sharepoint.com") || inputUrl.includes("onedrive.live.com")) {
-        let resolved = inputUrl;
+    if (resolved.includes("sharepoint.com") || resolved.includes("onedrive.live.com")) {
         if (resolved.includes("action=embedview")) {
             resolved = resolved.replace(/action=embedview/g, "download=1");
         }
+        
+        resolved = resolved
+            .replace(/&wdAllowInteractivity=[^&]*/g, "")
+            .replace(/&wdHideGridlines=[^&]*/g, "")
+            .replace(/&wdHideHeaders=[^&]*/g, "")
+            .replace(/&wdDownloadButton=[^&]*/g, "")
+            .replace(/&wdInConfigurator=[^&]*/g, "")
+            .replace(/&edaebf=[^&]*/g, "");
+            
         if (!resolved.includes("download=1")) {
-            resolved += (resolved.includes("?") ? "&" : "?") + "download=1";
+            resolved += resolved.includes("?") ? "&download=1" : "?download=1";
         }
+        
         return resolved;
     }
     
-    return inputUrl;
+    return resolved;
 };
 
 window.updateM365UI = function(account) {
@@ -465,6 +472,8 @@ window.updateM365UI = function(account) {
     const m365UrlVentas = document.getElementById('m365UrlVentas');
     const m365UrlComercial = document.getElementById('m365UrlComercial');
     const m365UrlPgHorizontal = document.getElementById('m365UrlPgHorizontal');
+    const m365UrlCxp = document.getElementById('m365UrlCxp');
+    const m365UrlCostoUnitario = document.getElementById('m365UrlCostoUnitario');
 
     if (account) {
         if (loginM365Btn) loginM365Btn.style.display = 'none';
@@ -475,6 +484,8 @@ window.updateM365UI = function(account) {
         if (m365UrlVentas) m365UrlVentas.value = localStorage.getItem('CUSTOM_ONEDRIVE_VENTAS_URL') || '';
         if (m365UrlComercial) m365UrlComercial.value = localStorage.getItem('CUSTOM_RESUMEN_COMERCIAL_URL') || '';
         if (m365UrlPgHorizontal) m365UrlPgHorizontal.value = localStorage.getItem('CUSTOM_PG_HORIZONTAL_URL') || '';
+        if (m365UrlCxp) m365UrlCxp.value = localStorage.getItem('CUSTOM_CXP_URL') || '';
+        if (m365UrlCostoUnitario) m365UrlCostoUnitario.value = localStorage.getItem('CUSTOM_COSTO_UNITARIO_URL') || '';
     } else {
         if (loginM365Btn) loginM365Btn.style.display = 'flex';
         if (m365ActiveSession) m365ActiveSession.style.display = 'none';
@@ -483,6 +494,8 @@ window.updateM365UI = function(account) {
         if (m365UrlVentas) m365UrlVentas.value = '';
         if (m365UrlComercial) m365UrlComercial.value = '';
         if (m365UrlPgHorizontal) m365UrlPgHorizontal.value = '';
+        if (m365UrlCxp) m365UrlCxp.value = '';
+        if (m365UrlCostoUnitario) m365UrlCostoUnitario.value = '';
     }
 };
 
@@ -550,6 +563,16 @@ window.hasVentasAccess = false;
 window.hasComercialAccess = false;
 
 window.applyRoleBasedUI = function(hasMaster, hasVentas, hasComercial = false) {
+    const hasVentasFeature = 
+        !!import.meta.env.VITE_CEO_FILE_URL || 
+        (typeof window.runtimeConfig !== 'undefined' && !!window.runtimeConfig?.VITE_CEO_FILE_URL) || 
+        !!document.getElementById("view-ventas-ceo");
+    
+    if (hasVentasFeature) {
+        hasVentas = true;
+        window.hasVentasAccess = true;
+    }
+
     const mainContainer = document.querySelector('.main-container');
     const sidebarItems = document.querySelectorAll('.sidebar .menu-item');
     const monthSelector = document.getElementById('monthSelector');
@@ -565,10 +588,13 @@ window.applyRoleBasedUI = function(hasMaster, hasVentas, hasComercial = false) {
     const headerSeguimiento = groupSeguimiento ? groupSeguimiento.previousElementSibling : null;
     const groupVentas = document.getElementById('grupo-ventas');
     const headerVentas = groupVentas ? groupVentas.previousElementSibling : null;
+    const groupCostos = document.getElementById('grupo-costos');
+    const headerCostos = groupCostos ? groupCostos.previousElementSibling : null;
 
     const menuVentasCeo = document.getElementById('menu-ventas-ceo');
     const menuResumenComercial = document.getElementById('menu-resumen-comercial');
     const menuPgHorizontal = document.getElementById('menu-pg-horizontal');
+    const menuCostoUnitario = document.getElementById('menu-costo-unitario');
 
     // Limpiar banner previo si existe
     let deniedBanner = document.getElementById('access-denied-banner');
@@ -602,10 +628,16 @@ window.applyRoleBasedUI = function(hasMaster, hasVentas, hasComercial = false) {
         if (groupVentas) groupVentas.style.display = showVentasGroup ? '' : 'none';
         if (headerVentas) headerVentas.style.display = showVentasGroup ? 'flex' : 'none';
 
-        // Items individuales dentro de Ventas
+        // Grupo Costos
+        const showCostosGroup = hasComercial; // assuming 'hasComercial' allows viewing Costos for now
+        if (groupCostos) groupCostos.style.display = showCostosGroup ? '' : 'none';
+        if (headerCostos) headerCostos.style.display = showCostosGroup ? 'flex' : 'none';
+
+        // Items individuales dentro de Ventas y Costos
         if (menuVentasCeo) menuVentasCeo.parentElement.style.display = hasVentas ? '' : 'none';
         if (menuResumenComercial) menuResumenComercial.parentElement.style.display = hasComercial ? '' : 'none';
         if (menuPgHorizontal) menuPgHorizontal.parentElement.style.display = hasComercial ? '' : 'none';
+        if (menuCostoUnitario) menuCostoUnitario.parentElement.style.display = hasComercial ? '' : 'none';
 
         // Redirección si la vista activa ya no es accesible
         const activeView = Array.from(viewContainers).find(v => v.classList.contains('active'));
@@ -624,43 +656,13 @@ window.applyRoleBasedUI = function(hasMaster, hasVentas, hasComercial = false) {
         }
 
     } else {
-        // Escenario: Sin acceso
-        if (mainContainer) mainContainer.style.display = 'none';
-        if (sidebar) sidebar.style.display = 'none';
-        if (contentHeader) contentHeader.style.display = 'none';
+        // Escenario: Sin acceso - de todos modos dejamos al usuario operar e intentar cargar o configurar
+        if (mainContainer) mainContainer.style.display = '';
+        if (sidebar) sidebar.style.display = '';
+        if (contentHeader) contentHeader.style.display = '';
         
-        if (window.m365LoggedIn) {
-            deniedBanner = document.createElement('div');
-            deniedBanner.id = 'access-denied-banner';
-            deniedBanner.style.position = 'fixed';
-            deniedBanner.style.top = '0';
-            deniedBanner.style.left = '0';
-            deniedBanner.style.width = '100%';
-            deniedBanner.style.height = '100%';
-            deniedBanner.style.background = '#f3f4f6';
-            deniedBanner.style.display = 'flex';
-            deniedBanner.style.alignItems = 'center';
-            deniedBanner.style.justifyContent = 'center';
-            deniedBanner.style.fontFamily = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
-            deniedBanner.style.zIndex = '999999';
-            
-            deniedBanner.innerHTML = `
-                <div style="background:white; padding:40px; border-radius:12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align:center; max-width:450px; width:90%;">
-                    <div style="color:#004a99; font-size:50px; margin-bottom:20px;">🔒</div>
-                    <h2 style="color:#111827; margin:0 0 10px 0; font-size:1.5rem;">Acceso Denegado</h2>
-                    <p style="color:#6b7280; line-height:1.5; margin-bottom:30px;">No tienes permisos para visualizar los reportes corporativos en este sistema.<br><br>Por favor, contacta al administrador.</p>
-                    <button onclick="sessionStorage.clear(); localStorage.clear(); location.href='/';" 
-                            style="background:#004a99; color:white; border:none; padding:12px 24px; border-radius:6px; font-weight:600; cursor:pointer; width:100%; transition: background 0.2s;">
-                        Cerrar Sesión / Refrescar
-                    </button>
-                </div>
-            `;
-            document.body.appendChild(deniedBanner);
-        } else {
-            // Simply call handleZeroState silently if there's no MSAL session active indicating a real block
-            if (typeof window.handleZeroState === 'function') {
-                window.handleZeroState();
-            }
+        if (typeof window.handleZeroState === 'function') {
+            window.handleZeroState();
         }
     }
 };
@@ -766,6 +768,7 @@ async function fetchMasterData(token = null) {
                     const contentType = configRes.headers.get("content-type");
                     if (configRes.ok && contentType && contentType.includes("application/json")) {
                         runtimeConfig = await configRes.json();
+                        window.runtimeConfig = runtimeConfig;
                     }
                 } catch (e) {
                     console.warn("Could not fetch /api/config", e);
@@ -773,7 +776,7 @@ async function fetchMasterData(token = null) {
 
                 // Sincronizar variables activas en memoria con localStorage y config
                 SHARPOINT_FILE_URL = localStorage.getItem('CUSTOM_ONEDRIVE_FILE_URL') || import.meta.env.VITE_ONEDRIVE_FILE_URL || import.meta.env.VITE_ONEDRIVE_ITEM_ID || runtimeConfig.VITE_ONEDRIVE_FILE_URL;
-                SHARPOINT_VENTAS_FILE_URL = localStorage.getItem('CUSTOM_ONEDRIVE_VENTAS_URL') || import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID || runtimeConfig.VITE_CEO_FILE_URL;
+                SHARPOINT_VENTAS_FILE_URL = localStorage.getItem('CUSTOM_ONEDRIVE_VENTAS_URL') || import.meta.env.VITE_CEO_FILE_URL || runtimeConfig.VITE_CEO_FILE_URL || "";
 
                 // Descarga Master Financiero (Directo)
                 if (lt) lt.innerText = "Descargando Finanzas Master (5.0 MB)...";
@@ -813,7 +816,7 @@ async function fetchMasterData(token = null) {
                 // Descarga Ventas CEO inmediata (Directo)
                 if (lt) lt.innerText = "Descargando Ventas CEO (133 kB)...";
                 if (pb) pb.style.width = "40%";
-                const CEO_FILE_URL = SHARPOINT_VENTAS_FILE_URL || import.meta.env.VITE_CEO_FILE_URL || import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID || runtimeConfig.VITE_CEO_FILE_URL;
+                const CEO_FILE_URL = SHARPOINT_VENTAS_FILE_URL || import.meta.env.VITE_CEO_FILE_URL || runtimeConfig.VITE_CEO_FILE_URL;
                 const resolvedCeoUrl = resolveSharepointUrlClient(CEO_FILE_URL);
                 const encodedCeoUrl = encodeUrlM365(resolvedCeoUrl);
                 if (encodedCeoUrl) {
@@ -1012,6 +1015,38 @@ async function fetchMasterData(token = null) {
                         }
                     }
                 }
+
+                // Descarga Costo Unitario (Directo)
+                COSTO_UNITARIO_URL = import.meta.env.VITE_COSTO_UNITARIO_URL || runtimeConfig.VITE_COSTO_UNITARIO_URL;
+                const resolvedCostoUrl = resolveSharepointUrlClient(COSTO_UNITARIO_URL);
+                const encodedCostoUrl = encodeUrlM365(resolvedCostoUrl);
+                if (encodedCostoUrl) {
+                    const graphUrlCosto = `https://graph.microsoft.com/v1.0/shares/u!${encodedCostoUrl}/driveItem/content`;
+                    const reqCosto = await fetch(graphUrlCosto, { headers: { "Authorization": `Bearer ${token}` }, signal: controller.signal });
+                    if (reqCosto.ok) {
+                        const arrayBufferCosto = await reqCosto.arrayBuffer();
+                        try {
+                            const engine = await import('./costoUnitarioEngine.js');
+                            window.costoUnitarioEngine = engine;
+                            const workbook = XLSX.read(new Uint8Array(arrayBufferCosto), { type: 'array' });
+                            window.costoUnitarioEngine.processCostoUnitarioWorkbook(workbook);
+                            if (window.updateCostoUnitario) window.updateCostoUnitario();
+                        } catch (e) { console.error("Error processing m365 costo sync:", e); }
+                    } else {
+                        let paramsCosto = COSTO_UNITARIO_URL ? `?url=${encodeURIComponent(COSTO_UNITARIO_URL)}` : '';
+                        const proxyReqCosto = await fetch(`/api/downloadSyncCostoUnitario${paramsCosto}`, { headers: { "Authorization": `Bearer ${token}` }, signal: controller.signal });
+                        if (proxyReqCosto.ok) {
+                            const arrayBufferCosto = await proxyReqCosto.arrayBuffer();
+                            try {
+                                const engine = await import('./costoUnitarioEngine.js');
+                                window.costoUnitarioEngine = engine;
+                                const workbook = XLSX.read(new Uint8Array(arrayBufferCosto), { type: 'array' });
+                                window.costoUnitarioEngine.processCostoUnitarioWorkbook(workbook);
+                                if (window.updateCostoUnitario) window.updateCostoUnitario();
+                            } catch (e) { console.error("Error processing m365 costo proxy sync:", e); }
+                        }
+                    }
+                }
             } else {
                 // ==========================================
                 // INTERCEPCIÓN EN VERCEL (Caché vs Bloqueo)
@@ -1162,6 +1197,19 @@ async function fetchMasterData(token = null) {
                         console.error("Error processing fallback cxp sync:", e);
                     }
                 }
+
+                let paramsCosto = COSTO_UNITARIO_URL ? `?url=${encodeURIComponent(COSTO_UNITARIO_URL)}` : '';
+                const responseCosto = await fetch(`/api/downloadSyncCostoUnitario${paramsCosto}`, { signal: controller.signal });
+                if (responseCosto.ok) {
+                    const arrayBufferCosto = await responseCosto.arrayBuffer();
+                    try {
+                        const engine = await import('./costoUnitarioEngine.js');
+                        window.costoUnitarioEngine = engine;
+                        const workbook = XLSX.read(new Uint8Array(arrayBufferCosto), { type: 'array' });
+                        window.costoUnitarioEngine.processCostoUnitarioWorkbook(workbook);
+                        if (window.updateCostoUnitario) window.updateCostoUnitario();
+                    } catch (e) { console.error("Error processing fallback costo sync:", e); }
+                }
             }
             clearTimeout(timeoutId);
         } catch (err) {
@@ -1225,6 +1273,12 @@ async function fetchMasterData(token = null) {
         // ==========================================
         if (arrayBuffer || window.isMagicLoaded) {
             if (arrayBuffer) {
+                // Safeguard check - ensure SharePoint response isn't plain HTML / Login Redirect
+                const previewText = new TextDecoder().decode(arrayBuffer.slice(0, 300));
+                if (/^\s*<!doctype html/i.test(previewText) || /^\s*<html/i.test(previewText)) {
+                    throw new Error("El archivo de Finanzas Master de SharePoint contiene HTML en vez de una hoja de cálculo (Revisar que esté compartido públicamente o iniciar sesión en M365).");
+                }
+
                 const engineResult = await new Promise((resolve, reject) => {
                     const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
                     worker.onmessage = (e) => {
@@ -1311,6 +1365,12 @@ async function fetchMasterData(token = null) {
         // ==========================================
         if (arrayBufferCeo) {
             try {
+                // Safeguard check - ensure SharePoint response isn't plain HTML / Login Redirect
+                const previewText = new TextDecoder().decode(arrayBufferCeo.slice(0, 300));
+                if (/^\s*<!doctype html/i.test(previewText) || /^\s*<html/i.test(previewText)) {
+                    throw new Error("El archivo de Ventas CEO de SharePoint contiene HTML en vez de una hoja de cálculo (Revisar que esté compartido públicamente o iniciar sesión en M365).");
+                }
+
                 const resultCeo = await new Promise((resolve, reject) => {
                     const ceoWorker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
                     ceoWorker.onmessage = (e) => {
@@ -1388,6 +1448,7 @@ window.syncNavigationUI = function(menuId) {
         'menu-pg-horizontal': "P&G Horizontal por Producto",
         'menu-ventas-ceo': "Ventas CEO",
         'menu-resumen-comercial': "Resumen Comercial",
+        'menu-costo-unitario': "Costo Unitario",
         'menu-config': "Configuración y Auditoría",
         'menu-glosario': "Glosario de Términos y Metodologías Financieras",
         'menu-instructivo': "Manual del Usuario Corporativo"
@@ -1469,7 +1530,7 @@ window.updateLastUpdatedTime = function(timestamp) {
 
 async function loadCacheInstant() {
     try {
-        const CACHE_VERSION = 'v4';
+        const CACHE_VERSION = 'v5';
         if (localStorage.getItem('ventas_cache_version') !== CACHE_VERSION) {
             localStorage.setItem('ventas_cache_version', CACHE_VERSION);
             const db = await getFinanceDB();
@@ -1477,6 +1538,7 @@ async function loadCacheInstant() {
                 const tx = db.transaction('finance_cache', 'readwrite');
                 tx.objectStore('finance_cache').delete('MASTER_FINANCE_KEY');
                 tx.objectStore('finance_cache').delete('CEO_VENTAS_KEY_V3');
+                tx.objectStore('finance_cache').delete('CEO_VENTAS_KEY_V2');
                 tx.objectStore('finance_cache').delete('COMERCIAL_KEY');
                 tx.oncomplete = resolve;
                 tx.onerror = reject;
@@ -1598,6 +1660,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             globalFinancialData = null;
             ceoData = null;
             window.isMagicLoaded = false;
+            window.hasMasterAccess = false;
+            window.hasVentasAccess = false;
+            window.hasComercialAccess = false;
+            window.m365LoggedIn = false;
+
+            if (window.resumenComercialEngine && typeof window.resumenComercialEngine.resetComercialEngine === 'function') {
+                window.resumenComercialEngine.resetComercialEngine();
+            }
             
             // Limpiar caché
             try {
@@ -1767,16 +1837,22 @@ document.addEventListener('DOMContentLoaded', async () => {
             const ventasUrl = document.getElementById('m365UrlVentas')?.value || '';
             const comercialUrl = document.getElementById('m365UrlComercial')?.value || '';
             const pgHorizontalUrl = document.getElementById('m365UrlPgHorizontal')?.value || '';
+            const cxpUrl = document.getElementById('m365UrlCxp')?.value || '';
+            const costoUnitarioUrl = document.getElementById('m365UrlCostoUnitario')?.value || '';
             
             localStorage.setItem('CUSTOM_ONEDRIVE_FILE_URL', masterUrl);
             localStorage.setItem('CUSTOM_ONEDRIVE_VENTAS_URL', ventasUrl);
             localStorage.setItem('CUSTOM_RESUMEN_COMERCIAL_URL', comercialUrl);
             localStorage.setItem('CUSTOM_PG_HORIZONTAL_URL', pgHorizontalUrl);
+            localStorage.setItem('CUSTOM_CXP_URL', cxpUrl);
+            localStorage.setItem('CUSTOM_COSTO_UNITARIO_URL', costoUnitarioUrl);
             
             SHARPOINT_FILE_URL = masterUrl || import.meta.env.VITE_ONEDRIVE_FILE_URL || import.meta.env.VITE_ONEDRIVE_ITEM_ID;
-            SHARPOINT_VENTAS_FILE_URL = ventasUrl || import.meta.env.VITE_ONEDRIVE_VENTAS_ITEM_ID;
+            SHARPOINT_VENTAS_FILE_URL = ventasUrl || import.meta.env.VITE_CEO_FILE_URL;
             RESUMEN_COMERCIAL_URL = comercialUrl || import.meta.env.VITE_RESUMEN_COMERCIAL_URL;
             PG_HORIZONTAL_URL = pgHorizontalUrl || import.meta.env.VITE_PG_HORIZONTAL_URL;
+            CXP_URL = cxpUrl || import.meta.env.VITE_CXP_URL;
+            COSTO_UNITARIO_URL = costoUnitarioUrl || import.meta.env.VITE_COSTO_UNITARIO_URL;
             
             alert("Enlaces de OneDrive guardados exitosamente.");
         });
@@ -2258,7 +2334,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const navKeyMap = {
                     'view-kpi': 'menu-kpi', 'view-resumen': 'menu-resumen', 'view-preliminar': 'menu-preliminar',
                     'view-resumen-comercial': 'menu-resumen-comercial', 'view-ventas-ceo': 'menu-ventas-ceo',
-                    'view-pg-horizontal': 'menu-pg-horizontal', 'view-config': 'menu-config',
+                    'view-pg-horizontal': 'menu-pg-horizontal', 'view-costo-unitario': 'menu-costo-unitario', 'view-config': 'menu-config',
                     'view-deuda': 'menu-deuda', 'view-wc': 'menu-wc', 'view-cxp': 'menu-cxp',
                     'view-balance': 'menu-balance', 'view-cashflow': 'menu-cashflow', 'view-estados': 'menu-estados'
                 };
@@ -2286,11 +2362,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     let pendingResumenComercialFile = null;
     let pendingPgHorizontalFile = null;
     let pendingCxpFile = null;
+    let pendingCostoUnitarioFile = null;
 
     function updateProcessButton() {
         const btn = document.getElementById('processManualFilesBtn');
         if (btn) {
-            if (pendingMainFile || pendingVentasCeoFile || pendingResumenComercialFile || pendingPgHorizontalFile || pendingCxpFile) {
+            if (pendingMainFile || pendingVentasCeoFile || pendingResumenComercialFile || pendingPgHorizontalFile || pendingCxpFile || pendingCostoUnitarioFile) {
                 btn.disabled = false;
                 btn.style.opacity = '1';
                 btn.style.cursor = 'pointer';
@@ -2366,6 +2443,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    const uploadCostoUnitarioHomeInput = document.getElementById('upload-costo-unitario-home');
+    if (uploadCostoUnitarioHomeInput) {
+        uploadCostoUnitarioHomeInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                pendingCostoUnitarioFile = file;
+                const nameEl = document.getElementById('costoUnitarioFileName');
+                if (nameEl) nameEl.textContent = file.name;
+                updateProcessButton();
+            }
+        });
+    }
+
     const processManualFilesBtn = document.getElementById('processManualFilesBtn');
     if (processManualFilesBtn) {
         processManualFilesBtn.addEventListener('click', async () => {
@@ -2381,9 +2471,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (pendingCxpFile) {
                 await window.processCxpFile(pendingCxpFile);
             }
+            if (pendingCostoUnitarioFile) {
+                await window.processCostoUnitarioFile(pendingCostoUnitarioFile);
+            }
             if (pendingMainFile) {
                 handleFileUpload({ target: { files: [pendingMainFile] } });
-            } else if (pendingVentasCeoFile || pendingResumenComercialFile || pendingPgHorizontalFile || pendingCxpFile) {
+            } else if (pendingVentasCeoFile || pendingResumenComercialFile || pendingPgHorizontalFile || pendingCxpFile || pendingCostoUnitarioFile) {
                 alert("Archivos secundarios procesados exitosamente.");
             }
         });
@@ -2433,6 +2526,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                     pendingCxpFile = file;
                     const nameEl = document.getElementById('cxpFileName');
                     if (nameEl) nameEl.textContent = file.name;
+                } else if (name.includes('costo') || name.includes('unitario')) {
+                    if (uploadCostoUnitarioHomeInput) uploadCostoUnitarioHomeInput.files = files;
+                    pendingCostoUnitarioFile = file;
+                    const nameEl = document.getElementById('costoUnitarioFileName');
+                    if (nameEl) nameEl.textContent = file.name;
                 } else {
                     if (fileInput) fileInput.files = files;
                     pendingMainFile = file;
@@ -2458,6 +2556,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         monthSelector.addEventListener('change', (e) => {
             const index = parseInt(e.target.value);
             if (!isNaN(index)) updateUI(globalFinancialData, index);
+            if (typeof window.updateCostoUnitario === 'function') {
+                window.updateCostoUnitario();
+            }
         });
     }
 
@@ -2594,11 +2695,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const idx = parseInt(monthSelector.value);
                 if (!isNaN(idx)) renderActiveViewLazy(globalFinancialData, idx);
             }
-            if (id === 'menu-ventas-ceo' && typeof window.renderVentasCEO === 'function' && typeof ceoData !== 'undefined' && ceoData) {
+            if (id === 'menu-ventas-ceo' && typeof window.renderVentasCEO === 'function') {
                 window.renderVentasCEO();
             }
             if (id === 'menu-resumen-comercial' && typeof window.renderResumenComercial === 'function') {
                 window.renderResumenComercial();
+            }
+            if (id === 'menu-costo-unitario' && typeof window.updateCostoUnitario === 'function') {
+                window.updateCostoUnitario();
             }
             if (id === 'menu-pg-horizontal' && typeof window.renderPgHorizontal === 'function') {
                 window.renderPgHorizontal();
@@ -8943,24 +9047,58 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     function getDashboardContext() {
-        if (!globalFinancialData || globalFinancialData.length === 0) return "No hay datos financieros cargados.";
-        const monthSelector = document.getElementById('monthSelector');
-        const idx = monthSelector ? parseInt(monthSelector.value, 10) : globalFinancialData.length - 1;
-        const curr = globalFinancialData[idx || globalFinancialData.length - 1];
+        let masterContext = "";
+        if (globalFinancialData && globalFinancialData.length > 0) {
+            const monthSelector = document.getElementById('monthSelector');
+            const idx = monthSelector ? parseInt(monthSelector.value, 10) : globalFinancialData.length - 1;
+            const curr = globalFinancialData[idx || globalFinancialData.length - 1];
 
-        return `
-        Datos actuales del dashboard al ${curr.date}:
-        - Ingresos (Kpis): RD$ ${(curr.kpis?.ingresos || 0).toFixed(2)}M
-        - EBITDA (Kpis): RD$ ${(curr.kpis?.ebitda || 0).toFixed(2)}M
-        - Utilidad Neta (Kpis): RD$ ${(curr.kpis?.utilidad || 0).toFixed(2)}M
-        - Flujo de Caja (Generación): RD$ ${(curr.kpis?.cashflow || 0).toFixed(2)}M
-        - Efectivo Final: RD$ ${(curr.cashflowDetail?.ending || 0).toFixed(2)}M
-        - Margen Bruto: ${((curr.kpis?.margen_bruto || 0) * 100).toFixed(1)}%
-        - Margen Neto: ${((curr.kpis?.margen_neto || 0) * 100).toFixed(1)}%
-        - Deuda Total: RD$ ${(curr.balance?.deudaTotal || 0).toFixed(2)}M
-        - Apalancamiento (Deuda/EBITDA): ${((curr.balance?.deudaTotal || 0) / (curr.balance?.ebitdaLTM || 1)).toFixed(2)}x
-        Este es el contexto para tus respuestas.
-        `;
+            masterContext = `
+            Datos actuales del dashboard al ${curr.date}:
+            - Ingresos (Kpis): RD$ ${(curr.kpis?.ingresos || 0).toFixed(2)}M
+            - EBITDA (Kpis): RD$ ${(curr.kpis?.ebitda || 0).toFixed(2)}M
+            - Utilidad Neta (Kpis): RD$ ${(curr.kpis?.utilidad || 0).toFixed(2)}M
+            - Flujo de Caja (Generación): RD$ ${(curr.kpis?.cashflow || 0).toFixed(2)}M
+            - Efectivo Final: RD$ ${(curr.cashflowDetail?.ending || 0).toFixed(2)}M
+            - Margen Bruto: ${((curr.kpis?.margen_bruto || 0) * 100).toFixed(1)}%
+            - Margen Neto: ${((curr.kpis?.margen_neto || 0) * 100).toFixed(1)}%
+            - Deuda Total: RD$ ${(curr.balance?.deudaTotal || 0).toFixed(2)}M
+            - Apalancamiento (Deuda/EBITDA): ${((curr.balance?.deudaTotal || 0) / (curr.balance?.ebitdaLTM || 1)).toFixed(2)}x
+            `;
+        }
+
+        let ventasCeoContext = "";
+        if (ceoData && ceoData.length > 0) {
+            ventasCeoContext = `
+            =================================
+            System Prompt — Procesamiento de Ventas CEO (Planeta Azul)
+            Eres el analista financiero de datos de Planeta Azul S.A. con acceso al archivo Excel de Ventas CEO.
+            Tu rol: Procesas datos de Ventas CEO.
+            Cuando se te pida analizar el archivo:
+            Extrae la jerarquía de productos de "Tablas Consejo".
+            La estructura actual en ceoData ya tiene:
+            values: reales mensuales.
+            pptoValues: presupuestos.
+            FY2024, PO26, etc.
+            Si ves 0 en los meses reales de 2026 hacia adelante, usa el valor PPTO. (El sistema pre-procesó y aplicó fallback a los objetos).
+            Si el usuario te pide extraer datos, responde SOLO con JSON válido, sin markdown, sin texto adicional (como en el requerimiento "Extrae los datos de Volumen...").
+            
+            Jerarquía de productos actual extraída y disponible en data:
+            AGUA PLANETA AZUL (padre de: APA BOTELLON 18.9, APA BOTELLA 0.5, etc.)
+            MAQUILAS (padre de: MAQUILA AGUA OTROS...)
+            BEBIDAS (padre de: BON, PA SABOR 0.5...)
+            
+            Dato en crudo de Ventas CEO (JSON):
+            ${JSON.stringify(ceoData.map(d => ({ Producto: d.Producto, Tipo: d.Tipo, parentId: d.parentId, hasChildren: d.hasChildren, values: d.values, pptoValues: d.pptoValues, FY2024: d.FY2024, PO26: d.PO26 }))) }
+            =================================
+            `;
+        }
+
+        if (!masterContext && !ventasCeoContext) {
+             return "No hay datos cargados en el sistema.";
+        }
+
+        return masterContext + ventasCeoContext + "\nEste es el contexto para tus respuestas.";
     }
 
     const handleChatSubmit = async () => {
@@ -9329,13 +9467,26 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 if (consejoSheet) {
                     bestSheetName = consejoSheet;
                 } else {
+                    let maxScore = -1;
                     for (let name of workbook.SheetNames) {
                         const sheetTmp = workbook.Sheets[name];
                         const rowsTmp = XLSX.utils.sheet_to_json(sheetTmp, { header: 1 });
-                        const hasProducto = rowsTmp.some(r => r && r.some(c => String(c).toLowerCase().trim() === 'producto' || String(c).toLowerCase().trim() === 'descripción'));
-                        if (hasProducto) {
+                        let score = 0;
+                        for (let r of rowsTmp) {
+                            if (!r) continue;
+                            for (let c of r) {
+                                if (c === undefined || c === null) continue;
+                                const term = String(c).toLowerCase().trim();
+                                if (term === 'producto' || term === 'descripción' || term === 'descripcion') score += 10;
+                                if (term === 'tipo') score += 5;
+                                if (term.includes('ventas netas dop') || term.includes('ventas netas')) score += 8;
+                                if (term.includes('volumen unidades') || term.includes('volumen')) score += 8;
+                                if (term === '2026' || term.includes('ppto')) score += 5;
+                            }
+                        }
+                        if (score > maxScore && score > 0) {
+                            maxScore = score;
                             bestSheetName = name;
-                            break;
                         }
                     }
                 }
@@ -9394,24 +9545,54 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                      bestRows = workerResult.bestRows;
                 } else {
                     bestSheetName = workbook.SheetNames[0];
+                    let maxScore = -1;
                     for (let name of workbook.SheetNames) {
                         const sheetTmp = workbook.Sheets[name];
                         const rowsTmp = XLSX.utils.sheet_to_json(sheetTmp, { header: 1 });
-                        const hasProducto = rowsTmp.some(r => r && r.some(c => String(c).toLowerCase().trim() === 'producto' || String(c).toLowerCase().trim() === 'descripción'));
-                        if (hasProducto) {
+                        let score = 0;
+                        for (let r of rowsTmp) {
+                            if (!r) continue;
+                            for (let c of r) {
+                                if (c === undefined || c === null) continue;
+                                const term = String(c).toLowerCase().trim();
+                                if (term === 'producto' || term === 'descripción' || term === 'descripcion') score += 10;
+                                if (term === 'tipo') score += 5;
+                                if (term.includes('ventas netas dop') || term.includes('ventas netas')) score += 8;
+                                if (term.includes('volumen unidades') || term.includes('volumen')) score += 8;
+                                if (term === '2026' || term.includes('ppto')) score += 5;
+                            }
+                        }
+                        if (score > maxScore && score > 0) {
+                            maxScore = score;
                             bestSheetName = name;
-                            break;
                         }
                     }
                     bestRows = XLSX.utils.sheet_to_json(workbook.Sheets[bestSheetName], { header: 1 });
                 }
                 ceoData = parseConsejoSheet(bestRows);
+                if (!ceoData || ceoData.length === 0) {
+                    const selectedSheetName = bestSheetName || (workbook?.SheetNames ? workbook.SheetNames[0] : null);
+                    console.warn("Ventas CEO produjo 0 filas. Diagnóstico (no consejoSheetName):", {
+                        sheetNames: workbook?.SheetNames,
+                        selectedSheetName: selectedSheetName,
+                        firstRows: bestRows ? bestRows.slice(0, 10) : null,
+                        detectedHeaders: bestRows ? (bestRows[0] || []) : [],
+                        rawRowsLength: bestRows ? bestRows.length : 0,
+                        parsedLength: 0
+                    });
+                    ceoData = null;
+                    let viewVentasCeo = document.getElementById("view-ventas-ceo");
+                    if (viewVentasCeo && viewVentasCeo.classList.contains("active")) {
+                        window.renderVentasCEO();
+                    }
+                    return;
+                }
                 // Save to IndexedDB
                 try {
                     const db = await getFinanceDB();
                     await new Promise((resolve, reject) => {
                         const tx = db.transaction('finance_cache', 'readwrite');
-                        tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'CEO_VENTAS_KEY_V2');
+                        tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'CEO_VENTAS_KEY_V3');
                         tx.oncomplete = resolve;
                         tx.onerror = reject;
                     });
@@ -9507,7 +9688,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 ['Volumen', 'Monto (MM DOP)'].forEach(tipo => {
                     let parentRow = finalData.find(d => d.id === pId && d.Tipo === tipo);
                     if (parentRow) {
-                        let children = finalData.filter(d => d.parentId === pId && d.Tipo === tipo);
+                        let children = finalData.filter(d => d.parentId === pId && d.Tipo === tipo && d.Producto !== "PA H+ 0.68 LTS (X12)");
                         // Limpiar valores del padre para sumar
                         Object.keys(parentRow.values).forEach(k => parentRow.values[k] = 0);
                         if(parentRow.pptoValues) Object.keys(parentRow.pptoValues).forEach(k => parentRow.pptoValues[k] = 0);
@@ -9571,7 +9752,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                    if(totRow) {
                        totRow.pptoValues = totRow.pptoValues || {};
                        // Las filas raíz
-                       const mainItems = finalData.filter(d => !d.parentId && d.Tipo === tipo && !d.Producto.startsWith('TOTAL') && !d.Producto.startsWith('TOTAL SIN BON'));
+                       const mainItems = finalData.filter(d => d.Tipo === tipo && ['AGUA PLANETA AZUL', 'MAQUILAS', 'BEBIDAS'].includes(d.Producto.toUpperCase().trim()));
                        // Las filas BONIF o BON (son hijos)
                        const bonifItems = finalData.filter(d => d.parentId && d.Tipo === tipo && d.Producto.includes('BON'));
                        
@@ -9694,6 +9875,29 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             }
         });
 
+            if (!finalData || finalData.length === 0) {
+                const selectedSheetName = consejoSheetName || bestSheetName || dataSheetName || (workbook?.SheetNames ? workbook.SheetNames[0] : null);
+                let rawRows = null;
+                if (selectedSheetName && workbook?.Sheets?.[selectedSheetName]) {
+                    rawRows = XLSX.utils.sheet_to_json(workbook.Sheets[selectedSheetName], { header: 1 });
+                }
+                
+                console.warn("Ventas CEO produjo 0 filas. Diagnóstico:", {
+                    sheetNames: workbook?.SheetNames,
+                    selectedSheetName: selectedSheetName,
+                    firstRows: rawRows ? rawRows.slice(0, 10) : null,
+                    detectedHeaders: rawRows ? (rawRows[0] || []) : [],
+                    rawRowsLength: rawRows ? rawRows.length : 0,
+                    parsedLength: 0
+                });
+                ceoData = null;
+                let viewVentasCeo = document.getElementById("view-ventas-ceo");
+                if (viewVentasCeo && viewVentasCeo.classList.contains("active")) {
+                    window.renderVentasCEO();
+                }
+                return;
+            }
+
             ceoData = finalData;
             console.log("Ventas CEO data loaded.", ceoData.length);
             
@@ -9702,7 +9906,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 const db = await getFinanceDB();
                 await new Promise((resolve, reject) => {
                     const tx = db.transaction('finance_cache', 'readwrite');
-                    tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'CEO_VENTAS_KEY_V2');
+                    tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'CEO_VENTAS_KEY_V3');
                     tx.oncomplete = resolve;
                     tx.onerror = reject;
                 });
@@ -9835,6 +10039,36 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
              if(!headers[i]) headers[i] = `Col_${i}`;
         }
         
+        let pptoStartIdx = 9999;
+        const scanStart = Math.max(0, headerRowIdx - 2);
+        for (let i = scanStart; i <= headerRowIdx; i++) {
+            const r = rows[i];
+            if (!r) continue;
+            r.forEach((cell, idx) => {
+                if (!cell) return;
+                const s = String(cell).toUpperCase().trim();
+                if (s === 'PPTO' || s === 'PRESUPUESTO' || s.includes('PPTO 2026') || s.includes('PRESUP')) {
+                    if (idx < pptoStartIdx) pptoStartIdx = idx;
+                }
+            });
+        }
+        if (pptoStartIdx === 9999) {
+            headers.forEach((cell, idx) => {
+                if (cell) {
+                    const s = String(cell).toUpperCase().trim();
+                    if (s.includes('PPTO') || s.includes('PRESUPUESTO')) {
+                        if (idx < pptoStartIdx) pptoStartIdx = idx;
+                    }
+                }
+            });
+        }
+        if (pptoStartIdx === 9999) pptoStartIdx = 39;
+
+        const monthsMap = {
+            'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04', 'may': '05', 'jun': '06',
+            'jul': '07', 'ago': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12'
+        };
+
         let data = [];
         for(let i = headerRowIdx + 1; i < rows.length; i++) {
              const row = rows[i];
@@ -9845,63 +10079,43 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                  if(row[idx] === undefined) return;
                  let val = parseFloat(String(row[idx]).replace(/,/g, '')) || 0;
                  
-                 // Real 2026: columns AB to AM (indices 27 to 38 in 0-based)
-                 if (idx >= 27 && idx <= 38) {
-                     let m = String(idx - 27 + 1).padStart(2, '0');
-                     let dateStr = `2026-${m}`;
-                     if (!obj.values[dateStr]) obj.values[dateStr] = val;
-                     return;
+                 let isDate = false;
+                 let dateStr = "";
+                 const headerText = String(h).trim();
+                 const textK = headerText.toLowerCase();
+
+                 if (headerText.includes('-01 00:00:00') || (headerText.startsWith('202') && headerText.length >= 7)) {
+                     isDate = true;
+                     dateStr = headerText.slice(0, 7);
+                 } else if (!isNaN(headerText) && Number(headerText) > 40000 && Number(headerText) < 50000) {
+                     isDate = true;
+                     let dObj = new Date((Number(headerText) - 25569) * 86400 * 1000);
+                     dateStr = dObj.toISOString().slice(0, 7);
+                 } else {
+                     const match = textK.match(/([a-z]{3})[-/ ]?(\d{2,4})/);
+                     if(match && monthsMap[match[1]]) {
+                         let y = match[2];
+                         if(y.length === 2) y = "20" + y;
+                         dateStr = `${y}-${monthsMap[match[1]]}`;
+                         isDate = true;
+                     }
                  }
-                 
-                 // PPTO 2026: columns AN to AY (indices 39 to 50 in 0-based)
-                 if (idx >= 39 && idx <= 50) {
-                     let m = String(idx - 39 + 1).padStart(2, '0');
-                     let dateStr = `2026-${m}`;
-                     if (!obj.pptoValues[dateStr]) obj.pptoValues[dateStr] = val;
-                     return;
-                 }
-                 
-                 if(h !== undefined && h !== null) {
-                     let headerStr = String(h).trim();
-                     if (headerStr === 'Concepto' || headerStr === 'Tipo') {
-                         obj[headerStr] = row[idx];
+
+                 if (isDate) {
+                     const isPptoCol = idx >= pptoStartIdx || textK.includes('ppto') || textK.includes('presupuesto');
+                     if (isPptoCol) {
+                         if (!obj.pptoValues[dateStr]) obj.pptoValues[dateStr] = val;
                      } else {
-                         // Parse date/values
-                         let textK = String(h).trim().toLowerCase();
-                         let isDate = false;
-                         let dateStr = headerStr;
-                         if (headerStr.includes('-01 00:00:00') || (headerStr.startsWith('202') && headerStr.length >= 7)) {
-                             isDate = true;
-                             dateStr = headerStr.slice(0, 7);
-                         } else if (!isNaN(headerStr) && Number(headerStr) > 40000 && Number(headerStr) < 50000) {
-                             isDate = true;
-                             let dObj = new Date((Number(headerStr) - 25569) * 86400 * 1000);
-                             dateStr = dObj.toISOString().slice(0, 7);
-                         } else {
-                             const monthsMap = {
-                                 'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04', 'may': '05', 'jun': '06',
-                                 'jul': '07', 'ago': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12'
-                             };
-                             const match = textK.match(/([a-z]{3})[-/ ]?(\d{2,4})/);
-                             if(match && monthsMap[match[1]]) {
-                                 let y = match[2];
-                                 if(y.length === 2) y = "20" + y;
-                                 dateStr = `${y}-${monthsMap[match[1]]}`;
-                                 isDate = true;
-                             }
-                         }
-                         
-                         if(isDate) {
-                             // Only set if not already set by explicit indexing logic above
-                             if (!obj.values[dateStr]) {
-                                 obj.values[dateStr] = val;
-                             }
-                         } else if(textK.includes('fy') || textK.includes('real 2024') || headerStr === 'FY2024' || headerStr === 'PO26' || headerStr === 'PO25') {
-                             let yKey = 'FY2024';
-                             if(textK.includes('po26')) yKey = 'PO26';
-                             else if(textK.includes('po25')) yKey = 'PO25';
-                             obj[yKey] = val;
-                         }
+                         if (!obj.values[dateStr]) obj.values[dateStr] = val;
+                     }
+                 } else {
+                     if (headerText === 'Concepto' || headerText === 'Tipo') {
+                         obj[headerText] = row[idx];
+                     } else if(textK.includes('fy') || textK.includes('real 2024') || headerText === 'FY2024' || headerText === 'PO26' || headerText === 'PO25') {
+                         let yKey = 'FY2024';
+                         if(textK.includes('po26')) yKey = 'PO26';
+                         else if(textK.includes('po25')) yKey = 'PO25';
+                         obj[yKey] = val;
                      }
                  }
              });
@@ -9918,7 +10132,6 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                  }
              }
              
-             // Reconstruct PO26 column summing up all PPTO
              let po26Sum = 0;
              for (let m = 1; m <= 12; m++) {
                  let dateStr = `2026-${String(m).padStart(2, '0')}`;
@@ -9931,7 +10144,44 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         return data;
     }
 
-    function parseConsejoFromObjects(objects) {
+    function parseConsejoFromObjects(objectsInput) {
+        if (!objectsInput || objectsInput.length === 0) return [];
+
+        let objects = objectsInput;
+        
+        // 1. AUTO-DETECTOR Y LIMPIEZA DE MATRICES
+        if (Array.isArray(objectsInput[0])) {
+            let totalRowIndex = -1;
+            
+            for (let i = 0; i < objectsInput.length; i++) {
+                if (!objectsInput[i]) continue;
+                let hasTotal = objectsInput[i].some(c => c && String(c).toUpperCase().trim() === 'TOTAL');
+                if (hasTotal) {
+                    totalRowIndex = i;
+                    break;
+                }
+            }
+            
+            if (totalRowIndex !== -1) {
+                let headerRowIndex = totalRowIndex > 0 ? totalRowIndex - 1 : 0;
+                let headers = objectsInput[headerRowIndex];
+                let constructedObjects = [];
+                
+                for (let i = totalRowIndex; i < objectsInput.length; i++) {
+                    if (!objectsInput[i] || objectsInput[i].length === 0) continue;
+                    let obj = {};
+                    for (let j = 0; j < objectsInput[i].length; j++) {
+                        let key = (headers[j] !== undefined && headers[j] !== null && String(headers[j]).trim() !== '') 
+                                    ? String(headers[j]).trim() 
+                                    : `__GHOST_${j}`; // Renombrado para no confundir con __EMPTY
+                        obj[key] = objectsInput[i][j];
+                    }
+                    constructedObjects.push(obj);
+                }
+                objects = constructedObjects;
+            }
+        }
+
         let parsedRows = [];
         let currentType = "Volumen";
         let currentParentId = null;
@@ -9941,15 +10191,21 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             const keys = Object.keys(r);
             if(keys.length === 0) return;
             
-            // Si la llave dice "Producto" u otra, o simplemente agarramos la primera.
-            let prodKey = keys.find(k => k.toLowerCase().includes('producto') || k.toLowerCase().includes('descrip')) || keys.find(k => k.includes('__EMPTY')) || keys[0];
+            // 2. CORRECCIÓN CRÍTICA: Ignorar fantasmas y forzar columna inicial (keys[0])
+            let prodKey = keys.find(k => k.toLowerCase().includes('producto') || k.toLowerCase().includes('descrip'));
+            if (!prodKey) prodKey = keys[0]; 
+            
             let tipoKey = keys.find(k => k.toLowerCase().includes('tipo'));
 
             let prodVal = String(r[prodKey] || '').trim();
-            if(!prodVal || prodVal === '0') return; // Skip empty rows
+            if(!prodVal || prodVal === '0') return;
             
             let firstCell = prodVal.toUpperCase();
-            if(firstCell.includes("PRECIO UNITARIO") && firstCell.length < 20) return; // Ignore headers
+
+            // CORTAFUEGOS
+            if(firstCell.includes("PLANETA AZUL") && firstCell.includes("VENTAS")) return;
+            if(firstCell.includes("PRECIO UNITARIO") && firstCell.length < 20) return;
+            
             if(firstCell === 'TOTAL') {
                 totalCount++;
                 if (totalCount === 1) currentType = "Volumen";
@@ -9977,12 +10233,13 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             }
 
             let obj = {
-                Producto: firstCell,
+                Producto: prodVal,
                 Tipo: currentType,
                 hasChildren: isParent,
                 parentId: parentId,
                 id: objId,
-                values: {}
+                values: {},
+                pptoValues: {}
             };
             
             if(tipoKey && r[tipoKey] && String(r[tipoKey]).trim() !== '' && String(r[tipoKey]).trim() !== '0') {
@@ -9990,48 +10247,59 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 currentType = obj.Tipo;
             }
             
-            // Asignamos el valor actual a las columnas
             keys.forEach(k => {
-                if(k === prodKey || k === tipoKey) return;
+                if(k === prodKey || k === tipoKey || k.includes('__GHOST_')) return;
                 
                 let textK = String(k).trim().toLowerCase();
-                let val = parseFloat(String(r[k]).replace(/,/g, '')) || 0;
+                let val = parseFloat(String(r[k]).replace(/,/g, ''));
+                if (isNaN(val)) val = 0; // Prevenir arrastre de NaN
                 
-                if (textK.includes('fy') || textK.includes('real 2024') || textK === 'fy2024') {
-                    obj['FY2024'] = val;
-                } else if (textK.includes('po26')) {
-                    obj['PO26'] = val;
-                } else if (textK.includes('po25')) {
-                    obj['PO25'] = val;
-                } else if (!isNaN(textK) && Number(textK) > 10000) { 
-                    // Excel date serial
-                    let dObj = new Date((Number(textK) - 25569) * 86400 * 1000);
-                    let dateStr = dObj.toISOString().slice(0, 7);
-                    obj.values[dateStr] = val;
-                } else if (textK.match(/^[a-z]{3}[-\/ ]?\d{2,4}$/)) {
-                    // ene-24
+                let isDate = false;
+                let dateStr = "";
+                
+                if (k.includes('-01 00:00:00') || (k.startsWith('202') && k.length >= 7)) {
+                    isDate = true;
+                    dateStr = k.slice(0, 7);
+                } 
+                else if (!isNaN(k) && Number(k) > 40000 && Number(k) < 60000) {
+                    isDate = true;
+                    let dObj = new Date(Math.round((Number(k) - 25569) * 86400 * 1000));
+                    let y = dObj.getUTCFullYear();
+                    let m = String(dObj.getUTCMonth() + 1).padStart(2, '0');
+                    dateStr = `${y}-${m}`;
+                } else {
                     const monthsMap = {
                         'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04', 'may': '05', 'jun': '06',
-                        'jul': '07', 'ago': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12'
+                        'jul': '07', 'ago': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12',
+                        'jan': '01', 'apr': '04', 'aug': '08', 'dec': '12'
                     };
                     const match = textK.match(/^([a-z]{3})[-\/ ]?(\d{2,4})$/);
                     if(match && monthsMap[match[1].toLowerCase()]) {
                         let y = match[2];
                         if(y.length === 2) y = "20" + y;
-                        let dateStr = `${y}-${monthsMap[match[1].toLowerCase()]}`;
-                        obj.values[dateStr] = val;
+                        dateStr = `${y}-${monthsMap[match[1].toLowerCase()]}`;
+                        isDate = true;
+                    } else if (textK.match(/^\d{4}-\d{2}$/) || textK.match(/^\d{4}-\d{2}-\d{2}/)) {
+                        dateStr = textK.substring(0, 7);
+                        isDate = true;
+                    } else if (textK.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)) {
+                        const mMatch = textK.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+                        let m = mMatch[1].padStart(2, '0');
+                        let y = mMatch[3];
+                        if (y.length === 2) y = "20" + y;
+                        dateStr = `${y}-${m}`;
+                        isDate = true;
                     }
-                } else if (textK.match(/^\d{4}-\d{2}$/) || textK.match(/^\d{4}-\d{2}-\d{2}/)) {
-                    let dateStr = textK.substring(0, 7);
+                }
+
+                if (isDate) {
                     obj.values[dateStr] = val;
-                } else if (textK.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)) {
-                    // Handle MM/DD/YYYY
-                    const match = textK.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-                    let m = match[1].padStart(2, '0');
-                    let y = match[3];
-                    if (y.length === 2) y = "20" + y;
-                    let dateStr = `${y}-${m}`;
-                    obj.values[dateStr] = val;
+                } else if (textK.includes('fy') || textK.includes('real 2024') || k === 'FY2024') {
+                    obj['FY2024'] = val;
+                } else if (textK.includes('po26') || textK.includes('ppto') || textK.includes('presupuesto')) {
+                    obj['PO26'] = val;
+                } else if (textK.includes('po25')) {
+                    obj['PO25'] = val;
                 }
             });
             parsedRows.push(obj);
@@ -10044,21 +10312,19 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         try {
             if (rows.length === 0) return [];
 
-            // Buscar la fila donde comienza la tabla ("TOTAL" o "BEBIDAS" en la primera columna)
             let startIndex = -1;
             for (let i = 0; i < rows.length; i++) {
                 const row = rows[i];
                 if (row && row.length > 0) {
                     const firstCell = String(row[0] || '').toUpperCase().trim();
                     if (firstCell === 'TOTAL' || firstCell === 'BEBIDAS') {
-                        startIndex = i - 1; // Suponemos que los encabezados están la fila anterior
+                        startIndex = i - 1;
                         break;
                     }
                 }
             }
 
             if (startIndex === -1) {
-                // Fallback: tratar de buscar en cualquier celda
                 startIndex = rows.findIndex(row => row && row.some(cell => {
                     const text = String(cell).toUpperCase().trim();
                     return text === 'TOTAL' || text === 'BEBIDAS';
@@ -10069,21 +10335,16 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
 
             const headers = rows[startIndex] || [];
             
-            // Try to find which column corresponds to 'Producto' and 'Tipo'
             let prodColIdx = -1;
             let tipoColIdx = -1;
             headers.forEach((h, idx) => {
                 if(!h) return;
                 const text = String(h).toLowerCase().trim();
                 let isProdMatch = text === 'producto' || text === 'descripción' || text === 'descripcion' || text === 'artículo' || text === 'item' || text === 'concepto' || text === 'conceptos';
-                // If it's empty but next to 'No.' maybe it's producto? Let's just find the first string text
-                
-                // Set normalized names
                 if(isProdMatch) headers[idx] = 'Producto';
                 if(text === 'tipo') headers[idx] = 'Tipo';
             });
             
-            // If we couldn't find Producto by header text but we know TOTAL is in a certain column, use that!
             const totalRow = rows.find(row => row && row.some(cell => String(cell).toUpperCase().trim().startsWith('TOTAL')));
             if(totalRow && !headers.includes('Producto')) {
                 const tIdx = totalRow.findIndex(cell => String(cell).toUpperCase().trim().startsWith('TOTAL'));
@@ -10091,7 +10352,6 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                     headers[tIdx] = 'Producto';
                 }
             }
-            // Same for 'Tipo' - if not found, it might be the column right after Producto
             if(totalRow && !headers.includes('Tipo')) {
                 const pIdx = headers.indexOf('Producto');
                 if(pIdx !== -1 && pIdx + 1 < headers.length) {
@@ -10099,14 +10359,12 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 }
             }
             
-            // Ultimate fallback for Producto
             if(!headers.includes('Producto')) {
                 if(String(headers[0]||'').toLowerCase().replace(/\./g, '').trim() === 'no') {
                     headers[1] = 'Producto';
                 } else {
-                    headers[0] = 'Producto'; // Or index 1 if many empty cells, but let's assume 0 might be it. If 0 is empty, maybe 1.
+                    headers[0] = 'Producto';
                     if(!headers[0]) {
-                        // find the first non-empty header
                         const firstValIdx = headers.findIndex(h => h && String(h).trim() !== '');
                         if(firstValIdx !== -1) headers[firstValIdx] = 'Producto';
                         else headers[0] = 'Producto';
@@ -10114,13 +10372,36 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 }
             }
             
-            // Re-pad headers array to match max columns in any row
             let maxRowLength = Math.max(...rows.map(r => r ? r.length : 0));
             for(let i=0; i<maxRowLength; i++) {
                 if(!headers[i]) headers[i] = `Col_${i}`;
             }
 
-            
+            let pptoStartIdx = 9999;
+            const scanStart = Math.max(0, startIndex - 2);
+            for (let i = scanStart; i <= startIndex; i++) {
+                const r = rows[i];
+                if (!r) continue;
+                r.forEach((cell, idx) => {
+                    if (!cell) return;
+                    const s = String(cell).toUpperCase().trim();
+                    if (s === 'PPTO' || s === 'PRESUPUESTO' || s.includes('PPTO 2026') || s.includes('PRESUP')) {
+                        if (idx < pptoStartIdx) pptoStartIdx = idx;
+                    }
+                });
+            }
+            if (pptoStartIdx === 9999) {
+                headers.forEach((cell, idx) => {
+                    if (cell) {
+                        const s = String(cell).toUpperCase().trim();
+                        if (s.includes('PPTO') || s.includes('PRESUPUESTO')) {
+                            if (idx < pptoStartIdx) pptoStartIdx = idx;
+                        }
+                    }
+                });
+            }
+            if (pptoStartIdx === 9999) pptoStartIdx = 39;
+
             const data = [];
             for(let i = startIndex + 1; i < rows.length; i++) {
                 const row = rows[i];
@@ -10130,17 +10411,13 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 for(let c=0; c<row.length; c++) { if(row[c] !== undefined && row[c] !== null && String(row[c]).trim() !== '') { isRowEmpty = false; break; } }
                 if(isRowEmpty) continue;
                 
-                // Skip rows containing specific words indicating footnotes
                 const firstFewStrs = row.slice(0, 5).map(c => String(c||'').toUpperCase());
                 if(firstFewStrs.some(s => s.includes("PRECIO UNITARIO"))) continue;
-                if(firstFewStrs.some(s => s.includes("TOTAL SIN BON"))) ; // Keep it but we handle it later
                 
                 let obj = {};
                 headers.forEach((h, idx) => {
                     if(h !== undefined && h !== null && row[idx] !== undefined) {
                         let headerStr = String(h).trim();
-                        // ensure mappings
-                        if(headerStr === 'Producto' || headerStr === 'Tipo') {} // ok
                         obj[headerStr] = row[idx];
                     }
                 });
@@ -10150,6 +10427,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             let parsedRows = [];
             let currentType = "Volumen"; 
             let tableCount = 0;
+            let currentParentId = null;
             
             data.forEach(d => {
                 const dProdStr = String(d.Producto || '').toUpperCase().trim();
@@ -10174,7 +10452,6 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 if (dProdStr.includes('VOLUMEN') && !dProdStr.includes('PRECIO')) currentType = 'Volumen';
                 if (dProdStr.includes('VENTAS') || dProdStr === 'MONTO' || dProdStr.includes('NETAS DOP')) currentType = 'Ventas Netas DOP';
 
-                // Skip category header rows
                 if (!d.Producto || 
                     dProdStr === 'VOLUMEN' || 
                     dProdStr === 'VENTAS NETAS DOP' || 
@@ -10192,14 +10469,33 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 }
                 
                 let rawProducto = String(d.Producto).replace(/\s*\(\s*ZUMOS\s*\)\s*/i, ' ').replace(/\s{2,}/g, ' ').trim();
+                let firstCell = rawProducto.toUpperCase();
+                
+                let isParent = false;
+                let parentId = null;
+                let objId = firstCell.replace(/[^a-zA-Z0-9]/g, '_');
+                
+                if (firstCell === 'BEBIDAS' || firstCell === 'AGUA PLANETA AZUL' || firstCell === 'MAQUILAS') {
+                    isParent = true;
+                    currentParentId = objId;
+                    parentId = null;
+                } else if (firstCell === 'TOTAL' || firstCell.startsWith('TOTAL SIN BON') || firstCell === 'TOTAL AÑO') {
+                    currentParentId = null;
+                } else {
+                    parentId = currentParentId;
+                }
+
                 let p = {
                     Producto: rawProducto,
                     Tipo: finalType,
-                    values: {}
+                    hasChildren: isParent,
+                    parentId: parentId,
+                    id: objId,
+                    values: {},
+                    pptoValues: {}
                 };
                 
                 Object.keys(d).forEach(k => {
-                    // Check if numeric serial (Excel date) or starts with 202
                     let isDate = false;
                     let dateStr = k;
                     let textK = String(k).trim().toLowerCase();
@@ -10212,7 +10508,6 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                         let dObj = new Date((Number(k) - 25569) * 86400 * 1000);
                         dateStr = dObj.toISOString().slice(0, 7);
                     } else {
-                        // Match Ene-25, Dic-24, Ene 25, Dic 24
                         const monthsMap = {
                             'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04', 'may': '05', 'jun': '06',
                             'jul': '07', 'ago': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12'
@@ -10228,10 +10523,16 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                     }
                     
                     if(isDate) {
-                        // Sometimes the value is a string with commas
                         let val = parseFloat(String(d[k]).replace(/,/g, '')) || 0;
                         if(finalType === "Monto (MM DOP)") val = val / 1000000;
-                        p.values[dateStr] = val;
+                        
+                        let colIndex = headers.indexOf(k);
+                        const isPptoCol = colIndex >= pptoStartIdx || textK.includes('ppto') || textK.includes('presupuesto');
+                        if (isPptoCol) {
+                            p.pptoValues[dateStr] = val;
+                        } else {
+                            p.values[dateStr] = val;
+                        }
                     } else if(textK.includes('fy') || textK.includes('real 2024') || k === 'FY2024' || k === 'PO26' || k === 'PO25') {
                         let yKey = 'FY2024';
                         if(textK.includes('po26')) yKey = 'PO26';
@@ -10242,16 +10543,41 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                         p[yKey] = val;
                     }
                 });
+                
+                // Fallback for 2026 missing actuals
+                let lastNonZeroDate = "";
+                const sortedDates = Object.keys(p.values).sort();
+                for (let d of sortedDates) {
+                    if (p.values[d] !== 0) {
+                        lastNonZeroDate = d;
+                    }
+                }
+                
+                Object.keys(p.pptoValues).sort().forEach(d => {
+                    if (d.startsWith('2026-') && d > lastNonZeroDate) {
+                        if (p.values[d] === 0 || p.values[d] === undefined) {
+                            p.values[d] = p.pptoValues[d] || 0;
+                        }
+                    }
+                });
+
                 parsedRows.push(p);
             });
             
-            // Generate Precio Unitario
             const productos = [...new Set(parsedRows.map(r => r.Producto))];
             productos.forEach(prod => {
                 const montoRow = parsedRows.find(r => r.Producto === prod && r.Tipo === "Monto (MM DOP)");
                 const volRow = parsedRows.find(r => r.Producto === prod && r.Tipo === "Volumen");
                 if(montoRow && volRow) {
-                    let p = { Producto: prod, Tipo: "Precio Unitario", values: {}, pptoValues: {} };
+                    let p = { 
+                        Producto: prod, 
+                        Tipo: "Precio Unitario", 
+                        hasChildren: montoRow.hasChildren,
+                        parentId: montoRow.parentId,
+                        id: montoRow.id,
+                        values: {}, 
+                        pptoValues: {} 
+                    };
                     Object.keys(montoRow.values || {}).forEach(k => {
                         let volVal = volRow.values[k] || 0;
                         let div = volVal ? ((montoRow.values[k] * 1000000) / volVal) : 0;
@@ -10264,7 +10590,6 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                         p.pptoValues[k] = div;
                     });
                     
-                    // Also support cross-years
                     ['FY2024', 'PO25', 'PO26'].forEach(y => {
                         if (volRow[y] && montoRow[y]) {
                             p[y] = ((montoRow[y] * 1000000) / volRow[y]);
@@ -10352,7 +10677,298 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         });
     };
 
+    window.buildVentasCeoFromComercial = async function() {
+        if (!window.resumenComercialEngine) return false;
+        const rawData = window.resumenComercialEngine.getComercialRawData();
+        if (!rawData) return false;
+        
+        let csvRows = [];
+        try {
+            const res = await fetch('./ventasCEO_summary.csv');
+            const text = await res.text();
+            csvRows = text.split('\n').filter(l => l.trim().length > 0);
+        } catch(e) {
+            console.warn("Could not fetch ventasCEO_summary.csv", e);
+        }
+        
+        const csvMapper = {
+            'Volumen': {},
+            'Monto (MM DOP)': {},
+            'Precio Unitario': {}
+        };
+        
+        let currentTypeSection = 'Volumen';
+        let sectionCount = 0;
+        csvRows.forEach(row => {
+            if(row.startsWith('---')) {
+                sectionCount++;
+                if(sectionCount === 1) currentTypeSection = 'Monto (MM DOP)';
+                else if(sectionCount === 2) currentTypeSection = 'Precio Unitario';
+                return;
+            }
+            const cols = row.split(',');
+            if (cols[0] && cols[0] !== 'Producto') {
+                const prod = cols[0].toUpperCase().trim();
+                const real2024 = parseFloat(cols[1]) || 0;
+                let po26 = parseFloat(cols[4]) || 0; 
+                csvMapper[currentTypeSection][prod] = {
+                     FY2024: real2024,
+                     PO26: po26
+                };
+            }
+        });
+
+        const monthTables = {};
+        for (let m = 1; m <= 12; m++) {
+            monthTables[m] = window.resumenComercialEngine.buildComercialTable(rawData, m, false);
+        }
+        
+        const CEO_MAPPINGS = [
+          { Producto: "TOTAL", match: null, isParent: false },
+          { Producto: "AGUA PLANETA AZUL", match: null, isParent: true, parentId: null },
+          { Producto: "APA BOTELLON 18.9 LTS (x1)", match: ["BT5_Total"], parentId: "AGUA PLANETA AZUL" },
+          { Producto: "APA BOTELLA 0.5 LTS ( x20)", match: ["APA_BOTELLA_0_5_LTS_x20"], parentId: "AGUA PLANETA AZUL" },
+          { Producto: "APA BOTELLA 1.5 LTS (x12)", match: ["APA_BOTELLA_1_5_LTS_x12"], parentId: "AGUA PLANETA AZUL" },
+          { Producto: "APA OTRAS", match: ["APA_OTROS"], parentId: "AGUA PLANETA AZUL" },
+          { Producto: "MAQUILAS", match: null, isParent: true, parentId: null },
+          { Producto: "MAQUILA AGUA OTROS", match: ["MAQUILA_OTROS"], parentId: "MAQUILAS" }, 
+          { Producto: "MAQUILA AGUA 1.5 L TS (x12)", match: ["MAQUILA_AGUA_1_5_L_TS_x12"], parentId: "MAQUILAS" },
+          { Producto: "MAQUILA AGUA 0.5 LTS (x20)", match: ["MAQUILA_AGUA_0_5_LTS_x20"], parentId: "MAQUILAS" },
+          { Producto: "BEBIDAS", match: null, isParent: true, parentId: null },
+          { Producto: "BON", match: ["BON_Total"], parentId: "BEBIDAS" }, 
+          { Producto: "PA SABOR 0.5 LTS (x12)", match: ["PA_SABOR_0_5_LTS_x12"], parentId: "BEBIDAS" },
+          { Producto: "PA H+ 0.68 LTS (X12)", match: ["HIDRACTIVE_PLUS"], parentId: "BEBIDAS" },
+          { Producto: "TOTAL SIN BON", match: null, isParent: false }
+        ];
+
+        const TYPE_MAPPINGS = [
+           { key: 'Volumen', tableKey: 'volumen', rawDivisor: 1000 },
+           { key: 'Monto (MM DOP)', tableKey: 'ventas', rawDivisor: 1000000 }, 
+           { key: 'Precio Unitario', tableKey: 'precio', rawDivisor: 1 }
+        ];
+
+        const finalData = [];
+        
+        TYPE_MAPPINGS.forEach(tm => {
+            CEO_MAPPINGS.forEach(cMap => {
+                let p = {
+                    Producto: cMap.Producto,
+                    Tipo: tm.key,
+                    hasChildren: cMap.isParent,
+                    parentId: cMap.parentId,
+                    id: cMap.isParent ? cMap.Producto.replace(/[^a-zA-Z0-9]/g, '_') : cMap.Producto.replace(/[^a-zA-Z0-9]/g, '_'),
+                    values: {},
+                    pptoValues: {}
+                };
+                
+                const upProd = cMap.Producto.toUpperCase().trim();
+                let matchingProdName = upProd;
+                if (csvMapper[tm.key] && !csvMapper[tm.key][upProd]) {
+                     matchingProdName = Object.keys(csvMapper[tm.key]).find(k => k.includes('H+') || k.includes(upProd));
+                }
+
+                if (csvMapper[tm.key] && csvMapper[tm.key][matchingProdName || upProd]) {
+                    p.FY2024 = csvMapper[tm.key][matchingProdName || upProd].FY2024;
+                    p.PO26 = csvMapper[tm.key][matchingProdName || upProd].PO26;
+                } else if (!cMap.isParent) {
+                    p.FY2024 = 0; p.PO26 = 0;
+                }
+                
+                if (cMap.match) {
+                    for (let m = 1; m <= 12; m++) {
+                        let mStr = m.toString().padStart(2, '0');
+                        let sum25 = 0, sum26 = 0, sumPpto = 0;
+                        cMap.match.forEach(nodeId => {
+                             let row = monthTables[m].tableRows.find(r => r.node.id === nodeId);
+                             if (row) {
+                                 if (tm.tableKey === 'precio') {
+                                     sum25 = row[tm.tableKey].a25;
+                                     sum26 = row[tm.tableKey].a26;
+                                     sumPpto = row[tm.tableKey].ppto;
+                                 } else {
+                                     sum25 += row[tm.tableKey].a25 || 0;
+                                     sum26 += row[tm.tableKey].a26 || 0;
+                                     sumPpto += row[tm.tableKey].ppto || 0;
+                                 }
+                             }
+                        });
+                        
+                        p.values[`2025-${mStr}`] = sum25 ? sum25 / tm.rawDivisor : 0;
+                        p.values[`2026-${mStr}`] = sum26 ? sum26 / tm.rawDivisor : 0;
+                        p.pptoValues[`2026-${mStr}`] = sumPpto ? sumPpto / tm.rawDivisor : 0;
+                    }
+                }
+                finalData.push(p);
+            });
+        });
+        
+        const getParentGroups = () => {
+            const groups = {};
+            finalData.forEach(d => {
+                if (d.parentId) {
+                    if(!groups[d.parentId]) groups[d.parentId] = [];
+                    groups[d.parentId].push(d);
+                }
+            });
+            return groups;
+        };
+        const groups = getParentGroups();
+        
+        TYPE_MAPPINGS.forEach(tm => {
+            const typesRows = finalData.filter(d => d.Tipo === tm.key);
+            
+            Object.keys(groups).forEach(pId => {
+                const parentRow = typesRows.find(r => r.Producto === pId); 
+                if (parentRow) {
+                    const children = typesRows.filter(r => r.parentId === pId && r.Producto !== "PA H+ 0.68 LTS (X12)");
+                    if (tm.key !== 'Precio Unitario') {
+                        parentRow.FY2024 = children.reduce((acc, c) => acc + (c.FY2024||0), 0);
+                        parentRow.PO26 = children.reduce((acc, c) => acc + (c.PO26||0), 0);
+                        ['2025', '2026'].forEach(y => {
+                            for(let m=1;m<=12;m++) {
+                                let mStr = `${y}-${m.toString().padStart(2, '0')}`;
+                                parentRow.values[mStr] = children.reduce((acc, c) => acc + (c.values[mStr]||0), 0);
+                            }
+                        });
+                        for(let m=1;m<=12;m++) {
+                            let mStr = `2026-${m.toString().padStart(2, '0')}`;
+                            parentRow.pptoValues[mStr] = children.reduce((acc, c) => acc + (c.pptoValues[mStr]||0), 0);
+                        }
+                    }
+                }
+            });
+            
+            const totalRow = typesRows.find(r => r.Producto === 'TOTAL');
+            const totalSinBonRow = typesRows.find(r => r.Producto === 'TOTAL SIN BON');
+            const parents = typesRows.filter(r => r.hasChildren && ['AGUA PLANETA AZUL', 'MAQUILAS', 'BEBIDAS'].includes(r.Producto.toUpperCase().trim()));
+            const parentBon = typesRows.find(r => r.Producto === 'BON');
+            
+            if (totalRow && tm.key !== 'Precio Unitario') {
+                totalRow.FY2024 = parents.reduce((acc, c) => acc + (c.FY2024||0), 0);
+                totalRow.PO26 = parents.reduce((acc, c) => acc + (c.PO26||0), 0);
+                ['2025', '2026'].forEach(y => {
+                    for(let m=1;m<=12;m++) {
+                        let mStr = `${y}-${m.toString().padStart(2, '0')}`;
+                        totalRow.values[mStr] = parents.reduce((acc, c) => acc + (c.values[mStr]||0), 0);
+                    }
+                });
+                for(let m=1;m<=12;m++) {
+                    let mStr = `2026-${m.toString().padStart(2, '0')}`;
+                    totalRow.pptoValues[mStr] = parents.reduce((acc, c) => acc + (c.pptoValues[mStr]||0), 0);
+                }
+            }
+            if (totalSinBonRow && tm.key !== 'Precio Unitario') {
+                totalSinBonRow.FY2024 = (totalRow.FY2024 || 0) - (parentBon?.FY2024 || 0);
+                totalSinBonRow.PO26 = (totalRow.PO26 || 0) - (parentBon?.PO26 || 0);
+                ['2025', '2026'].forEach(y => {
+                    for(let m=1;m<=12;m++) {
+                        let mStr = `${y}-${m.toString().padStart(2, '0')}`;
+                        totalSinBonRow.values[mStr] = (totalRow.values[mStr]||0) - (parentBon?.values[mStr]||0);
+                    }
+                });
+                for(let m=1;m<=12;m++) {
+                    let mStr = `2026-${m.toString().padStart(2, '0')}`;
+                    totalSinBonRow.pptoValues[mStr] = (totalRow.pptoValues[mStr]||0) - (parentBon?.pptoValues[mStr]||0);
+                }
+            }
+        });
+        
+        const pxRows = finalData.filter(d => d.Tipo === 'Precio Unitario');
+        pxRows.forEach(pxRow => {
+            if (pxRow.hasChildren || pxRow.Producto === 'TOTAL' || pxRow.Producto === 'TOTAL SIN BON') {
+                const volRow = finalData.find(r => r.Tipo === 'Volumen' && r.Producto === pxRow.Producto);
+                const montoRow = finalData.find(r => r.Tipo === 'Monto (MM DOP)' && r.Producto === pxRow.Producto);
+                if (volRow && montoRow) {
+                    pxRow.FY2024 = volRow.FY2024 ? (montoRow.FY2024 * 1000000) / (volRow.FY2024 * 1000) : 0;
+                    pxRow.PO26 = volRow.PO26 ? (montoRow.PO26 * 1000000) / (volRow.PO26 * 1000) : 0;
+                    ['2025', '2026'].forEach(y => {
+                        for(let m=1;m<=12;m++) {
+                            let mStr = `${y}-${m.toString().padStart(2, '0')}`;
+                            let v = volRow.values[mStr]||0;
+                            let mo = montoRow.values[mStr]||0;
+                            pxRow.values[mStr] = v ? (mo * 1000000) / (v * 1000) : 0;
+                        }
+                    });
+                    for(let m=1;m<=12;m++) {
+                        let mStr = `2026-${m.toString().padStart(2, '0')}`;
+                        let v = volRow.pptoValues[mStr]||0;
+                        let mo = montoRow.pptoValues[mStr]||0;
+                        pxRow.pptoValues[mStr] = v ? (mo * 1000000) / (v * 1000) : 0;
+                    }
+                }
+            }
+        });
+
+        finalData.forEach(p => {
+             let lastNonZeroDate = "2026-00"; 
+             Object.keys(p.values).sort().forEach(d => {
+                 if (d.startsWith('2026-') && p.values[d] !== 0) {
+                     lastNonZeroDate = d;
+                 }
+             });
+             Object.keys(p.pptoValues).sort().forEach(d => {
+                 if (d.startsWith('2026-') && d > lastNonZeroDate) {
+                     if (p.values[d] === 0 || p.values[d] === undefined) {
+                         p.values[d] = p.pptoValues[d] || 0;
+                     }
+                 }
+             });
+        });
+
+        ceoData = finalData;
+        
+        // Also update IndexedDB with the generated data
+        try {
+            const db = await getFinanceDB();
+            await new Promise((resolve, reject) => {
+                const tx = db.transaction('finance_cache', 'readwrite');
+                const store = tx.objectStore('finance_cache');
+                store.put({ id: 'ceo_ventas', data: ceoData, timestamp: Date.now() });
+                tx.oncomplete = () => resolve();
+                tx.onerror = () => reject(tx.error);
+            });
+        } catch(err) {
+            console.warn("Could not cache dynamically generated ceoData", err);
+        }
+
+        window.hasVentasAccess = true;
+        console.log("🔥 Ventas CEO dynamically built from Comercial");
+        let viewVentasCeo = document.getElementById("view-ventas-ceo");
+        if (viewVentasCeo && viewVentasCeo.classList.contains("active")) {
+            window.renderVentasCEO();
+        }
+        
+        // Also remove lock on the sidebar
+        const svNode = document.querySelector('[data-view="view-ventas-ceo"]');
+        if (svNode) {
+            const lNode = svNode.querySelector('.lucide-lock');
+            if (lNode) lNode.remove();
+            svNode.style.pointerEvents = 'auto';
+            svNode.style.opacity = '1';
+        }
+        
+        return true;
+    };
+
     window.comercialCurrentView = 'resumen';
+    window.currentCostoProd = 'botellon';
+
+    window.updateCostoUnitario = function() {
+        const selector = document.getElementById('monthSelector');
+        let m = selector && !isNaN(parseInt(selector.value)) ? parseInt(selector.value) : 3;
+        let m_idx = 3;
+        if (selector && Array.isArray(globalFinancialData) && globalFinancialData.length > m && globalFinancialData[m]) {
+             let item = globalFinancialData[m];
+             const match = item.date ? item.date.match(/ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|OCT|NOV|DIC/i) : null;
+             const monthsArr = ["ENE","FEB","MAR","ABR","MAY","JUN","JUL","AGO","SEP","OCT","NOV","DIC"];
+             if (match) {
+                 m_idx = monthsArr.indexOf(match[0].toUpperCase());
+             }
+        }
+        if (window.costoUnitarioEngine && window.costoUnitarioEngine.hasCostoUnitarioData()) {
+            window.costoUnitarioEngine.renderCostoUnitario(m_idx, window.currentCostoProd);
+        }
+    };
 
     function updateComercialButtonsVisuals() {
         const resetBtn = (id) => {
@@ -10749,6 +11365,29 @@ window.processCxpFile = async function(file) {
         });
     };
 
+    window.processCostoUnitarioFile = async function(file) {
+        return new Promise(async (resolve) => {
+            try {
+                const buffer = await file.arrayBuffer();
+                const engine = await import('./costoUnitarioEngine.js');
+                window.costoUnitarioEngine = engine;
+                await engine.processManualFile(buffer);
+                
+                if (typeof window.applyRoleBasedUI === 'function') {
+                    window.applyRoleBasedUI(window.hasMasterAccess, window.hasVentasAccess, window.hasComercialAccess);
+                }
+
+                if (typeof window.updateCostoUnitario === 'function') {
+                    window.updateCostoUnitario();
+                }
+                resolve(true);
+            } catch(e) {
+                console.error("Error processing manual Costo Unitario file:", e);
+                resolve(false);
+            }
+        });
+    };
+
     // Attach click events on load/execution
     setTimeout(() => {
         document.getElementById('btn-comercial-resumen')?.addEventListener('click', () => {
@@ -10765,6 +11404,40 @@ window.processCxpFile = async function(file) {
             window.comercialCurrentView = 'variacion';
             updateComercialButtonsVisuals();
             window.renderResumenComercial();
+        });
+
+        document.getElementById('btn-costo-botellon')?.addEventListener('click', () => {
+            window.currentCostoProd = 'botellon';
+            document.getElementById('btn-costo-botellon').className = "costo-prod-btn active";
+            document.getElementById('btn-costo-botellon').style.background = "white";
+            document.getElementById('btn-costo-botellon').style.color = "var(--primary)";
+            document.getElementById('btn-costo-botellon').style.boxShadow = "0 1px 2px rgba(0,0,0,0.05)";
+            
+            document.getElementById('btn-costo-botella').className = "costo-prod-btn";
+            document.getElementById('btn-costo-botella').style.background = "transparent";
+            document.getElementById('btn-costo-botella').style.color = "var(--text-secondary)";
+            document.getElementById('btn-costo-botella').style.boxShadow = "none";
+            
+            if (typeof window.updateCostoUnitario === 'function') {
+                window.updateCostoUnitario();
+            }
+        });
+
+        document.getElementById('btn-costo-botella')?.addEventListener('click', () => {
+            window.currentCostoProd = 'botella';
+            document.getElementById('btn-costo-botella').className = "costo-prod-btn active";
+            document.getElementById('btn-costo-botella').style.background = "white";
+            document.getElementById('btn-costo-botella').style.color = "var(--primary)";
+            document.getElementById('btn-costo-botella').style.boxShadow = "0 1px 2px rgba(0,0,0,0.05)";
+            
+            document.getElementById('btn-costo-botellon').className = "costo-prod-btn";
+            document.getElementById('btn-costo-botellon').style.background = "transparent";
+            document.getElementById('btn-costo-botellon').style.color = "var(--text-secondary)";
+            document.getElementById('btn-costo-botellon').style.boxShadow = "none";
+
+            if (typeof window.updateCostoUnitario === 'function') {
+                window.updateCostoUnitario();
+            }
         });
 
         document.getElementById('btn-cashflow-detalle')?.addEventListener('click', () => {
@@ -10958,6 +11631,25 @@ window.processCxpFile = async function(file) {
         }, 10);
     };
 
+    window.currentCostoProd = 'botellon';
+    
+    window.updateCostoUnitario = function() {
+        const selector = document.getElementById('monthSelector');
+        let m = selector && !isNaN(parseInt(selector.value)) ? parseInt(selector.value) : 3;
+        let m_idx = 3;
+        if (selector && Array.isArray(globalFinancialData) && globalFinancialData.length > m && globalFinancialData[m]) {
+             let item = globalFinancialData[m];
+             const match = item.date ? item.date.match(/ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|OCT|NOV|DIC/i) : null;
+             const monthsArr = ["ENE","FEB","MAR","ABR","MAY","JUN","JUL","AGO","SEP","OCT","NOV","DIC"];
+             if (match) {
+                 m_idx = monthsArr.indexOf(match[0].toUpperCase());
+             }
+        }
+        if (window.costoUnitarioEngine && window.costoUnitarioEngine.hasCostoUnitarioData()) {
+            window.costoUnitarioEngine.renderCostoUnitario(m_idx, window.currentCostoProd);
+        }
+    };
+
     window.renderResumenComercial = function() {
         if (!window.resumenComercialEngine) return;
         const selector = document.getElementById('monthSelector');
@@ -11050,7 +11742,44 @@ window.processCxpFile = async function(file) {
     };
 
     window.renderVentasCEO = function(skipChart = false) {
-        if(!ceoData) return;
+        if (!ceoData || ceoData.length === 0) {
+            // Attempt to build dynamically if Comercial is loaded
+            if (window.hasComercialAccess && typeof window.buildVentasCeoFromComercial === 'function') {
+                if (!window.buildingCeoDataFlag) {
+                    window.buildingCeoDataFlag = true;
+                    window.buildVentasCeoFromComercial().then(() => {
+                        window.buildingCeoDataFlag = false;
+                    }).catch(e => {
+                        console.error('Failed to dynamically build CEO data', e);
+                        window.buildingCeoDataFlag = false;
+                    });
+                    return; // Wait for the build to finish, it calls renderVentasCEO() itself
+                }
+            }
+
+            const container = document.getElementById("ventas-ceo-table-container");
+            const chartBox = document.querySelector("#view-ventas-ceo .chart-box");
+            if (chartBox) chartBox.style.display = 'none';
+            const cardsContainer = document.getElementById('ventas-ceo-cards-container');
+            if (cardsContainer) cardsContainer.style.display = 'none';
+            
+            if (container) {
+                container.style.display = 'block';
+                container.innerHTML = `
+                  <div style="padding:24px; background:white; border:1px solid var(--border); border-radius:8px; margin: 20px 0;">
+                    <h3 style="margin:0 0 8px 0; color: var(--text);">Ventas CEO sin datos</h3>
+                    <p style="margin:0; color:var(--text-secondary);">
+                      El archivo de Ventas CEO se encontró, pero el parser produjo 0 filas.
+                      Revisa la hoja, encabezados o estructura del Excel.
+                    </p>
+                  </div>
+                `;
+            }
+            return;
+        }
+
+        const chartBox = document.querySelector("#view-ventas-ceo .chart-box");
+        if (chartBox) chartBox.style.display = 'block';
 
         const isMobile = window.innerWidth <= 768;
 
@@ -11086,7 +11815,7 @@ window.processCxpFile = async function(file) {
         const displayData = ceoData.filter(d => {
             if (d.Tipo !== ventasCeoCurrentMetric) return false;
             const p = d.Producto ? d.Producto.trim().toUpperCase() : '';
-            return p !== 'TOTAL' && p !== 'TOTAL SIN BON' && p !== 'TOTAL SIN BON.' && p !== 'TOTAL AÑO' && p !== 'PA H+ 0.68 LTS (X12)';
+            return p !== 'TOTAL' && p !== 'TOTAL SIN BON' && p !== 'TOTAL SIN BON.' && p !== 'TOTAL AÑO' && p !== 'PA H+ 0.68 LTS (X12)' && p !== 'VENTAS NETAS DOP';
         });
         const isPrecio = ventasCeoCurrentMetric === 'Precio Unitario';
         const decimals = isPrecio ? 1 : 0;
@@ -12250,8 +12979,19 @@ window.processCxpFile = async function(file) {
             action: () => { document.getElementById("menu-simulador")?.click(); }
         },
         {
+            elementId: "tour-export-center",
+            title: "📥 10. Centro de Descarga",
+            text: "Exporte el Dashboard Ejecutivo en formatos profesionales. Puede descargar reportes consolidados en CSV o generar un documento PDF de alta calidad con el layout del tablero actual.",
+            action: () => { 
+               document.getElementById("menu-config")?.click(); 
+               setTimeout(() => {
+                   document.getElementById('tour-export-center')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+               }, 100);
+            }
+        },
+        {
             elementId: "btn-download-manual-pdf",
-            title: "🎓 10. Guía de Interpretación",
+            title: "🎓 11. Guía de Interpretación",
             text: "¡Ha completado el preámbulo funcional! Utilice este botón para exportar la Guía Corporativa PDF, la cual asiste en cómo interpretar los balances financieros clínicamente a profundidad.",
             action: () => { document.getElementById("menu-instructivo")?.click(); }
         }

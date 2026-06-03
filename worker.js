@@ -14,23 +14,68 @@ self.onmessage = function(e) {
         // 1. PROCESAMIENTO DE VENTAS CEO (SIN cellDates)
         // ==========================================
         if (fileType === 'ventas_ceo') {
-            // CRÍTICO: Se lee en crudo para preservar los seriales de fecha de Excel (ej. 45292)
             workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' });
             
             self.postMessage({ type: 'progress', progress: 75, message: "Procesando datos de Ventas CEO..." });
             
-            const consejoSheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('consejo'));
-            const dataSheetName = workbook.SheetNames.find(n => n.toLowerCase().includes('data por mes'));
+            const sheetNames = workbook.SheetNames;
+            const consejoSheetName = sheetNames.find(n => n.toLowerCase().includes('consejo'));
+            const dataSheetName = sheetNames.find(n => n.toLowerCase().includes('data por mes') || n.toLowerCase().includes('datos por mes'));
             
-            let bestSheetName = workbook.SheetNames[0];
+            if (!consejoSheetName && !dataSheetName) {
+                self.postMessage({ 
+                    type: 'error', 
+                    error: `Estructura inválida. No se encontraron las hojas "Consejo" o "Data por mes". Hojas detectadas: [${sheetNames.join(', ')}]` 
+                });
+                return; 
+            }
+
+            // BÚSQUEDA INTELIGENTE DE LA FILA DE TÍTULOS PARA 'TABLAS CONSEJO'
+            let consejoRows = null;
+            if (consejoSheetName) {
+                const sheet = workbook.Sheets[consejoSheetName];
+                // Extraemos todo como matriz para escanear las filas
+                const rawData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+                
+                let headerRowIndex = 1; // Por defecto (rango 1), asume que el título está en la segunda fila
+                for (let i = 0; i < rawData.length; i++) {
+                    if (!rawData[i]) continue;
+                    
+                    // Buscamos si esta fila contiene la palabra TOTAL
+                    const hasTotal = rawData[i].some(c => c && String(c).toUpperCase().trim() === 'TOTAL');
+                    if (hasTotal) {
+                        // Si encontramos TOTAL, los títulos siempre son la fila de arriba (i - 1)
+                        headerRowIndex = i > 0 ? i - 1 : 0; 
+                        break;
+                    }
+                }
+                
+                // Extraemos la tabla final indicándole el inicio correcto
+                consejoRows = XLSX.utils.sheet_to_json(sheet, { range: headerRowIndex, defval: 0 });
+            }
+
+            let bestSheetName = sheetNames[0];
             if (!consejoSheetName) {
-                for (let name of workbook.SheetNames) {
+                let maxScore = -1;
+                for (let name of sheetNames) {
                     const sheetTmp = workbook.Sheets[name];
                     const rowsTmp = XLSX.utils.sheet_to_json(sheetTmp, { header: 1 });
-                    const hasProducto = rowsTmp.some(r => r && r.some(c => String(c).toLowerCase().trim() === 'producto' || String(c).toLowerCase().trim() === 'descripción'));
-                    if (hasProducto) {
+                    let score = 0;
+                    for (let r of rowsTmp) {
+                        if (!r) continue;
+                        for (let c of r) {
+                            if (c === undefined || c === null) continue;
+                            const term = String(c).toLowerCase().trim();
+                            if (term === 'producto' || term === 'descripción' || term === 'descripcion') score += 10;
+                            if (term === 'tipo') score += 5;
+                            if (term.includes('ventas netas dop') || term.includes('ventas netas')) score += 8;
+                            if (term.includes('volumen unidades') || term.includes('volumen')) score += 8;
+                            if (term === '2026' || term.includes('ppto')) score += 5;
+                        }
+                    }
+                    if (score > maxScore && score > 0) {
+                        maxScore = score;
                         bestSheetName = name;
-                        break;
                     }
                 }
             }
@@ -39,7 +84,7 @@ self.onmessage = function(e) {
                 consejoSheetName,
                 dataSheetName,
                 bestSheetName,
-                consejoRows: consejoSheetName ? XLSX.utils.sheet_to_json(workbook.Sheets[consejoSheetName], { range: 2, defval: 0 }) : null,
+                consejoRows: consejoRows,
                 dataRows: dataSheetName ? XLSX.utils.sheet_to_json(workbook.Sheets[dataSheetName], { header: 1 }) : null,
                 bestRows: XLSX.utils.sheet_to_json(workbook.Sheets[bestSheetName], { header: 1 })
             };

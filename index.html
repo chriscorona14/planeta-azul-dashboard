@@ -1661,6 +1661,16 @@
             </div>
           </div>
 
+          <div class="menu-section-title group-header" onclick="toggleMenuGroup('grupo-costos', 'icon-costos')" style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: rgba(255,255,255,0.85); margin: 24px 16px 8px 16px; letter-spacing: 0.05em; transition: color 0.2s;">
+            <span>Costos</span>
+            <i data-lucide="chevron-up" id="icon-costos" style="width: 14px; height: 14px; transition: transform 0.2s;"></i>
+          </div>
+          <div id="grupo-costos" style="overflow: hidden; transition: max-height 0.3s ease; max-height: 500px;">
+            <div class="menu-item">
+              <a href="#" id="menu-costo-unitario" style="padding-left: 24px;">Costo Unitario</a>
+            </div>
+          </div>
+
           <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 24px 16px 16px 16px;">
 
           <div class="menu-item">
@@ -2968,6 +2978,14 @@
                       <label style="font-size: 0.72rem; color: #15803d; font-weight: 600; display: block; margin-bottom: 2px;">4. Archivo P&G Horizontal (Sharing URL):</label>
                       <input type="text" id="m365UrlPgHorizontal" style="width: 100%; padding: 6px 8px; border: 1px solid #bbf7d0; border-radius: 6px; font-size: 0.75rem; background: white; color: #1f2937;" placeholder="Predeterminado del Servidor">
                     </div>
+                    <div>
+                      <label style="font-size: 0.72rem; color: #15803d; font-weight: 600; display: block; margin-bottom: 2px;">5. Archivo Detalle CxP (Sharing URL):</label>
+                      <input type="text" id="m365UrlCxp" style="width: 100%; padding: 6px 8px; border: 1px solid #bbf7d0; border-radius: 6px; font-size: 0.75rem; background: white; color: #1f2937;" placeholder="Predeterminado del Servidor">
+                    </div>
+                    <div>
+                      <label style="font-size: 0.72rem; color: #15803d; font-weight: 600; display: block; margin-bottom: 2px;">6. Archivo Costo Unitario (Sharing URL):</label>
+                      <input type="text" id="m365UrlCostoUnitario" style="width: 100%; padding: 6px 8px; border: 1px solid #bbf7d0; border-radius: 6px; font-size: 0.75rem; background: white; color: #1f2937;" placeholder="Predeterminado del Servidor">
+                    </div>
                     <button id="saveM365UrlsBtn" type="button" style="background: #16a34a; color: white; border: none; border-radius: 6px; padding: 6px 12px; font-size: 0.75rem; font-weight: bold; cursor: pointer; width: 100%; margin-top: 6px;">
                       Guardar Enlaces OneDrive
                     </button>
@@ -3012,6 +3030,12 @@
                   <input type="file" id="upload-cxp-home" accept=".xlsx, .xls, .csv" style="display: none;" />
                   <span id="cxpFileName" style="font-size: 0.75rem; color: var(--text-secondary);">Ningún archivo seleccionado</span>
                 </div>
+
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+                  <label for="upload-costo-unitario-home" class="btn-primary" style="margin-top: 0; width: fit-content; padding: 10px 24px; cursor: pointer; background: #eef2f5; color: var(--primary); border: 1px solid var(--border); border-radius: 8px; font-weight: 500;">6. Costo Unitario</label>
+                  <input type="file" id="upload-costo-unitario-home" accept=".xlsx, .xls, .csv" style="display: none;" />
+                  <span id="costoUnitarioFileName" style="font-size: 0.75rem; color: var(--text-secondary);">Ningún archivo seleccionado</span>
+                </div>
               </div>
               
               <button id="processManualFilesBtn" class="upload-btn" style="background: var(--primary); margin-top: 16px; width: fit-content; padding: 10px 32px; font-weight: bold; opacity: 0.5; cursor: not-allowed;" disabled>
@@ -3032,6 +3056,7 @@
         </div>
 
         <div
+          id="tour-export-center"
           class="card"
           style="
             margin-top: 24px;
@@ -4544,6 +4569,37 @@
             </tbody>
           </table>
           <div id="resumenComercialMobileContainer" style="display: none;"></div>
+        </div>
+      </div>
+
+      <!-- VIEW: Costo Unitario -->
+      <div id="view-costo-unitario" class="view-container">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding: 0; border: none;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <h3 style="margin: 0; font-size: 1.25rem; font-weight: 800; color: var(--sidebar); text-transform: uppercase; letter-spacing: 0.5px;">Costo Unitario</h3>
+            <!-- El tag de real/ppto fue removido -->
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 12px;">
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <span style="font-size: 0.85rem; font-weight: 600; color: var(--sidebar);">Producto:</span>
+            <div style="display: flex; gap: 4px; background: #f1f5f9; padding: 4px; border-radius: 8px;">
+               <button id="btn-costo-botellon" class="costo-prod-btn active" data-prod="botellon" style="padding: 6px 16px; background: white; color: var(--primary); border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; font-weight: 700; box-shadow: 0 1px 2px rgba(0,0,0,0.05); transition: 0.2s;">Botellón</button>
+               <button id="btn-costo-botella" class="costo-prod-btn" data-prod="botella" style="padding: 6px 16px; background: transparent; color: var(--text-secondary); border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; font-weight: 700; box-shadow: none; transition: 0.2s;">Botella 0.5 LTS</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="pnl-detail-table" style="position: relative; overflow-x: auto; max-width: 100%; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); background: white;">
+          <table id="costo-unitario-table" style="width: 100%; border-collapse: collapse;">
+            <thead id="costo-unitario-thead">
+              <!-- Renderizado dinamicamente -->
+            </thead>
+            <tbody id="costo-unitario-tbody">
+              <!-- Renderizado dinamicamente -->
+            </tbody>
+          </table>
         </div>
       </div>
     </main>

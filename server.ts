@@ -55,29 +55,37 @@ Data: ${JSON.stringify(financialData)}`;
   function resolveSharepointUrl(inputUrl: string | undefined, defaultUrl: string): string {
     if (!inputUrl) return defaultUrl;
     
-    // Extract sourcedoc GUID if present in a URL
-    const sourcedocMatch = inputUrl.match(/sourcedoc=([^&]+)/i);
-    let guid = sourcedocMatch ? decodeURIComponent(sourcedocMatch[1]) : inputUrl;
+    let resolved = String(inputUrl).trim().replace(/&amp;/g, "&");
     
     // Clean braces of the guid if needed for check
-    const cleanGuid = guid.replace(/^\{|\}$/g, "");
-    if (/^[0-9a-fA-F\-]{36}$/.test(cleanGuid)) {
-      return `https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc={${cleanGuid}}&download=1`;
+    const cleanInput = resolved.replace(/^\{|\}$/g, "");
+    if (/^[0-9a-fA-F\-]{36}$/.test(cleanInput)) {
+      const personalMatch = defaultUrl.match(/personal\/([^\/]+)/i);
+      const personalPath = personalMatch ? personalMatch[1] : "marcos_ojeda_planetaazulrd_com";
+      return `https://aguaplanetaazul2-my.sharepoint.com/personal/${personalPath}/_layouts/15/Doc.aspx?sourcedoc={${cleanInput}}&download=1`;
     }
     
-    // For general SharePoint URLs, convert embed/action view to direct download
-    if (inputUrl.includes("sharepoint.com") || inputUrl.includes("onedrive.live.com")) {
-      let resolved = inputUrl;
+    if (resolved.includes("sharepoint.com") || resolved.includes("onedrive.live.com")) {
       if (resolved.includes("action=embedview")) {
         resolved = resolved.replace(/action=embedview/g, "download=1");
       }
+      
+      resolved = resolved
+        .replace(/&wdAllowInteractivity=[^&]*/g, "")
+        .replace(/&wdHideGridlines=[^&]*/g, "")
+        .replace(/&wdHideHeaders=[^&]*/g, "")
+        .replace(/&wdDownloadButton=[^&]*/g, "")
+        .replace(/&wdInConfigurator=[^&]*/g, "")
+        .replace(/&edaebf=[^&]*/g, "");
+      
       if (!resolved.includes("download=1")) {
-        resolved += (resolved.includes("?") ? "&" : "?") + "download=1";
+        resolved += resolved.includes("?") ? "&download=1" : "?download=1";
       }
+      
       return resolved;
     }
     
-    return inputUrl;
+    return resolved;
   }
 
   app.get("/api/downloadSync", async (req, res) => {
@@ -99,7 +107,18 @@ Data: ${JSON.stringify(financialData)}`;
         return res.status(response.status).json({ error: `SharePoint rejected the request: ${response.status} ${response.statusText}. Ensure the file is shared publicly.` });
       }
       
+      const contentType = response.headers.get("content-type") || "";
       const buffer = await response.arrayBuffer();
+      const preview = new TextDecoder().decode(buffer.slice(0, 300));
+
+      if (
+        contentType.includes("text/html") ||
+        /^\s*<!doctype html/i.test(preview) ||
+        /^\s*<html/i.test(preview)
+      ) {
+        return res.status(403).json({ error: "Finanzas Master: SharePoint devolvió HTML/login en vez del archivo Excel. Revisar permisos o URL pública." });
+      }
+      
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.send(Buffer.from(buffer));
@@ -112,7 +131,7 @@ Data: ${JSON.stringify(financialData)}`;
   app.get("/api/downloadSyncVentas", async (req, res) => {
     try {
       const customUrl = typeof req.query.url === "string" ? req.query.url : undefined;
-      const url = resolveSharepointUrl(customUrl || process.env.VITE_CEO_FILE_URL || process.env.VITE_ONEDRIVE_VENTAS_ITEM_ID, "https://aguaplanetaazul2-my.sharepoint.com/personal/marcos_ojeda_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc={654321-URL-PLACEHOLDER}&download=1");
+      const url = resolveSharepointUrl(customUrl || process.env.VITE_CEO_FILE_URL, "https://aguaplanetaazul2-my.sharepoint.com/personal/christopher_corona_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc={0dded43b-deb4-4017-b8e7-849aa0ca29ac}&download=1");
       if (!url.includes("sharepoint.com") && !url.includes("onedrive.live.com")) {
         return res.status(400).json({ error: "Invalid Microsoft 365 file URL." });
       }
@@ -128,7 +147,18 @@ Data: ${JSON.stringify(financialData)}`;
         return res.status(response.status).json({ error: `SharePoint rejected the request: ${response.status} ${response.statusText}. Ensure the file is shared publicly.` });
       }
       
+      const contentType = response.headers.get("content-type") || "";
       const buffer = await response.arrayBuffer();
+      const preview = new TextDecoder().decode(buffer.slice(0, 300));
+
+      if (
+        contentType.includes("text/html") ||
+        /^\s*<!doctype html/i.test(preview) ||
+        /^\s*<html/i.test(preview)
+      ) {
+        return res.status(403).json({ error: "Ventas CEO: SharePoint devolvió HTML/login en vez del archivo Excel. Revisar permisos o URL pública." });
+      }
+      
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.send(Buffer.from(buffer));
@@ -244,7 +274,7 @@ Data: ${JSON.stringify(financialData)}`;
   app.get("/api/config", (req, res) => {
     res.json({
       VITE_ONEDRIVE_FILE_URL: process.env.VITE_ONEDRIVE_ITEM_ID || process.env.VITE_ONEDRIVE_FILE_URL,
-      VITE_CEO_FILE_URL: process.env.VITE_CEO_FILE_URL || process.env.VITE_ONEDRIVE_VENTAS_ITEM_ID,
+      VITE_CEO_FILE_URL: process.env.VITE_CEO_FILE_URL,
       VITE_RESUMEN_COMERCIAL_URL: process.env.VITE_RESUMEN_COMERCIAL_URL,
       VITE_PG_HORIZONTAL_URL: process.env.VITE_PG_HORIZONTAL_URL,
       VITE_CXP_URL: process.env.VITE_CXP_URL
@@ -267,6 +297,35 @@ Data: ${JSON.stringify(financialData)}`;
         res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  app.get("/api/downloadSyncCostoUnitario", async (req, res) => {
+    try {
+      const customUrl = typeof req.query.url === "string" ? req.query.url : undefined;
+      const url = resolveSharepointUrl(customUrl || process.env.VITE_COSTO_UNITARIO_URL, "https://aguaplanetaazul2-my.sharepoint.com/personal/christopher_corona_planetaazulrd_com/_layouts/15/Doc.aspx?sourcedoc={738547b0-8a34-4527-bbf0-1c4e9e12075a}&action=embedview&wdAllowInteractivity=False&wdHideGridlines=True&wdHideHeaders=True&wdDownloadButton=True&wdInConfigurator=True&wdInConfigurator=True&edaebf=rslc0&download=1");
+      if (!url.includes("sharepoint.com") && !url.includes("onedrive.live.com")) {
+        return res.status(400).json({ error: "Invalid Microsoft 365 file URL." });
+      }
+      const fetchHeaders: any = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      };
+      if (req.headers.authorization) {
+          fetchHeaders["Authorization"] = req.headers.authorization;
+      }
+      const response = await fetch(url, { headers: fetchHeaders });
+      
+      if (!response.ok) {
+        return res.status(response.status).json({ error: `SharePoint rejected the request: ${response.status} ${response.statusText}. Ensure the file is shared publicly.` });
+      }
+      
+      const buffer = await response.arrayBuffer();
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.send(Buffer.from(buffer));
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+    }
+  });
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
