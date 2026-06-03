@@ -905,11 +905,88 @@ function getMonthMetrics(table, isPrevYear = false) {
 // ------------------------------------------------------------------
 // RENDERER DE LA TABLA (ID: resumen-comercial-tbody)
 // ------------------------------------------------------------------
+// Global toggle for groups
+window.toggleComercialGroup = function(nodeId) {
+  window.comercialCollapsedState = window.comercialCollapsedState || {};
+  window.comercialCollapsedState[nodeId] = !window.comercialCollapsedState[nodeId];
+  if (typeof window.renderResumenComercial === 'function') {
+    window.renderResumenComercial();
+  }
+};
+
 export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resumen') {
   if (!comercialRawData) {
     console.warn('[comercialEngine] No hay datos cargados aún.');
     return;
   }
+
+  // Inject custom button styles once
+  if (!document.getElementById('comercial-toggle-styles')) {
+    const styleEl = document.createElement('style');
+    styleEl.id = 'comercial-toggle-styles';
+    styleEl.innerHTML = `
+      .comercial-toggle-btn {
+        width: 18px;
+        height: 18px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 4px !important;
+        color: #475569 !important;
+        font-size: 11px !important;
+        font-weight: bold !important;
+        line-height: normal !important;
+        margin-right: 8px !important;
+        cursor: pointer !important;
+        padding: 0 !important;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
+        transition: all 0.15s ease !important;
+        vertical-align: middle !important;
+      }
+      .comercial-toggle-btn:hover {
+        background-color: #f1f5f9 !important;
+        border-color: #94a3b8 !important;
+        color: #1e293b !important;
+        transform: scale(1.05);
+      }
+      .comercial-toggle-btn:active {
+        transform: scale(0.95);
+      }
+    `;
+    document.head.appendChild(styleEl);
+  }
+
+  // Ensure collapsed state map is defined
+  window.comercialCollapsedState = window.comercialCollapsedState || {};
+
+  // Visibility checker helper
+  const isNodeVisible = (id) => {
+    let curr = ARBOL_COMERCIAL.find(n => n.id === id);
+    while (curr && curr.parent) {
+      if (window.comercialCollapsedState[curr.parent]) {
+        return false;
+      }
+      curr = ARBOL_COMERCIAL.find(n => n.id === curr.parent);
+    }
+    return true;
+  };
+
+  // Toggle button builder helper
+  const getToggleButtonHtml = (nodeId) => {
+    const hasChildren = ARBOL_COMERCIAL.some(n => n.parent === nodeId);
+    if (!hasChildren) {
+      return `<span style="width: 26px; display: inline-block; shrink: 0; flex-shrink: 0;"></span>`;
+    }
+    const isCollapsed = window.comercialCollapsedState[nodeId] || false;
+    const sign = isCollapsed ? '+' : '−';
+    return `
+      <button class="comercial-toggle-btn" data-id="${nodeId}" onclick="event.stopPropagation(); window.toggleComercialGroup('${nodeId}');">
+        ${sign}
+      </button>
+    `;
+  };
 
   // Buscar IDs de tabla en index.html
   const tbody = document.getElementById('resumen-comercial-tbody') || document.getElementById('tbody-resumen-comercial');
@@ -997,6 +1074,8 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
     // RENDER TBODY MoM
     let html = '';
     ARBOL_COMERCIAL.forEach(node => {
+        if (!isNodeVisible(node.id)) return;
+
         const pData = prevMetrics[node.id] || { vol: 0, vta: 0, px: null };
         const cData = currMetrics[node.id] || { vol: 0, vta: 0, px: null };
         
@@ -1012,6 +1091,9 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
         let tdFirstStyle = '';
         const depth = parentDepth(node.id);
 
+        const toggleBtn = getToggleButtonHtml(node.id);
+        const labelContent = `<span style="display: inline-flex; align-items: center; vertical-align: middle;">${toggleBtn}<span>${node.label}</span></span>`;
+
         if (node.type === 'main') {
             rowClass = 'row-total';
             tdFirstStyle = `background: var(--sidebar) !important; color: white !important; font-weight: 800 !important; text-transform: uppercase; letter-spacing: 0.5px; border-right: 2px solid rgba(255,255,255,0.1); font-size: 1.15rem !important;`;
@@ -1025,7 +1107,7 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
 
         html += `
         <tr class="${rowClass}">
-            <td style="${tdFirstStyle}">${node.label}</td>
+            <td style="${tdFirstStyle}">${labelContent}</td>
             
             <td style="text-align:right; font-family:var(--font-mono); font-size:1.05rem;">${fmtVol(pData.vol)}</td>
             <td style="text-align:right; font-family:var(--font-mono); font-size:1.05rem; font-weight: 700;">${fmtVol(cData.vol)}</td>
@@ -1137,6 +1219,7 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
         // Find corresponding node
         const node = ARBOL_COMERCIAL.find(n => n.id === row.node.id);
         if (!node) return;
+        if (!isNodeVisible(node.id)) return;
 
         const vol26 = row.volumen.a26 || 0;
         const vol25 = row.volumen.a25 || 0;
@@ -1176,6 +1259,9 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
         let tdFirstStyle = '';
         const depth = parentDepth(node.id);
 
+        const toggleBtn = getToggleButtonHtml(node.id);
+        const labelContent = `<span style="display: inline-flex; align-items: center; vertical-align: middle;">${toggleBtn}<span>${node.label}</span></span>`;
+
         if (node.type === 'main') {
             rowClass = 'row-total';
             tdFirstStyle = `background: var(--sidebar) !important; color: white !important; font-weight: 800 !important; text-transform: uppercase; letter-spacing: 0.5px; border-right: 2px solid rgba(255,255,255,0.1); font-size: 1.15rem !important;`;
@@ -1189,7 +1275,7 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
 
         html += `
         <tr class="${rowClass}">
-            <td style="${tdFirstStyle}">${node.label}</td>
+            <td style="${tdFirstStyle}">${labelContent}</td>
             ${getCellHtml(dVol25Money, pVol25, false, true)}
             ${getCellHtml(dPx25Money, pPx25, false, true)}
             ${getCellHtml(dVta25, pVta25, false, true, true)}
@@ -1314,6 +1400,8 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
   let html = '';
   
   table.tableRows.forEach(row => {
+      if (!isNodeVisible(row.node.id)) return;
+
       const var25 = row.ventas.a25 !== 0 ? (row.ventas.a26 - row.ventas.a25) / Math.abs(row.ventas.a25) : null;
       const varPpto = row.ventas.ppto !== 0 ? (row.ventas.a26 - row.ventas.ppto) / Math.abs(row.ventas.ppto) : null;
 
@@ -1321,6 +1409,9 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
       let tdFirstStyle = '';
       
       const depth = parentDepth(row.node.id);
+
+      const toggleBtn = getToggleButtonHtml(row.node.id);
+      const labelContent = `<span style="display: inline-flex; align-items: center; vertical-align: middle;">${toggleBtn}<span>${row.node.label}</span></span>`;
 
       if (row.node.type === 'main') {
           rowClass = 'row-total';
@@ -1340,7 +1431,7 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
 
       html += `
       <tr class="${rowClass}">
-          <td style="${tdFirstStyle}">${row.node.label}</td>
+          <td style="${tdFirstStyle}">${labelContent}</td>
           
           <td style="text-align:right; font-family:var(--font-mono); font-size:1.05rem;">${fmtVol(row.volumen.a25)}</td>
           <td style="text-align:right; font-family:var(--font-mono); font-size:1.05rem; font-weight: 700;">${fmtVol(row.volumen.a26)}</td>

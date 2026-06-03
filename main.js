@@ -1029,7 +1029,7 @@ async function fetchMasterData(token = null) {
                             const engine = await import('./costoUnitarioEngine.js');
                             window.costoUnitarioEngine = engine;
                             const workbook = XLSX.read(new Uint8Array(arrayBufferCosto), { type: 'array' });
-                            window.costoUnitarioEngine.processCostoUnitarioWorkbook(workbook);
+                            await window.costoUnitarioEngine.processCostoUnitarioWorkbook(workbook);
                             if (window.updateCostoUnitario) window.updateCostoUnitario();
                         } catch (e) { console.error("Error processing m365 costo sync:", e); }
                     } else {
@@ -1041,7 +1041,7 @@ async function fetchMasterData(token = null) {
                                 const engine = await import('./costoUnitarioEngine.js');
                                 window.costoUnitarioEngine = engine;
                                 const workbook = XLSX.read(new Uint8Array(arrayBufferCosto), { type: 'array' });
-                                window.costoUnitarioEngine.processCostoUnitarioWorkbook(workbook);
+                                await window.costoUnitarioEngine.processCostoUnitarioWorkbook(workbook);
                                 if (window.updateCostoUnitario) window.updateCostoUnitario();
                             } catch (e) { console.error("Error processing m365 costo proxy sync:", e); }
                         }
@@ -1608,6 +1608,20 @@ async function loadCacheInstant() {
                 }
                 if (document.getElementById("view-pg-horizontal") && document.getElementById("view-pg-horizontal").classList.contains("active")) {
                     window.renderPgHorizontal();
+                }
+            }
+        } catch(e) {}
+        
+        // Try load Costo Unitario as well
+        try {
+            const engineCU = await import('./costoUnitarioEngine.js');
+            window.costoUnitarioEngine = engineCU;
+            const hasCU = await engineCU.loadCostoUnitarioCache();
+            if (hasCU) {
+                window.hasCostoUnitarioData = () => true; 
+                window.isMagicLoaded = true;
+                if (document.getElementById("view-costo-unitario") && document.getElementById("view-costo-unitario").classList.contains("active")) {
+                    if (typeof window.updateCostoUnitario === 'function') window.updateCostoUnitario();
                 }
             }
         } catch(e) {}
@@ -2291,10 +2305,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     clickElement('btn-cxp-resumen');
                     await sleep(800);
                     await addPageToPDF("Resumen de Cuentas por Pagar (DOP)");
-
-                    clickElement('btn-cxp-detalle');
-                    await sleep(800);
-                    await addPageToPDF("Detalle de Cuentas por Pagar (DOP)");
                 }
 
                 // 6.6. Zoom in Deuda
@@ -2313,12 +2323,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                     clickElement('btn-ventas-precio'); await sleep(800); await addPageToPDF("Métrica: Precio Unitario");
                 }
 
-                // 8. P&G Horizontal
-                if (document.getElementById('view-pg-horizontal')) {
-                    showViewAndSync('view-pg-horizontal', 'menu-pg-horizontal');
-                    toggleYTD(previousYTD);
-                    clickElement('btn-pg-totales'); await sleep(800); await addPageToPDF("Perspectiva: Totales");
-                    clickElement('btn-pg-unitarios'); await sleep(800); await addPageToPDF("Perspectiva: Unitarios");
+                // 8. Costo Unitario
+                if (document.getElementById('view-costo-unitario') && typeof window.hasCostoUnitarioData === 'function' && window.hasCostoUnitarioData()) {
+                    showViewAndSync('view-costo-unitario', 'menu-costo-unitario');
+                    
+                    clickElement('btn-costo-botellon');
+                    clickElement('btn-costo-vista-resumen');
+                    await sleep(800);
+                    await addPageToPDF("Costo Unitario | Botellón | Resumen");
+                    
+                    clickElement('btn-costo-botella');
+                    clickElement('btn-costo-vista-resumen');
+                    await sleep(800);
+                    await addPageToPDF("Costo Unitario | Botella 0.5 LTS | Resumen");
                 }
 
                 const dateStr = new Date().toISOString().slice(0, 10);
@@ -10953,6 +10970,27 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
     window.comercialCurrentView = 'resumen';
     window.currentCostoProd = 'botellon';
 
+    window.costoUnitarioVista = 'tendencia';
+    window.setCostoVista = function(vista) {
+        window.costoUnitarioVista = vista;
+        document.querySelectorAll('.costo-vista-btn').forEach(b => {
+             b.classList.remove('active');
+             b.style.background = 'transparent';
+             b.style.color = 'var(--text-secondary)';
+             b.style.boxShadow = 'none';
+        });
+        const btn = document.getElementById('btn-costo-vista-' + vista);
+        if (btn) {
+             btn.classList.add('active');
+             btn.style.background = 'white';
+             btn.style.color = 'var(--primary)';
+             btn.style.boxShadow = '0 1px 2px rgba(0,0,0,0.05)';
+        }
+        if (typeof window.updateCostoUnitario === 'function') {
+             window.updateCostoUnitario();
+        }
+    };
+
     window.updateCostoUnitario = function() {
         const selector = document.getElementById('monthSelector');
         let m = selector && !isNaN(parseInt(selector.value)) ? parseInt(selector.value) : 3;
@@ -10966,7 +11004,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
              }
         }
         if (window.costoUnitarioEngine && window.costoUnitarioEngine.hasCostoUnitarioData()) {
-            window.costoUnitarioEngine.renderCostoUnitario(m_idx, window.currentCostoProd);
+            window.costoUnitarioEngine.renderCostoUnitario(m_idx, window.currentCostoProd, window.costoUnitarioVista);
         }
     };
 
@@ -11646,7 +11684,7 @@ window.processCxpFile = async function(file) {
              }
         }
         if (window.costoUnitarioEngine && window.costoUnitarioEngine.hasCostoUnitarioData()) {
-            window.costoUnitarioEngine.renderCostoUnitario(m_idx, window.currentCostoProd);
+            window.costoUnitarioEngine.renderCostoUnitario(m_idx, window.currentCostoProd, window.costoUnitarioVista);
         }
     };
 
