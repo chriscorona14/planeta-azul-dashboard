@@ -2517,7 +2517,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             dropZone.style.background = 'transparent';
             const files = e.dataTransfer.files;
             if (files.length > 0) {
-                const file = files[0];
+                const originalFile = files[0];
+                const safeBufferPromise = originalFile.arrayBuffer();
+                const file = {
+                    name: originalFile.name,
+                    size: originalFile.size,
+                    type: originalFile.type,
+                    arrayBuffer: () => safeBufferPromise
+                };
+                
                 const name = file.name.toLowerCase();
                 
                 // Intento heurístico:
@@ -2970,7 +2978,7 @@ function downloadCSV(data, filename) {
 }
 
 // File Processing Logic Separated from Rendering
-async function processFile(file, progressCallback) {
+async function processFile(bufferPromise, progressCallback) {
     return new Promise(async (resolve, reject) => {
         // Simular progreso para dar feedback visual
         let simulatedProgress = 0;
@@ -2984,7 +2992,7 @@ async function processFile(file, progressCallback) {
         try {
             if (progressCallback) progressCallback(30, "Enviando al procesador en segundo plano...");
             
-            const bufferData = await file.arrayBuffer();
+            const bufferData = await bufferPromise;
 
             const engineResult = await new Promise((workerResolve, workerReject) => {
                 const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
@@ -3030,6 +3038,11 @@ async function processFile(file, progressCallback) {
 async function handleFileUpload(e) {
     const file = e.target && e.target.files ? e.target.files[0] : (e.dataTransfer ? e.dataTransfer.files[0] : null);
     if (!file) return;
+    
+    // Start reading file immediately before any UI updates or event loop yields (fixes Drag & Drop permission loss)
+    const bufferPromise = file.arrayBuffer().catch(err => {
+        throw new Error("File read error: " + err.message);
+    });
 
     // UI Elements
     const dropZoneContent = document.getElementById('dropZoneContent');
@@ -3057,7 +3070,7 @@ async function handleFileUpload(e) {
     }
     
     try {
-        const engineResult = await processFile(file, (progress, message) => {
+        const engineResult = await processFile(bufferPromise, (progress, message) => {
             if (uploadProgressBar) uploadProgressBar.style.width = `${progress}%`;
             if (uploadMessage) uploadMessage.textContent = message;
         });

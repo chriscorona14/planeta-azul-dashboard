@@ -1267,11 +1267,21 @@ function processFinancialStatements(sheets, pnlKey, balanceKey, cashflowKey, ppt
             if (scotiFound) bancos['Scotiabank'] = scotiV;
             
             // Tasas promedio ponderado por banco: filas 120-147 (indices 119 a 146). Usa la tasa general DOP para simplificar si no se encuentra especifica,
-            // pero el usuario pidio calcularla, aunque tambien dijo "Si es complejo, simplificar usando la tasa promedio general (fila 148)"
+            // pero el usuario pidio calcularla o buscarla individualmente
             const tasaGeneralDOP = getBalanceVal(deudaSheet[147], dIdx); // Fila 148 is index 147 
-            if (popFound) tasasPorBanco['Banco Popular'] = tasaGeneralDOP;
-            if (scFound) tasasPorBanco['Banco Santa Cruz'] = tasaGeneralDOP;
-            if (scotiFound) tasasPorBanco['Scotiabank'] = tasaGeneralDOP;
+            
+            for (let r = 119; r <= 146; r++) {
+                const rRow = deudaSheet[r];
+                if (!rRow) continue;
+                const bankName = normalizeText(rRow[1] || rRow[2] || '');
+                const rate = getBalanceVal(rRow, dIdx);
+                if (rate !== null && rate !== undefined && rate !== 0) {
+                    if (bankName.includes("popular")) tasasPorBanco['Banco Popular'] = rate;
+                    else if (bankName.includes("santa cruz")) tasasPorBanco['Banco Santa Cruz'] = rate;
+                    else if (bankName.includes("scotia") || bankName.includes("bns")) tasasPorBanco['Scotiabank'] = rate;
+                    else if (bankName.includes("loganville")) tasasPorBanco['Loganville'] = rate;
+                }
+            }
         }
 
         const key = `${point.date.getMonth()}-${point.date.getFullYear()}`;
