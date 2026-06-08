@@ -2035,6 +2035,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const expandStyles = document.createElement('style');
                 expandStyles.id = 'pdf-expand-style';
                 expandStyles.innerHTML = `
+                    html, body {
+                        height: auto !important;
+                        min-height: 100% !important;
+                        overflow: visible !important;
+                    }
                     .main-container, .layout-wrapper {
                         width: max-content !important;
                         min-width: 100% !important;
@@ -2106,7 +2111,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 animation: none !important; 
                                 transition: none !important; 
                             }
-                            .main-container, .layout-wrapper {
+                            html, body {
+                        height: auto !important;
+                        min-height: 100% !important;
+                        overflow: visible !important;
+                    }
+                    .main-container, .layout-wrapper {
                                 width: ${desktopWidth}px !important;
                                 min-width: ${desktopWidth}px !important;
                                 max-width: ${desktopWidth}px !important;
@@ -2597,6 +2607,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const expandStyles = document.createElement('style');
                 expandStyles.id = 'pdf-expand-style';
                 expandStyles.innerHTML = `
+                    html, body {
+                        height: auto !important;
+                        min-height: 100% !important;
+                        overflow: visible !important;
+                    }
                     .main-container, .layout-wrapper {
                         width: max-content !important;
                         min-width: 100% !important;
@@ -2668,7 +2683,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                                 animation: none !important; 
                                 transition: none !important; 
                             }
-                            .main-container, .layout-wrapper {
+                            html, body {
+                        height: auto !important;
+                        min-height: 100% !important;
+                        overflow: visible !important;
+                    }
+                    .main-container, .layout-wrapper {
                                 width: ${desktopWidth}px !important;
                                 min-width: ${desktopWidth}px !important;
                                 max-width: ${desktopWidth}px !important;
@@ -2788,27 +2808,18 @@ document.addEventListener('DOMContentLoaded', async () => {
                     // Define Master Slide
                     pptx.defineSlideMaster({
                         title: 'MASTER_SLIDE',
-                        background: { fill: 'FFFFFF' }, // Pure white background for content
+                        background: { fill: 'FFFFFF' }, // Fallback color
                         objects: [
-                            // Soft watermark shapes to mimic Planeta Azul background
-                            { shape: { type: ovalType, options: { x: -2, y: -2, w: 5, h: 5, fill: { color: 'e0f2fe', transparency: 50 } } } },
-                            { shape: { type: ovalType, options: { x: 8.5, y: -2, w: 6, h: 6, fill: { color: 'bae6fd', transparency: 60 } } } },
-                            { shape: { type: ovalType, options: { x: -1, y: 3.5, w: 6, h: 6, fill: { color: 'e0f2fe', transparency: 50 } } } },
-                            { shape: { type: ovalType, options: { x: 8.5, y: 4, w: 3, h: 3, fill: { color: 'bae6fd', transparency: 40 } } } },
-                            // Logo Text Bottom Right
-                            { text: { text: "PLANETA AZUL\nBEBIDAS", options: { x: 8.0, y: 4.8, w: 2, fill: { color: 'none' }, color: '005b96', fontSize: 10, align: 'center', bold: true, fontFace: 'Segoe UI' } } }
+                            { image: { x: 0, y: 0, w: 10, h: 5.625, path: '/slide_bg.png' } }
                         ]
                     });
 
                     // Define Cover Slide
                     pptx.defineSlideMaster({
                         title: 'COVER_SLIDE',
-                        background: { fill: 'F4F9FD' }, 
+                        background: { fill: 'FFFFFF' }, // Fallback color
                         objects: [
-                            { shape: { type: ovalType, options: { x: 4, y: -4, w: 10, h: 10, fill: { color: 'e0f2fe', transparency: 50 } } } },
-                            { shape: { type: ovalType, options: { x: -2, y: 3, w: 6, h: 6, fill: { color: 'bae6fd', transparency: 60 } } } },
-                            // Logo Text Bottom Right
-                            { text: { text: "PLANETA AZUL\nBEBIDAS", options: { x: 8.0, y: 4.8, w: 2, fill: { color: 'none' }, color: '005b96', fontSize: 10, align: 'center', bold: true, fontFace: 'Segoe UI' } } }
+                            { image: { x: 0, y: 0, w: 10, h: 5.625, path: '/cover_bg.png' } }
                         ]
                     });
 
