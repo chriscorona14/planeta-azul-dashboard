@@ -12,6 +12,89 @@ const MONTH_COLS_PPTO = ['AC','AD','AE','AF','AG','AH','AI','AJ','AK','AL','AM',
 function parseCostoUnitario(sheet) {
     if (!sheet) return null;
     
+    // Dynamically find columns in Row 7 (or 6)
+    let colsReal25 = [];
+    let colsReal = [];
+    let colsPpto = [];
+    
+    function getColName(n) {
+        let name = '';
+        while (n > 0) {
+            let m = (n - 1) % 26;
+            name = String.fromCharCode(65 + m) + name;
+            n = Math.floor((n - m) / 26);
+        }
+        return name;
+    }
+
+    const monthPrefixes = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    
+    // We expect 3 distinct blocks of 12 months.
+    // Real 2025: usually early columns
+    // Real 2026: middle columns
+    // Ppto 2026: late columns
+    // We will scan row 7 from A to AZ
+    let foundMonths = [];
+    for (let c = 1; c <= 52; c++) {
+        let col = getColName(c);
+        let cell = sheet[col + '7'] || sheet[col + '6'];
+        if (cell && cell.v) {
+            let val = String(cell.v).toLowerCase().trim();
+            // check if it contains a month
+            let mIdx = monthPrefixes.findIndex(mp => val.includes(mp));
+            // Excel dates might be represented as numbers (e.g., 45000)
+            if (mIdx === -1 && cell.w) {
+                let wVal = String(cell.w).toLowerCase().trim();
+                mIdx = monthPrefixes.findIndex(mp => wVal.includes(mp));
+            }
+            if (mIdx !== -1) {
+                // Determine which group it belongs to based on text or column position
+                let is25 = val.includes('25') || val.includes('2025') || (cell.w && cell.w.includes('25'));
+                let isPpto = val.includes('ppto') || val.includes('presupuesto');
+                foundMonths.push({ col: col, mIdx: mIdx, is25: is25, isPpto: isPpto, val: val });
+            }
+        }
+    }
+    
+    // If we didn't find dynamic headers, fallback to constants
+    const defaultReal25 = ['D','E','F','G','H','I','J','K','L','M','N','O'];
+    const defaultReal = ['P','Q','R','S','T','U','V','W','X','Y','Z','AA'];
+    const defaultPpto = ['AC','AD','AE','AF','AG','AH','AI','AJ','AK','AL','AM','AN'];
+    
+    for (let i = 0; i < 12; i++) {
+        colsReal25.push(defaultReal25[i]);
+        colsReal.push(defaultReal[i]);
+        colsPpto.push(defaultPpto[i]);
+    }
+    
+    // If we found a good sequence, override
+    if (foundMonths.length >= 12) {
+        // Group by sequence
+        let real25Group = foundMonths.filter(m => m.is25);
+        let pptoGroup = foundMonths.filter(m => m.isPpto);
+        let realGroup = foundMonths.filter(m => !m.is25 && !m.isPpto);
+        
+        // If the grouping is robust, apply it
+        if (realGroup.length >= 12) {
+            for (let i=0; i<12; i++) {
+                let match = realGroup.find(m => m.mIdx === i);
+                if (match) colsReal[i] = match.col;
+            }
+        }
+        if (pptoGroup.length >= 12) {
+            for (let i=0; i<12; i++) {
+                let match = pptoGroup.find(m => m.mIdx === i);
+                if (match) colsPpto[i] = match.col;
+            }
+        }
+        if (real25Group.length >= 12) {
+            for (let i=0; i<12; i++) {
+                let match = real25Group.find(m => m.mIdx === i);
+                if (match) colsReal25[i] = match.col;
+            }
+        }
+    }
+
     const data = {
         botella: [],
         botellon: []
@@ -20,20 +103,9 @@ function parseCostoUnitario(sheet) {
     function parseBlock(startRow, endRow) {
         let blockRows = [];
         for (let r = startRow; r <= endRow; r++) {
-            // Concept name is in column C
             let conceptCell = sheet['C' + r];
             if (!conceptCell || !conceptCell.v) continue;
             let concept = String(conceptCell.v).trim();
-            
-            // Just take all rows that have a concept. We might want to format them appropriately based on content.
-            // Also rows usually alternate between DOP, Costo Unitario, %, etc. We extract the exact format dynamically based on B column (Metric type) and A column?
-            // Actually, for the target view: we want Concept, Valor (DOP) and Costo Unit.
-            // In the excel file, the concepts are repeated. e.g Row 10 is Agua Tratada (DOP), Row 11 is Costo Unitario (Agua Tratada). 
-            // Looking at the csv:
-            // "DOP",,"Agua Tratada",...
-            // "Costo Unitario",,"Agua Tratada",...
-            // Or the row has 'DOP' in A, 'Costo Unitario' in A. 
-            // We just store all rows and map them later.
             
             let rowDict = {
                 concept: concept,
@@ -45,9 +117,9 @@ function parseCostoUnitario(sheet) {
             };
 
             for (let i = 0; i < 12; i++) {
-                let cellR25 = sheet[MONTH_COLS_REAL25[i] + r];
-                let cellR = sheet[MONTH_COLS_REAL[i] + r];
-                let cellP = sheet[MONTH_COLS_PPTO[i] + r];
+                let cellR25 = sheet[colsReal25[i] + r];
+                let cellR = sheet[colsReal[i] + r];
+                let cellP = sheet[colsPpto[i] + r];
                 rowDict.real25.push(cellR25 && cellR25.t === 'n' ? cellR25.v : (cellR25 ? parseFloat(cellR25.v) || 0 : 0));
                 rowDict.real.push(cellR && cellR.t === 'n' ? cellR.v : (cellR ? parseFloat(cellR.v) || 0 : 0));
                 rowDict.ppto.push(cellP && cellP.t === 'n' ? cellP.v : (cellP ? parseFloat(cellP.v) || 0 : 0));
@@ -158,12 +230,19 @@ function renderCostoUnitarioTendencia(monthIndex, prodType) {
     const monthsStr = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
     let block = costoUnitarioData[prodType];
     
-    let tcRow = block.find(r => r.concept.includes('Total Costo') && r.colA === 'DOP');
+    let tcRow = block.find(r => (r.concept.toLowerCase().includes('total costo') || r.concept.toUpperCase().includes('TOTAL COSTO')) && !r.concept.toLowerCase().includes('depreciacion') && !r.concept.toLowerCase().includes('con dep'));
+    let volRow = block.find(r => r.concept.toLowerCase().includes('cantidad prod'));
     let monthIsReal = [];
     for (let m = 0; m <= monthIndex; m++) {
-        let isMReal = m <= 3;
-        if (m > 3 && tcRow && tcRow.real[m] > 0) {
-            isMReal = true;
+        let isMReal = true;
+        
+        let realVal = tcRow ? tcRow.real[m] : (volRow ? volRow.real[m] : 0);
+        let pptoVal = tcRow ? tcRow.ppto[m] : (volRow ? volRow.ppto[m] : 0);
+        
+        // If there is no real data (value is 0 or missing) but there is PPTO data, fallback to PPTO.
+        // We check the "Total Costo" or "Cantidad Producción" row as the source of truth for the month.
+        if ((!realVal || realVal === 0) && (pptoVal && pptoVal !== 0)) {
+           isMReal = false; 
         }
         monthIsReal.push(isMReal);
     }

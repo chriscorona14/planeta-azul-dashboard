@@ -10,6 +10,8 @@
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <!-- HTML2PDF CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <!-- PptxGenJS CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
     <!-- Marked JS for Markdown parsing -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <!-- MSAL for Microsoft 365 Auth -->
@@ -3122,6 +3124,22 @@
                   margin-right: 4px;
                 "
               ></i>Exportar PDF
+            </button>
+            <button
+              id="btn-export-pptx"
+              class="upload-btn"
+              style="width: auto; margin-top: 0; background: #d04423;"
+            >
+              <i
+                data-lucide="presentation"
+                style="
+                  width: 16px;
+                  height: 16px;
+                  display: inline-block;
+                  vertical-align: middle;
+                  margin-right: 4px;
+                "
+              ></i>PPTX (Vista Previa)
             </button>
           </div>
         </div>
