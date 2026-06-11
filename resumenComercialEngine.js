@@ -657,6 +657,34 @@ function agregaData(rows, matcher, mesDesde, mesHasta) {
   return { cantidad, ingreso };
 }
 
+function agregaDataHybrid(dataF, sixPlusSix, matcher, mesDesde, mesHasta, dataF_months) {
+  let cantidad = 0, ingreso = 0;
+  if (!matcher) return { cantidad, ingreso };
+
+  for (let m = mesDesde; m <= mesHasta; m++) {
+    if (dataF_months[m] || !sixPlusSix || (!sixPlusSix.vol.length && !sixPlusSix.vta.length)) {
+      (dataF || []).forEach(r => {
+        if (r.mes === m && matcher(r)) {
+          cantidad += r.cantidad;
+          ingreso  += r.ingreso;
+        }
+      });
+    } else {
+      if (sixPlusSix.vol) {
+        sixPlusSix.vol.forEach(r => {
+          if (matcher(r)) cantidad += sumPptoCols(r, m, m);
+        });
+      }
+      if (sixPlusSix.vta) {
+        sixPlusSix.vta.forEach(r => {
+          if (matcher(r)) ingreso += sumPptoCols(r, m, m);
+        });
+      }
+    }
+  }
+  return { cantidad, ingreso };
+}
+
 function agregaPPTOExact(pptoData, matcher, mesDesde, mesHasta) {
   let cantidad = 0, ingreso = 0;
   if (!matcher) return { cantidad, ingreso };
@@ -673,13 +701,32 @@ function agregaPPTOExact(pptoData, matcher, mesDesde, mesHasta) {
 // CONSTRUIRE FILAS DE LA TABLA SEGÚN EL ÁRBOL
 // ------------------------------------------------------------------
 export function buildComercialTable(rawData, mesSeleccionado, isYTD) {
-  const { dataF, data2025, ppto } = rawData;
+  const { dataF, data2025, ppto, sixPlusSix } = rawData;
 
   const mesDesde = isYTD ? 1 : mesSeleccionado;
   const mesHasta = mesSeleccionado;
 
   let controlVolumenTotal = 0;
   let controlVentasTotal = 0;
+
+  const dataF_months = {};
+  for (let m = 1; m <= 12; m++) {
+    let vol = 0, vta = 0;
+    (dataF || []).forEach(r => {
+      if (r.mes === m) {
+        vol += r.cantidad || 0;
+        vta += r.ingreso || 0;
+      }
+    });
+    dataF_months[m] = (Math.abs(vol) > 0.01 || Math.abs(vta) > 0.01);
+  }
+
+  let isSixPlusSixActive = false;
+  for (let m = mesDesde; m <= mesHasta; m++) {
+    if (!dataF_months[m] && sixPlusSix && (sixPlusSix.vol.length || sixPlusSix.vta.length)) {
+      isSixPlusSixActive = true;
+    }
+  }
 
   (dataF || []).forEach(row => {
     if (row.mes >= mesDesde && row.mes <= mesHasta) {
@@ -758,7 +805,7 @@ export function buildComercialTable(rawData, mesSeleccionado, isYTD) {
           return cat === node.id;
         };
 
-        const r26 = agregaData(dataF, compositeMatcher, mesDesde, mesHasta);
+        const r26 = agregaDataHybrid(dataF, sixPlusSix, compositeMatcher, mesDesde, mesHasta, dataF_months);
         const r25 = agregaData(data2025, compositeMatcher, mesDesde, mesHasta);
         const rPpto = agregaPPTOExact(ppto, compositeMatcher, mesDesde, mesHasta);
 
@@ -828,7 +875,7 @@ export function buildComercialTable(rawData, mesSeleccionado, isYTD) {
   console.log("📊 Total Motor (grandTotalVol):", grandTotalVol.a26);
   console.log("Diferencia (Fuga real):", controlVolumenTotal - grandTotalVol.a26);
 
-  const resultadoFinal = { tableRows, grandTotalVol, grandTotalVta, mes: mesSeleccionado, isYTD };
+  const resultadoFinal = { tableRows, grandTotalVol, grandTotalVta, mes: mesSeleccionado, isYTD, isSixPlusSixActive };
   console.log("🔥 RESULTADO DEL MOTOR:", JSON.parse(JSON.stringify(resultadoFinal)));
   return resultadoFinal;
 }
@@ -1020,6 +1067,7 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
   if (viewType === 'mom') {
     let prevMonthName = '';
     let prevMetrics = {};
+    let isPrev6x6 = false;
     if (mIndex === 1) {
       prevMonthName = 'Dic 25';
       const d25Table = buildComercialTable(comercialRawData, 12, false);
@@ -1028,10 +1076,16 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
       prevMonthName = MESES[mIndex - 1] + ' 26';
       const prevTable = buildComercialTable(comercialRawData, mIndex - 1, false);
       prevMetrics = getMonthMetrics(prevTable, false);
+      isPrev6x6 = prevTable.isSixPlusSixActive;
     }
     const currMonthName = MESES[mIndex] + ' 26';
     const currTable = buildComercialTable(comercialRawData, mIndex, false);
     const currMetrics = getMonthMetrics(currTable, false);
+
+    const prevLbColor = isPrev6x6 ? '#f59e0b' : 'white';
+    const currLbColor = currTable.isSixPlusSixActive ? '#f59e0b' : 'var(--primary)';
+    const prevMonthLabel = isPrev6x6 ? `<span title="Incluye datos proyectados de 6+6">${prevMonthName.toUpperCase()} *</span>` : prevMonthName.toUpperCase();
+    const currMonthLabel = currTable.isSixPlusSixActive ? `<span title="Incluye datos proyectados de 6+6">${currMonthName.toUpperCase()} *</span>` : currMonthName.toUpperCase();
 
     // RENDER THEAD MoM
     thead.innerHTML = `
@@ -1057,16 +1111,16 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
         <th colspan="3" style="text-align:center; background:#1e293b; color:white; border-bottom: 2px solid #38bdf8; border-left: 3px solid #475569; padding: 10px; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.05em;">Ventas Netas (mDOP)</th>
       </tr>
       <tr>
-        <th style="text-align:right; background:#334155; color:white; font-size: 0.95rem;">${prevMonthName.toUpperCase()}</th>
-        <th style="text-align:right; background:#334155; color:var(--primary); font-weight: 800; font-size: 0.95rem;">${currMonthName.toUpperCase()}</th>
+        <th style="text-align:right; background:#334155; color:${prevLbColor}; font-size: 0.95rem;">${prevMonthLabel}</th>
+        <th style="text-align:right; background:#334155; color:${currLbColor}; font-weight: 800; font-size: 0.95rem;">${currMonthLabel}</th>
         <th style="text-align:right; background:#1e293b; color:white; font-size: 0.95rem; border-right: 3px solid #475569;">MoM %</th>
         
-        <th style="text-align:right; background:#1e293b; color:white; font-size: 0.85rem;">${prevMonthName.toUpperCase()}</th>
-        <th style="text-align:right; background:#1e293b; color:var(--primary); font-weight: 800; font-size: 0.85rem;">${currMonthName.toUpperCase()}</th>
+        <th style="text-align:right; background:#1e293b; color:${prevLbColor}; font-size: 0.85rem;">${prevMonthLabel}</th>
+        <th style="text-align:right; background:#1e293b; color:${currLbColor}; font-weight: 800; font-size: 0.85rem;">${currMonthLabel}</th>
         <th style="text-align:right; background:#334155; color:white; font-size: 0.85rem; border-right: 3px solid #475569;">MoM %</th>
         
-        <th style="text-align:right; background:#334155; color:white; font-size: 0.85rem;">${prevMonthName.toUpperCase()}</th>
-        <th style="text-align:right; background:#334155; color:#38bdf8; font-weight: 800; font-size: 0.85rem;">${currMonthName.toUpperCase()}</th>
+        <th style="text-align:right; background:#334155; color:${prevLbColor}; font-size: 0.85rem;">${prevMonthLabel}</th>
+        <th style="text-align:right; background:#334155; color:${currLbColor}; font-weight: 800; font-size: 0.85rem;">${currMonthLabel}</th>
         <th style="text-align:right; background:#1e293b; color:white; font-size: 0.85rem;">MoM %</th>
       </tr>
     `;
@@ -1164,8 +1218,13 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
     const compTable = buildComercialTable(comercialRawData, mesSeleccionado, isYTD);
 
     // Left Header Group & Right Header Group titles depend on whether we are in YTD mode or Monthly mode
-    const leftHeaderLabel = isYTD ? 'YTD ACTUAL VS 2025 (YoY)' : 'MES ACTUAL VS 2025 (YoY)';
-    const rightHeaderLabel = isYTD ? 'YTD ACTUAL VS PPTO' : 'MES ACTUAL VS PPTO';
+    let leftHeaderLabel = isYTD ? 'YTD ACTUAL VS 2025 (YoY)' : 'MES ACTUAL VS 2025 (YoY)';
+    let rightHeaderLabel = isYTD ? 'YTD ACTUAL VS PPTO' : 'MES ACTUAL VS PPTO';
+
+    if (compTable.isSixPlusSixActive) {
+      leftHeaderLabel += ' * (6+6)';
+      rightHeaderLabel += ' * (6+6)';
+    }
 
     // RENDER THEAD VARIACION
     thead.innerHTML = `
@@ -1348,8 +1407,12 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
   // 3. BASELINE DETAILED VIEW: RESUMEN DE VENTAS (DEFAULT)
   const table = buildComercialTable(comercialRawData, mesSeleccionado, isYTD);
   
+  const m26Color = table.isSixPlusSixActive ? '#f59e0b' : 'var(--primary)'; // Amber color when using 6+6 projected data
+  let m26LabelText = (isYTD ? `YTD-${mesName} 26` : `${mesName}-26`).toUpperCase();
+  if (table.isSixPlusSixActive) m26LabelText += ' *';
+
   const mesLabel25 = (isYTD ? `YTD-${mesName} 25` : `${mesName}-25`).toUpperCase();
-  const mesLabel26 = (isYTD ? `YTD-${mesName} 26` : `${mesName}-26`).toUpperCase();
+  const mesLabel26 = `<span title="Incluye datos proyectados de 6+6">${m26LabelText}</span>`;
 
   // RENDER THEAD
   thead.innerHTML = `
@@ -1380,15 +1443,15 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
     </tr>
     <tr>
       <th style="text-align:right; background:#334155; color:white; font-size: 0.85rem;">${mesLabel25}</th>
-      <th style="text-align:right; background:#334155; color:var(--primary); font-weight: 800; font-size: 0.85rem;">${mesLabel26}</th>
+      <th style="text-align:right; background:#334155; color:${m26Color}; font-weight: 800; font-size: 0.85rem;">${mesLabel26}</th>
       <th style="text-align:right; background:#1e3a8a; color:white; font-size: 0.85rem; border-right: 3px solid #475569;">PPTO</th>
       
       <th style="text-align:right; background:#1e293b; color:white; font-size: 0.85rem;">${mesLabel25}</th>
-      <th style="text-align:right; background:#1e293b; color:var(--primary); font-weight: 800; font-size: 0.85rem;">${mesLabel26}</th>
+      <th style="text-align:right; background:#1e293b; color:${m26Color}; font-weight: 800; font-size: 0.85rem;">${mesLabel26}</th>
       <th style="text-align:right; background:#1e3a8a; color:white; font-size: 0.85rem; border-right: 3px solid #475569;">PPTO</th>
       
       <th style="text-align:right; background:#334155; color:white; font-size: 0.85rem;">${mesLabel25}</th>
-      <th style="text-align:right; background:#334155; color:#38bdf8; font-weight: 800; font-size: 0.85rem;">${mesLabel26}</th>
+      <th style="text-align:right; background:#334155; color:${m26Color}; font-weight: 800; font-size: 0.85rem;">${mesLabel26}</th>
       <th style="text-align:right; background:#1e3a8a; color:white; font-size: 0.85rem; border-right: 3px solid #475569;">PPTO</th>
       
       <th style="text-align:right; background:#1e293b; color:white; font-size: 0.85rem;">vs 2025</th>
@@ -1812,6 +1875,7 @@ export async function processComercialWorkbook(workbook) {
   const nameDataF    = findSheet('dataf') || sheetNames.find(n => n.includes('real 2026')) || workbook.SheetNames[0];
   const nameData2025 = findSheet('data 2025') || sheetNames.find(n => n.includes('historico')) || workbook.SheetNames[1];
   const namePPTO     = findSheet('ppto') || sheetNames.find(n => n.includes('presupuesto')) || workbook.SheetNames[2];
+  const nameSixPlusSix = findSheet('6+6') || sheetNames.find(n => n.includes('6+6'));
 
   // Try to find the P&G Horizontal sheet based on known headers or keywords
   let pgSheetName = findSheet('analítico pyg') || findSheet('analitico pyg') || findSheet('margen bruto') || findSheet('p&g');
@@ -1877,6 +1941,7 @@ export async function processComercialWorkbook(workbook) {
     dataF:   nameDataF ? parseDataF(workbook.Sheets[workbook.SheetNames[sheetNames.indexOf(nameDataF.toLowerCase())]]) : (comercialRawData?.dataF || []),
     data2025: nameData2025 ? parseData2025(workbook.Sheets[workbook.SheetNames[sheetNames.indexOf(nameData2025.toLowerCase())]]) : (comercialRawData?.data2025 || []),
     ppto:    namePPTO ? parsePPTO(workbook.Sheets[workbook.SheetNames[sheetNames.indexOf(namePPTO.toLowerCase())]]) : (comercialRawData?.ppto || { vol: [], vta: [] }),
+    sixPlusSix: nameSixPlusSix ? parsePPTO(workbook.Sheets[workbook.SheetNames[sheetNames.indexOf(nameSixPlusSix.toLowerCase())]]) : (comercialRawData?.sixPlusSix || { vol: [], vta: [] }),
     pgHorizontal: finalPgData
   };
 
