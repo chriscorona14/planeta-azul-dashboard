@@ -649,6 +649,32 @@ async function connectM365() {
         return;
     }
 
+    if (isPWAStandalone()) {
+        msalInstance.loginPopup({
+            scopes: ["User.Read", "Files.Read", "Files.Read.All"],
+            prompt: "select_account"
+        }).then(loginResponse => {
+            const token = loginResponse.accessToken;
+            msalInstance.setActiveAccount(loginResponse.account);
+            window.m365LoggedIn = true;
+            window.updateM365UI(loginResponse.account);
+
+            // Limpiar cualquier error previo
+            const errorOverlay = document.getElementById('pwa-auth-error');
+            if (errorOverlay) errorOverlay.remove();
+
+            fetchMasterData(token);
+        }).catch(error => {
+            if (error.errorCode === "user_cancelled" || (error.message && error.message.includes("user_cancelled"))) {
+                console.log("El usuario canceló el inicio de sesión.");
+                return;
+            }
+            console.error('PWA loginPopup error:', error.errorCode, error.message);
+            showAuthError('No se pudo abrir el login. Prueba abriendo la app en Chrome primero.');
+        });
+        return; // Terminar aquí para PWA
+    }
+
     try {
         await msalInstance.initialize?.(); 
         await msalInstance.handleRedirectPromise?.();
@@ -671,10 +697,6 @@ async function connectM365() {
         }
         if (error.errorCode === "interaction_in_progress" || (error.message && error.message.includes("popup_window_error"))) {
             console.warn("Popup bloqueado o interacción en progreso.");
-            if (isPWAStandalone()) {
-                showAuthError('Inicia sesión en el navegador Chrome primero, luego abre la app instalada.');
-                return;
-            }
             alert("Bloqueador de ventanas emergentes detectado. Por favor, habilite las ventanas emergentes para Microsoft 365 o abra la aplicación en una nueva pestaña.");
             return;
         }
@@ -1910,20 +1932,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         // Evitar Redirect automático en iframes
                         if (window.parent === window) {
                             if (isPWAStandalone()) {
-                                msalInstance.loginPopup({
-                                    scopes: ["User.Read", "Files.Read", "Files.Read.All"]
-                                }).then(response => {
-                                    if (response) {
-                                        const token = response.accessToken;
-                                        msalInstance.setActiveAccount(response.account);
-                                        window.m365LoggedIn = true;
-                                        window.updateM365UI(response.account);
-                                        fetchMasterData(token);
-                                    }
-                                }).catch(error => {
-                                    console.error('PWA login popup error:', error);
-                                    showAuthError('Inicia sesión en el navegador Chrome primero, luego abre la app instalada.');
-                                });
+                                console.log('PWA: token expirado, esperando click del usuario para re-auth');
                             } else {
                                 msalInstance.loginRedirect({
                                     scopes: ["User.Read", "Files.Read", "Files.Read.All"]
@@ -1949,20 +1958,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // Evitar Redirect automático en iframes
                 if (window.parent === window) {
                     if (isPWAStandalone()) {
-                        msalInstance.loginPopup({
-                            scopes: ["User.Read", "Files.Read", "Files.Read.All"]
-                        }).then(response => {
-                            if (response) {
-                                const token = response.accessToken;
-                                msalInstance.setActiveAccount(response.account);
-                                window.m365LoggedIn = true;
-                                window.updateM365UI(response.account);
-                                fetchMasterData(token);
-                            }
-                        }).catch(error => {
-                            console.error('PWA login popup error:', error);
-                            showAuthError('Inicia sesión en el navegador Chrome primero, luego abre la app instalada.');
-                        });
+                        console.log('PWA: No hay cache inicial, esperando click del usuario en "Conectar Office 365"');
                     } else {
                         msalInstance.loginRedirect({
                             scopes: ["User.Read", "Files.Read", "Files.Read.All"]
