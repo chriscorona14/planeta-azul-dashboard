@@ -11659,15 +11659,21 @@ window.processCxpFile = async function(file) {
            labels.push(parts.join(" - "));
         }
         
-        const bodyTrs = tbody.querySelectorAll('tr');
-        bodyTrs.forEach(tr => {
-            const tds = tr.querySelectorAll('td');
-            tds.forEach((td, idx) => {
-                if (labels[idx]) {
-                    td.setAttribute('data-label', labels[idx]);
-                }
-            });
+        let styleStr = '';
+        labels.forEach((lbl, idx) => {
+            if(lbl) {
+                styleStr += `#${tableId} td:nth-child(${idx + 1})::before { content: "${lbl}" !important; }\n`;
+            }
         });
+        
+        const styleId = `mobile-labels-${tableId}`;
+        let styleEl = document.getElementById(styleId);
+        if(!styleEl) {
+           styleEl = document.createElement('style');
+           styleEl.id = styleId;
+           document.head.appendChild(styleEl);
+        }
+        styleEl.innerHTML = styleStr;
     }
 
     window.renderPgHorizontal = function() {
