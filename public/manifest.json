@@ -1,0 +1,17 @@
+{
+  "name": "Dashboard Financiero",
+  "short_name": "Dashboard",
+  "description": "Progressive Web App para análisis financiero de múltiples fuentes",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8f9fa",
+  "theme_color": "#012a4a",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "48x48 72x72 96x96 128x128 192x192 256x256 512x512 any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
