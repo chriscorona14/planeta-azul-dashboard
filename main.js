@@ -665,6 +665,12 @@ window.applyRoleBasedUI = function(hasMaster, hasVentas, hasComercial = false) {
         window.hasVentasAccess = true;
     }
 
+    const hasComercialFeature = !!document.getElementById("view-resumen-comercial");
+    if (hasComercialFeature) {
+        hasComercial = true;
+        window.hasComercialAccess = true;
+    }
+
     const mainContainer = document.querySelector('.main-container');
     const sidebarItems = document.querySelectorAll('.sidebar .menu-item');
     const monthSelector = document.getElementById('monthSelector');
