@@ -20,6 +20,58 @@ import { financialEngine, formatCurrency, formatRawCurrency, formatPercent, norm
 import { buildLLMInput } from "./buildLLMInput.js";
 import { validateLLMInput } from "./validator.js";
 
+/**
+ * Detecta si la app está corriendo como PWA instalada (standalone)
+ * o como sitio web normal en el browser.
+ */
+function isPWAStandalone() {
+    return (
+        window.matchMedia('(display-mode: standalone)').matches ||
+        window.navigator.standalone === true
+    );
+}
+
+function showAuthError(message) {
+    // Remover error anterior si existe
+    const existing = document.getElementById('pwa-auth-error');
+    if (existing) existing.remove();
+
+    const div = document.createElement('div');
+    div.id = 'pwa-auth-error';
+    div.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        border: 2px solid #e53e3e;
+        border-radius: 12px;
+        padding: 24px;
+        max-width: 320px;
+        width: 90%;
+        text-align: center;
+        z-index: 9999;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        font-family: sans-serif;
+    `;
+    div.innerHTML = `
+        <div style="font-size: 2rem; margin-bottom: 12px;">⚠️</div>
+        <p style="font-weight: 700; margin: 0 0 8px; color: #1a202c;">
+            Sesión requerida
+        </p>
+        <p style="font-size: 0.9rem; color: #4a5568; margin: 0 0 16px;">
+            ${message}
+        </p>
+        <a href="https://planeta-azul-dashboard.vercel.app" 
+           style="background:#0f172a;color:white;padding:10px 20px;
+                  border-radius:8px;text-decoration:none;font-weight:600;
+                  font-size:0.9rem;display:inline-block;">
+            Abrir en navegador
+        </a>
+    `;
+    document.body.appendChild(div);
+}
+
 const MOBILE_ROW_LIMIT = 50;
 
 /**
@@ -619,6 +671,10 @@ async function connectM365() {
         }
         if (error.errorCode === "interaction_in_progress" || (error.message && error.message.includes("popup_window_error"))) {
             console.warn("Popup bloqueado o interacción en progreso.");
+            if (isPWAStandalone()) {
+                showAuthError('Inicia sesión en el navegador Chrome primero, luego abre la app instalada.');
+                return;
+            }
             alert("Bloqueador de ventanas emergentes detectado. Por favor, habilite las ventanas emergentes para Microsoft 365 o abra la aplicación en una nueva pestaña.");
             return;
         }
@@ -1853,9 +1909,26 @@ document.addEventListener('DOMContentLoaded', async () => {
                         console.log("Usuario conocido pero token expirado y sin caché: Se requiere inicio de sesión interactivo.");
                         // Evitar Redirect automático en iframes
                         if (window.parent === window) {
-                            msalInstance.loginRedirect({
-                                scopes: ["User.Read", "Files.Read", "Files.Read.All"]
-                            });
+                            if (isPWAStandalone()) {
+                                msalInstance.loginPopup({
+                                    scopes: ["User.Read", "Files.Read", "Files.Read.All"]
+                                }).then(response => {
+                                    if (response) {
+                                        const token = response.accessToken;
+                                        msalInstance.setActiveAccount(response.account);
+                                        window.m365LoggedIn = true;
+                                        window.updateM365UI(response.account);
+                                        fetchMasterData(token);
+                                    }
+                                }).catch(error => {
+                                    console.error('PWA login popup error:', error);
+                                    showAuthError('Inicia sesión en el navegador Chrome primero, luego abre la app instalada.');
+                                });
+                            } else {
+                                msalInstance.loginRedirect({
+                                    scopes: ["User.Read", "Files.Read", "Files.Read.All"]
+                                });
+                            }
                         } else {
                             console.warn("Redirección automática omitida debido a entorno de iFrame.");
                         }
@@ -1875,9 +1948,26 @@ document.addEventListener('DOMContentLoaded', async () => {
                 console.log("Usuario nuevo sin caché: Se requiere inicio de sesión interactivo.");
                 // Evitar Redirect automático en iframes
                 if (window.parent === window) {
-                    msalInstance.loginRedirect({
-                        scopes: ["User.Read", "Files.Read", "Files.Read.All"]
-                    });
+                    if (isPWAStandalone()) {
+                        msalInstance.loginPopup({
+                            scopes: ["User.Read", "Files.Read", "Files.Read.All"]
+                        }).then(response => {
+                            if (response) {
+                                const token = response.accessToken;
+                                msalInstance.setActiveAccount(response.account);
+                                window.m365LoggedIn = true;
+                                window.updateM365UI(response.account);
+                                fetchMasterData(token);
+                            }
+                        }).catch(error => {
+                            console.error('PWA login popup error:', error);
+                            showAuthError('Inicia sesión en el navegador Chrome primero, luego abre la app instalada.');
+                        });
+                    } else {
+                        msalInstance.loginRedirect({
+                            scopes: ["User.Read", "Files.Read", "Files.Read.All"]
+                        });
+                    }
                 } else {
                     console.warn("Redirección automática omitida debido a entorno de iFrame.");
                 }
