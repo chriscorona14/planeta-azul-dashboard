@@ -214,6 +214,8 @@
       .view-container {
         display: none;
         animation: fadeIn 0.3s ease;
+        will-change: opacity, transform;
+        backface-visibility: hidden;
       }
 
       .view-container.active {
@@ -1130,6 +1132,25 @@
         margin-bottom: 32px;
       }
 
+      .view-container,
+      .pnl-detail-table,
+      .chart-box,
+      .bullet-chart-container,
+      #ventas-ceo-chart,
+      #deuda-chart-container,
+      .pnl-detail-table table,
+      .pnl-detail-table tbody,
+      .pnl-detail-table thead,
+      .pnl-detail-table th,
+      .pnl-detail-table td,
+      .pnl-detail-table tr,
+      .pnl-detail-table svg {
+        will-change: transform;
+        transform: translateZ(0);
+        backface-visibility: hidden;
+        -webkit-backface-visibility: hidden;
+      }
+      
       .table-header {
         padding: 24px 32px;
         border-bottom: 1px solid var(--border);

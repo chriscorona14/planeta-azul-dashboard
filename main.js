@@ -11752,7 +11752,8 @@ window.processCxpFile = async function(file) {
         }
 
         window.resumenComercialEngine.renderResumenComercial(m, isYTD, window.comercialCurrentView);
-        setTimeout(() => {
+        
+        const adjustHeaderAndLabels = () => {
             applyMobileDataLabels('resumen-comercial-table', 'resumen-comercial-thead');
             
             // Dynamic sticky header adjustment to prevent overlaps
@@ -11762,10 +11763,18 @@ window.processCxpFile = async function(file) {
                 if (firstRowTh) {
                     const h = firstRowTh.getBoundingClientRect().height;
                     const secondRowThs = thead.querySelectorAll('tr:nth-child(2) th');
-                    secondRowThs.forEach(th => th.style.top = `${h - 0.5}px`);
+                    secondRowThs.forEach(th => {
+                        th.style.top = `${h - 0.5}px`;
+                    });
                 }
             }
-        }, 10);
+        };
+
+        // Run synchronously to avoid frame latency or visual flashes
+        adjustHeaderAndLabels();
+        
+        // Backup requestAnimationFrame to ensure perfect layout calculation
+        requestAnimationFrame(adjustHeaderAndLabels);
 
         // Sync Mobile Accordions
         // Hemos deshabilitado esto a peticion del usuario dado a que los
@@ -11852,6 +11861,17 @@ window.processCxpFile = async function(file) {
         const tbody = document.getElementById('ventas-ceo-tbody');
         if(!thead || !tbody) return;
         
+        // Prevent layout jumping during replacement
+        const tableWrapper = tbody.closest('.pnl-detail-table');
+        if (tableWrapper) {
+            tableWrapper.style.minHeight = tableWrapper.offsetHeight + 'px';
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    tableWrapper.style.minHeight = '';
+                });
+            });
+        }
+
         tbody.innerHTML = '';
         thead.innerHTML = '';
         

@@ -251,9 +251,23 @@ function renderCostoUnitarioTendencia(monthIndex, prodType) {
     if (table) table.style.width = '100%'; // Full width for Tendencia
 
     const thead = document.getElementById("costo-unitario-thead");
-    if (thead) {
-        thead.innerHTML = "";
-        let thr = document.createElement("tr");
+    const tbody = document.getElementById("costo-unitario-tbody");
+    if (!tbody || !thead) return;
+
+    // Prevent vertical jumping layout thrash during innerHTML replacements
+    const tableWrapper = tbody.closest('.pnl-detail-table');
+    if (tableWrapper) {
+        tableWrapper.style.minHeight = tableWrapper.offsetHeight + 'px';
+        
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                tableWrapper.style.minHeight = '';
+            });
+        });
+    }
+
+    thead.innerHTML = "";
+    let thr = document.createElement("tr");
         let thConcept = document.createElement("th");
         thConcept.style = "background:#174c86; color:white; border: 1px solid #f8fafc; border-right: 1px solid white; padding: 14px 16px; min-width: 250px; text-align: left; font-weight: 700; font-size: 0.85rem; text-transform: uppercase;";
         thConcept.innerText = "Concepto";
@@ -267,10 +281,7 @@ function renderCostoUnitarioTendencia(monthIndex, prodType) {
             thr.appendChild(th);
         }
         thead.appendChild(thr);
-    }
 
-    const tbody = document.getElementById("costo-unitario-tbody");
-    if (!tbody) return;
     tbody.innerHTML = "";
 
     let renderedConcepts = new Set();
@@ -416,9 +427,23 @@ function renderCostoUnitarioResumen(monthIndex, prodType) {
     const table = document.getElementById("costo-unitario-table");
     if (table) table.style.width = 'auto'; // Auto width for compact Resumen
     
+    const tbody = document.getElementById("costo-unitario-tbody");
     const thead = document.getElementById("costo-unitario-thead");
-    if (thead) {
-        thead.innerHTML = `
+    if (!tbody || !thead) return;
+
+    // Prevent vertical jumping layout thrash during innerHTML replacements
+    const tableWrapper = tbody.closest('.pnl-detail-table');
+    if (tableWrapper) {
+        tableWrapper.style.minHeight = tableWrapper.offsetHeight + 'px';
+        
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                tableWrapper.style.minHeight = '';
+            });
+        });
+    }
+
+    thead.innerHTML = `
             <tr>
                 <th rowspan="2" style="background:#174c86; color:white; border: 1px solid #f8fafc; border-right: 1px solid white; padding: 14px 16px; min-width: 250px; width: auto; text-align: left; font-weight: 700; font-size: 0.85rem; vertical-align: middle; text-transform: uppercase;">Concepto</th>
                 <th rowspan="2" style="background:#174c86; color:white; border: 1px solid white; padding: 8px 10px; text-align: center; vertical-align: middle; width: 90px; font-weight: 700; font-size: 0.85rem; text-transform: uppercase;">${mStr.toUpperCase()} 2025</th>
@@ -433,10 +458,7 @@ function renderCostoUnitarioResumen(monthIndex, prodType) {
                 <th style="background:#174c86; color:white; border: 1px solid white; padding: 6px 10px; text-align: center; font-size: 0.80rem; font-weight: 700; text-transform: uppercase;">vs PPTO</th>
             </tr>
         `;
-    }
 
-    const tbody = document.getElementById("costo-unitario-tbody");
-    if (!tbody) return;
     tbody.innerHTML = "";
 
     let renderedConcepts = new Set();

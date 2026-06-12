@@ -1036,11 +1036,40 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
   };
 
   // Buscar IDs de tabla en index.html
-  const tbody = document.getElementById('resumen-comercial-tbody') || document.getElementById('tbody-resumen-comercial');
-  const thead = document.getElementById('resumen-comercial-thead') || document.getElementById('thead-resumen-comercial');
+  const originalTable = document.getElementById('resumen-comercial-table');
+  if (!originalTable) {
+    console.warn('[comercialEngine] No se encontró la tabla resumen-comercial-table.');
+    return;
+  }
+
+  // Clone the table to perform double-buffering updates off-screen to prevent layout flashes
+  const clonedTable = originalTable.cloneNode(true);
+  const tbody = clonedTable.querySelector('#resumen-comercial-tbody') || clonedTable.querySelector('tbody');
+  const thead = clonedTable.querySelector('#resumen-comercial-thead') || clonedTable.querySelector('thead');
+
   if (!tbody || !thead) {
     console.warn('[comercialEngine] No se encontraron elementos tbody o thead para la tabla comercial.');
     return;
+  }
+
+  const swapTable = () => {
+    const liveTable = document.getElementById('resumen-comercial-table');
+    if (liveTable && liveTable.parentNode) {
+      liveTable.parentNode.replaceChild(clonedTable, liveTable);
+    }
+  };
+
+  // Prevent vertical jumping layout thrash during innerHTML replacements
+  const tableWrapper = originalTable.closest('.pnl-detail-table');
+  if (tableWrapper) {
+      tableWrapper.style.minHeight = tableWrapper.offsetHeight + 'px';
+      
+      // Cleanup jump prevention safely after render
+      requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+              tableWrapper.style.minHeight = '';
+          });
+      });
   }
 
   const MESES = ['', 'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -1209,6 +1238,7 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
         </tr>
     `;
     tbody.innerHTML = html;
+    swapTable();
     return;
   }
 
@@ -1401,6 +1431,7 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
     `;
 
     tbody.innerHTML = html;
+    swapTable();
     return;
   }
 
@@ -1539,6 +1570,7 @@ export function renderResumenComercial(mesSeleccionado, isYTD, viewType = 'resum
   `;
 
   tbody.innerHTML = html;
+  swapTable();
 }
 
 // ------------------------------------------------------------------
@@ -1569,6 +1601,17 @@ export async function renderPgHorizontal() {
 
   const tbody = document.getElementById('pg-horizontal-tbody');
   if (!tbody) return;
+
+  const tableWrapper = tbody.closest('.pnl-detail-table');
+  if (tableWrapper) {
+      tableWrapper.style.minHeight = tableWrapper.offsetHeight + 'px';
+      
+      requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+              tableWrapper.style.minHeight = '';
+          });
+      });
+  }
 
   const data = comercialRawData.pgHorizontal;
   if (data.length === 0) {
