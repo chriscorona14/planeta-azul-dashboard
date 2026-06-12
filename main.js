@@ -643,7 +643,7 @@ window.updateM365UI = function(account) {
     }
 };
 
-async function connectM365() {
+function connectM365() {
     if (!msalInstance) {
         alert("MSAL no inicializado.");
         return;
@@ -670,38 +670,21 @@ async function connectM365() {
                 return;
             }
             console.error('PWA loginPopup error:', error.errorCode, error.message);
-            showAuthError('No se pudo abrir el login. Prueba abriendo la app en Chrome primero.');
+            showAuthError('No se pudo abrir el login en la app instalada. Intenta nuevamente.');
         });
-        return; // Terminar aquí para PWA
-    }
-
-    try {
-        await msalInstance.initialize?.(); 
-        await msalInstance.handleRedirectPromise?.();
-
-        const loginResponse = await msalInstance.loginPopup({
-            scopes: ["User.Read", "Files.Read", "Files.Read.All"],
-            prompt: "select_account"
-        });
-        
-        const token = loginResponse.accessToken;
-        msalInstance.setActiveAccount(loginResponse.account);
-        window.m365LoggedIn = true;
-        window.updateM365UI(loginResponse.account);
-        
-        await fetchMasterData(token);
-    } catch (error) {
-        if (error.errorCode === "user_cancelled" || (error.message && error.message.includes("user_cancelled"))) {
-            console.log("El usuario canceló el inicio de sesión.");
-            return;
-        }
-        if (error.errorCode === "interaction_in_progress" || (error.message && error.message.includes("popup_window_error"))) {
-            console.warn("Popup bloqueado o interacción en progreso.");
-            alert("Bloqueador de ventanas emergentes detectado. Por favor, habilite las ventanas emergentes para Microsoft 365 o abra la aplicación en una nueva pestaña.");
-            return;
-        }
-        console.error(error);
-        alert("Error autenticando con Office 365: " + error.message);
+    } else {
+        // Envolver en IIFE async para no bloquear la firma síncrona
+        (async () => {
+            try {
+                await msalInstance.loginRedirect({
+                    scopes: ["User.Read", "Files.Read", "Files.Read.All"],
+                    prompt: "select_account"
+                });
+            } catch (error) {
+                console.error(error);
+                alert("Error autenticando con Office 365: " + error.message);
+            }
+        })();
     }
 }
 
@@ -1902,6 +1885,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (redirectResponse) {
                     window.history.replaceState({}, document.title, window.location.pathname);
                     window.m365LoggedIn = true;
+                    // Limpiar cualquier error previo
+                    const errorOverlay = document.getElementById('pwa-auth-error');
+                    if (errorOverlay) errorOverlay.remove();
+                    
                     fetchMasterData(redirectResponse.accessToken);
                     return;
                 }
@@ -1922,25 +1909,16 @@ document.addEventListener('DOMContentLoaded', async () => {
                     
                     // Background Update
                     window.m365LoggedIn = true;
+                    // Limpiar cualquier error previo
+                    const errorOverlay = document.getElementById('pwa-auth-error');
+                    if (errorOverlay) errorOverlay.remove();
+                    
                     fetchMasterData(response.accessToken);
                 } catch (error) {
                     console.warn("Silent login failed (Token expire/cache missing):", error);
-                    // Do not redirect to interactive login automatically to prevent interrupting the cached UI
-                    // Only prompt if we have no cached data at all.
                     if (!loadedFromCache) {
-                        console.log("Usuario conocido pero token expirado y sin caché: Se requiere inicio de sesión interactivo.");
-                        // Evitar Redirect automático en iframes
-                        if (window.parent === window) {
-                            if (isPWAStandalone()) {
-                                console.log('PWA: token expirado, esperando click del usuario para re-auth');
-                            } else {
-                                msalInstance.loginRedirect({
-                                    scopes: ["User.Read", "Files.Read", "Files.Read.All"]
-                                });
-                            }
-                        } else {
-                            console.warn("Redirección automática omitida debido a entorno de iFrame.");
-                        }
+                        console.log("Usuario conocido pero token expirado y sin caché: Esperando inicio de sesión interactivo por parte del usuario.");
+                        window.handleMSALLoginFailure();
                     } else {
                         const sidebarSyncText = document.getElementById('sidebarSyncText');
                         const sidebarSyncDot = document.getElementById('sidebarSyncDot');
@@ -1954,19 +1932,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
             } else if (!loadedFromCache) {
-                console.log("Usuario nuevo sin caché: Se requiere inicio de sesión interactivo.");
-                // Evitar Redirect automático en iframes
-                if (window.parent === window) {
-                    if (isPWAStandalone()) {
-                        console.log('PWA: No hay cache inicial, esperando click del usuario en "Conectar Office 365"');
-                    } else {
-                        msalInstance.loginRedirect({
-                            scopes: ["User.Read", "Files.Read", "Files.Read.All"]
-                        });
-                    }
-                } else {
-                    console.warn("Redirección automática omitida debido a entorno de iFrame.");
-                }
+                console.log("Usuario nuevo sin caché: Esperando inicio de sesión interactivo por parte del usuario.");
+                window.handleMSALLoginFailure();
             }
         }).catch(err => {
              console.error("MSAL Initialization failed:", err);
