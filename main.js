@@ -20,6 +20,98 @@ import { financialEngine, formatCurrency, formatRawCurrency, formatPercent, norm
 import { buildLLMInput } from "./buildLLMInput.js";
 import { validateLLMInput } from "./validator.js";
 
+const MOBILE_ROW_LIMIT = 50;
+
+/**
+ * En móvil, limita el tbody de una tabla a MOBILE_ROW_LIMIT filas visibles
+ * e inyecta un botón "Ver más" para cargar el siguiente bloque.
+ * En escritorio, no hace nada.
+ */
+function applyMobileRowPagination(tableId) {
+    if (window.innerWidth > 768) return;
+
+    const table = document.getElementById(tableId);
+    if (!table) return;
+
+    const tbody = table.querySelector('tbody');
+    if (!tbody) return;
+
+    const allRows = Array.from(tbody.querySelectorAll('tr'));
+    const total = allRows.length;
+
+    if (total <= MOBILE_ROW_LIMIT) return; // No hay suficientes filas para paginar
+
+    // Ocultar filas que excedan el límite inicial
+    allRows.forEach((row, i) => {
+        if (i >= MOBILE_ROW_LIMIT) {
+            row.style.display = 'none';
+            row.setAttribute('data-hidden-mobile', 'true');
+        }
+    });
+
+    // Evitar duplicar el botón si ya existe
+    const btnId = `load-more-${tableId}`;
+    if (document.getElementById(btnId)) return;
+
+    // Crear contenedor del botón fuera de la tabla
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'text-align:center; margin: 8px 0 16px 0;';
+
+    const btn = document.createElement('button');
+    btn.id = btnId;
+    btn.setAttribute('data-table', tableId);
+    btn.setAttribute('data-shown', MOBILE_ROW_LIMIT);
+
+    const remaining = total - MOBILE_ROW_LIMIT;
+    btn.textContent = `Ver más (${remaining} filas restantes)`;
+    btn.style.cssText = `
+        background: #0f172a;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 10px 20px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        cursor: pointer;
+        width: 100%;
+        max-width: 320px;
+    `;
+
+    btn.addEventListener('click', function () {
+        const tId = this.getAttribute('data-table');
+        const currentShown = parseInt(this.getAttribute('data-shown'));
+        const tbl = document.getElementById(tId);
+        if (!tbl) return;
+
+        const hiddenRows = Array.from(
+            tbl.querySelectorAll('tr[data-hidden-mobile="true"]')
+        ).slice(0, MOBILE_ROW_LIMIT);
+
+        hiddenRows.forEach(row => {
+            row.style.display = '';
+            row.removeAttribute('data-hidden-mobile');
+        });
+
+        // Re-aplicar los data-labels a las nuevas filas visibles
+        // (usa el mismo theadId que la tabla tiene asociado, ajustar si aplica)
+        const newShown = currentShown + hiddenRows.length;
+        this.setAttribute('data-shown', newShown);
+
+        const stillHidden = tbl.querySelectorAll('tr[data-hidden-mobile="true"]').length;
+        if (stillHidden === 0) {
+            this.parentElement.remove(); // Eliminar botón cuando no hay más filas
+        } else {
+            this.textContent = `Ver más (${stillHidden} filas restantes)`;
+        }
+    });
+
+    wrapper.appendChild(btn);
+
+    // Insertar el botón inmediatamente después de la tabla (o su contenedor)
+    const tableParent = table.closest('.table-wrapper') || table.parentElement;
+    tableParent.insertAdjacentElement('afterend', wrapper);
+}
+
 // HELPER
 function getSortYear(d) {
   if (!d || !d.sortDate) return 0;
@@ -2651,6 +2743,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (targetView) targetView.classList.add('active');
             window.currentActiveView = viewId;
 
+            // Limpiar botones "Ver más" huérfanos al cambiar de vista
+            document.querySelectorAll('[id^="load-more-"]').forEach(btn => {
+                if (btn.parentElement) btn.parentElement.remove();
+            });
+
             // Trigger directo al navegar a CXP
             if (id === 'menu-cxp' && typeof window.renderCxpView === 'function') {
                 const ms = document.getElementById('monthSelector');
@@ -3569,6 +3666,11 @@ function updateUI(data, index) {
 }
 
 function renderActiveViewLazy(data, index) {
+    // Limpiar botones "Ver más" huérfanos al cambiar de vista o de mes
+    document.querySelectorAll('[id^="load-more-"]').forEach(btn => {
+        if (btn.parentElement) btn.parentElement.remove();
+    });
+
     if (!data || !data[index]) return;
     const curr = data[index];
     const prevIdx = Math.max(0, index - 1);
@@ -11614,6 +11716,7 @@ window.processCxpFile = async function(file) {
     }, 500);
 
     function applyMobileDataLabels(tableId, theadId) {
+        if (window.innerWidth > 768) return; // SOLO APLICAR EN MOVIL PARA EVITAR CRASHES
         const thead = document.getElementById(theadId);
         const table = document.getElementById(tableId);
         if (!thead || !table) return;
@@ -11698,7 +11801,9 @@ window.processCxpFile = async function(file) {
         window.resumenComercialEngine.renderPgHorizontal();
         setTimeout(() => {
             applyMobileDataLabels('pg-horizontal-table', 'pg-horizontal-thead');
+            applyMobileRowPagination('pg-horizontal-table');
             applyMobileDataLabels('pg-horizontal-unitarios-table', 'pg-horizontal-unitarios-thead');
+            applyMobileRowPagination('pg-horizontal-unitarios-table');
         }, 10);
     };
 
@@ -11761,6 +11866,7 @@ window.processCxpFile = async function(file) {
         
         const adjustHeaderAndLabels = () => {
             applyMobileDataLabels('resumen-comercial-table', 'resumen-comercial-thead');
+            applyMobileRowPagination('resumen-comercial-table');
             
             // Dynamic sticky header adjustment to prevent overlaps
             const thead = document.getElementById('resumen-comercial-thead');
