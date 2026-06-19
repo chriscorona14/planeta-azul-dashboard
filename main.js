@@ -1000,7 +1000,7 @@ async function fetchMasterData(token = null) {
                             try {
                                 const db = await getFinanceDB();
                                 const tx = db.transaction('finance_cache', 'readwrite');
-                                tx.objectStore('finance_cache').delete('CEO_VENTAS_KEY_V3');
+                                tx.objectStore('finance_cache').delete('CEO_VENTAS_KEY_V4');
                             } catch(e) {}
                         }
                     }
@@ -1689,14 +1689,15 @@ window.updateLastUpdatedTime = function(timestamp) {
 
 async function loadCacheInstant() {
     try {
-        const CACHE_VERSION = 'v5';
+        const CACHE_VERSION = 'v6';
         if (localStorage.getItem('ventas_cache_version') !== CACHE_VERSION) {
             localStorage.setItem('ventas_cache_version', CACHE_VERSION);
             const db = await getFinanceDB();
             await new Promise((resolve, reject) => {
                 const tx = db.transaction('finance_cache', 'readwrite');
                 tx.objectStore('finance_cache').delete('MASTER_FINANCE_KEY');
-                tx.objectStore('finance_cache').delete('CEO_VENTAS_KEY_V3');
+                tx.objectStore('finance_cache').delete('CEO_VENTAS_KEY_V4');
+                tx.objectStore('finance_cache').delete('CEO_VENTAS_KEY_V4');
                 tx.objectStore('finance_cache').delete('CEO_VENTAS_KEY_V2');
                 tx.objectStore('finance_cache').delete('COMERCIAL_KEY');
                 tx.oncomplete = resolve;
@@ -1725,7 +1726,7 @@ async function loadCacheInstant() {
         // Also load Ventas CEO data
         const ceoCachedRecord = await new Promise((resolve) => {
             try {
-                const req = db.transaction('finance_cache', 'readonly').objectStore('finance_cache').get('CEO_VENTAS_KEY_V3');
+                const req = db.transaction('finance_cache', 'readonly').objectStore('finance_cache').get('CEO_VENTAS_KEY_V4');
                 req.onsuccess = () => resolve(req.result);
                 req.onerror = () => resolve(null);
             } catch (e) {
@@ -1848,7 +1849,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 await new Promise((resolve, reject) => {
                     const tx = db.transaction('finance_cache', 'readwrite');
                     tx.objectStore('finance_cache').delete('MASTER_FINANCE_KEY');
-                    tx.objectStore('finance_cache').delete('CEO_VENTAS_KEY_V3');
+                    tx.objectStore('finance_cache').delete('CEO_VENTAS_KEY_V4');
                     tx.objectStore('finance_cache').delete('COMERCIAL_KEY');
                     tx.oncomplete = resolve;
                     tx.onerror = reject;
@@ -2472,6 +2473,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     clickElement('btn-ventas-vol'); await sleep(800); await addPageToPDF("Métrica: Volumen (k de Unidades)");
                     clickElement('btn-ventas-monto'); await sleep(800); await addPageToPDF("Métrica: Monto (mDOP)");
                     clickElement('btn-ventas-precio'); await sleep(800); await addPageToPDF("Métrica: Precio Unitario");
+                    clickElement('btn-ventas-hectolitros'); await sleep(800); await addPageToPDF("Métrica: Hectolitros");
                 }
 
                 // 8. Costo Unitario
@@ -9713,7 +9715,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 const db = await getFinanceDB();
                 await new Promise((resolve, reject) => {
                     const tx = db.transaction('finance_cache', 'readwrite');
-                    tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'CEO_VENTAS_KEY_V3');
+                    tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'CEO_VENTAS_KEY_V4');
                     tx.oncomplete = resolve;
                     tx.onerror = reject;
                 });
@@ -9797,7 +9799,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                     const db = await getFinanceDB();
                     await new Promise((resolve, reject) => {
                         const tx = db.transaction('finance_cache', 'readwrite');
-                        tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'CEO_VENTAS_KEY_V3');
+                        tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'CEO_VENTAS_KEY_V4');
                         tx.oncomplete = resolve;
                         tx.onerror = reject;
                     });
@@ -9859,6 +9861,9 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                             values: {},
                             pptoValues: {}
                         };
+                        if (newVolRow.__fromDetailed) {
+                            precioRow.__fromDetailed = true;
+                        }
                         
                         Object.keys(newVolRow.values || {}).forEach(k => {
                             let volVal = newVolRow.values[k] || 0;
@@ -9890,7 +9895,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             // 1. Recalcular Padres (las filas que funcionan como 'padres' de los grupos deben contemplarse como la suma del valor de los 'hijos')
             const parentIds = [...new Set(finalData.filter(d => d.hasChildren).map(d => d.id))];
             parentIds.forEach(pId => {
-                ['Volumen', 'Monto (MM DOP)'].forEach(tipo => {
+                ['Volumen', 'Monto (MM DOP)', 'Hectolitros'].forEach(tipo => {
                     let parentRow = finalData.find(d => d.id === pId && d.Tipo === tipo);
                     if (parentRow) {
                         let children = finalData.filter(d => d.parentId === pId && d.Tipo === tipo && d.Producto !== "PA H+ 0.68 LTS (X12)");
@@ -9952,7 +9957,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
 
             // 2. Recalcular TOTAL y TOTAL SIN BON si están en el hierarchy
             ['TOTAL', 'TOTAL SIN BON'].forEach(tot => {
-               ['Volumen', 'Monto (MM DOP)'].forEach(tipo => {
+               ['Volumen', 'Monto (MM DOP)', 'Hectolitros'].forEach(tipo => {
                    let totRow = finalData.find(d => d.Producto === tot && d.Tipo === tipo);
                    if(totRow) {
                        totRow.pptoValues = totRow.pptoValues || {};
@@ -10058,7 +10063,9 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                     ['PO25', 'PO26'].forEach(y => {
                         if(row[y] !== undefined) row[y] /= 1000;
                     });
-                     // FY2024 will be restored below, so no need to divide it here
+                    if (row.__fromDetailed && row['FY2024'] !== undefined) {
+                        row['FY2024'] /= 1000;
+                    }
                 }
             });
 
@@ -10066,6 +10073,10 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         // ya que el valor allí es un promedio anual y debe mantenerse fijo, 
         // y ya viene formateado en la escala correcta (k, o MM DOP)
         finalData.forEach(row => {
+            if (row.__fromDetailed) {
+                // If computed dynamically from detailed "data por mes", do not restore from hardcoded "Tablas Consejo"!
+                return;
+            }
             let consejoRow = tempParsedRows.find(d => {
                 if (d.Producto !== row.Producto) return false;
                 if (row.Tipo === 'Monto (MM DOP)') {
@@ -10111,7 +10122,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 const db = await getFinanceDB();
                 await new Promise((resolve, reject) => {
                     const tx = db.transaction('finance_cache', 'readwrite');
-                    tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'CEO_VENTAS_KEY_V3');
+                    tx.objectStore('finance_cache').put({ data: ceoData, timestamp: Date.now() }, 'CEO_VENTAS_KEY_V4');
                     tx.oncomplete = resolve;
                     tx.onerror = reject;
                 });
@@ -10187,6 +10198,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
         
         resultRow.pptoValues = {};
         if (foundAny) {
+            resultRow.__fromDetailed = true;
             // Apply divided by 1M ONLY for Monto
             const divisor = targetMetric === 'Monto (MM DOP)' ? 1000000 : 1;
             Object.keys(accumulated).forEach(k => {
@@ -10195,7 +10207,23 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             Object.keys(accumulated_ppto).forEach(k => {
                 resultRow.pptoValues[k] = (accumulated_ppto[k] || 0) / divisor;
             });
-            ['FY2024', 'PO25', 'PO26'].forEach(y => {
+            
+            // Recalculate FY2024 as the dynamic average of the 12 months of 2024
+            let sum24 = 0, count24 = 0;
+            for (let m = 1; m <= 12; m++) {
+                let key = `2024-${String(m).padStart(2, '0')}`;
+                if (resultRow.values[key] !== undefined) {
+                    sum24 += resultRow.values[key];
+                    count24++;
+                }
+            }
+            if (count24 > 0) {
+                resultRow['FY2024'] = sum24 / count24;
+            } else {
+                resultRow['FY2024'] = fyAccum['FY2024'] / divisor;
+            }
+
+            ['PO25', 'PO26'].forEach(y => {
                 resultRow[y] = fyAccum[y] / divisor;
             });
         } else if (targetMetric === 'Volumen') {
@@ -10416,6 +10444,7 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                 if (totalCount === 1) currentType = "Volumen";
                 else if (totalCount === 2) currentType = "Monto (MM DOP)";
                 else if (totalCount === 3) currentType = "Precio Unitario";
+                else if (totalCount === 4) currentType = "Hectolitros";
             }
             
             prodVal = prodVal.replace(/\s*\(\s*ZUMOS\s*\)\s*/i, ' ').replace(/\s{2,}/g, ' ').trim();
@@ -10805,6 +10834,47 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
                     
                     parsedRows.push(p);
                 }
+                
+                // Generar Hectolitros si no existe
+                const hecRowExists = parsedRows.find(r => r.Producto === prod && r.Tipo === "Hectolitros");
+                if(!hecRowExists && volRow) {
+                    const HECTOLITER_FACTORS = {
+                        "APA BOTELLON 18.9 LTS (X1)": 0.189,
+                        "APA BOTELLA 0.5 LTS ( X20)": 0.10,
+                        "APA BOTELLA 1.5 LTS (X12)": 0.18,
+                        "MAQUILA AGUA 1.5 L TS (X12)": 0.18,
+                        "MAQUILA AGUA 0.5 LTS (X20)": 0.10,
+                        "PA SABOR 0.5 LTS (X12)": 0.06,
+                        "PA H+ 0.68 LTS (X12)": 0.0816,
+                        "PA H+ 0.71 LTS (X12)": 0.0852,
+                        "APA OTRAS": 0.1,
+                        "MAQUILA AGUA OTROS": 0.1,
+                        "BON": 0.1
+                    };
+                    const factor = HECTOLITER_FACTORS[volRow.Producto.toUpperCase().trim()] || 0.1;
+
+                    let h = {
+                        Producto: volRow.Producto,
+                        Tipo: "Hectolitros",
+                        hasChildren: volRow.hasChildren,
+                        parentId: volRow.parentId,
+                        id: volRow.id,
+                        values: {},
+                        pptoValues: {}
+                    };
+
+                    Object.keys(volRow.values || {}).forEach(k => {
+                        h.values[k] = (volRow.values[k] || 0) * factor;
+                    });
+                    Object.keys(volRow.pptoValues || {}).forEach(k => {
+                        h.pptoValues[k] = (volRow.pptoValues[k] || 0) * factor;
+                    });
+                    ['FY2024', 'PO25', 'PO26'].forEach(y => {
+                        h[y] = (volRow[y] || 0) * factor;
+                    });
+
+                    parsedRows.push(h);
+                }
             });
             
             return parsedRows;
@@ -11018,6 +11088,64 @@ Redacta UNA SOLA ORACIÓN para el CFO de advertencia o recomendación estratégi
             return groups;
         };
         const groups = getParentGroups();
+        
+        // HECTOLITROS GENERATION based on VOLUMEN using conversion table
+        const HECTOLITER_FACTORS = {
+            "APA BOTELLON 18.9 LTS (X1)": 0.189,
+            "APA BOTELLA 0.5 LTS ( X20)": 0.10,
+            "APA BOTELLA 1.5 LTS (X12)": 0.18,
+            "MAQUILA AGUA 1.5 L TS (X12)": 0.18,
+            "MAQUILA AGUA 0.5 LTS (X20)": 0.10,
+            "PA SABOR 0.5 LTS (X12)": 0.06,
+            "PA H+ 0.68 LTS (X12)": 0.0816,
+            "PA H+ 0.71 LTS (X12)": 0.0852,
+            "APA OTRAS": 0.1,
+            "MAQUILA AGUA OTROS": 0.1,
+            "BON": 0.1
+        };
+        
+        const volRows = finalData.filter(d => d.Tipo === 'Volumen');
+        for(let volRow of volRows) {
+            if(!volRow.parentId) continue; // we calculate parents and totals dynamically later
+            const factor = HECTOLITER_FACTORS[volRow.Producto.toUpperCase().trim()] || 0.1;
+            
+            let hRow = {
+                 Producto: volRow.Producto,
+                 Tipo: "Hectolitros",
+                 hasChildren: volRow.hasChildren,
+                 parentId: volRow.parentId,
+                 id: volRow.id,
+                 values: {},
+                 pptoValues: {},
+                 FY2024: (volRow.FY2024 || 0) * factor,
+                 PO26: (volRow.PO26 || 0) * factor
+            };
+            
+            Object.keys(volRow.values).forEach(k => {
+                hRow.values[k] = (volRow.values[k] || 0) * factor;
+            });
+            Object.keys(volRow.pptoValues).forEach(k => {
+                hRow.pptoValues[k] = (volRow.pptoValues[k] || 0) * factor;
+            });
+            finalData.push(hRow);
+        }
+        
+        // Add Parents and Totals for Hectolitros explicitly so they get rolled up
+        const hectoParents = CEO_MAPPINGS.filter(c => c.isParent || c.Producto === 'TOTAL' || c.Producto === 'TOTAL SIN BON');
+        hectoParents.forEach(cMap => {
+            let p = {
+                Producto: cMap.Producto,
+                Tipo: "Hectolitros",
+                hasChildren: cMap.isParent,
+                parentId: cMap.parentId,
+                id: cMap.isParent ? cMap.Producto.replace(/[^a-zA-Z0-9]/g, '_') : cMap.Producto.replace(/[^a-zA-Z0-9]/g, '_'),
+                values: {}, pptoValues: {}, FY2024: 0, PO26: 0
+            };
+            finalData.push(p);
+        });
+
+        // Add Hectolitros to TYPE_MAPPINGS so it gets summarized
+        TYPE_MAPPINGS.push({ key: 'Hectolitros', tableKey: 'hectolitros', rawDivisor: 1 });
         
         TYPE_MAPPINGS.forEach(tm => {
             const typesRows = finalData.filter(d => d.Tipo === tm.key);
@@ -12026,6 +12154,138 @@ window.processCxpFile = async function(file) {
         const chartBox = document.querySelector("#view-ventas-ceo .chart-box");
         if (chartBox) chartBox.style.display = 'block';
 
+        // Failsafe: Ensure Hectolitros metric rows exist and are correctly rolled up on any render
+        if (ceoData && ceoData.length > 0) {
+            const hasHectolitros = ceoData.some(d => d.Tipo === 'Hectolitros');
+            if (!hasHectolitros) {
+                const HECTOLITER_FACTORS = {
+                    "APA BOTELLON 18.9 LTS (X1)": 0.189,
+                    "APA BOTELLA 0.5 LTS ( X20)": 0.10,
+                    "APA BOTELLA 1.5 LTS (X12)": 0.18,
+                    "MAQUILA AGUA 1.5 L TS (X12)": 0.18,
+                    "MAQUILA AGUA 0.5 LTS (X20)": 0.10,
+                    "PA SABOR 0.5 LTS (X12)": 0.06,
+                    "PA H+ 0.68 LTS (X12)": 0.0816,
+                    "PA H+ 0.71 LTS (X12)": 0.0852,
+                    "APA OTRAS": 0.1,
+                    "MAQUILA AGUA OTROS": 0.1,
+                    "BON": 0.1
+                };
+
+                const hectoRows = [];
+                const volRows = ceoData.filter(d => d.Tipo === 'Volumen');
+                
+                volRows.forEach(volRow => {
+                    const prodUpper = volRow.Producto.toUpperCase().trim();
+                    const factor = HECTOLITER_FACTORS[prodUpper] || 0.1;
+                    
+                    let hRow = {
+                         Producto: volRow.Producto,
+                         Tipo: "Hectolitros",
+                         hasChildren: volRow.hasChildren,
+                         parentId: volRow.parentId,
+                         id: volRow.id,
+                         values: {},
+                         pptoValues: {}
+                    };
+                    
+                    if (volRow.values) {
+                        Object.keys(volRow.values).forEach(k => {
+                            hRow.values[k] = (volRow.values[k] || 0) * factor;
+                        });
+                    }
+                    if (volRow.pptoValues) {
+                        Object.keys(volRow.pptoValues).forEach(k => {
+                            hRow.pptoValues[k] = (volRow.pptoValues[k] || 0) * factor;
+                        });
+                    }
+                    ['FY2024', 'PO25', 'PO26'].forEach(y => {
+                        if (volRow[y] !== undefined) {
+                            hRow[y] = (volRow[y] || 0) * factor;
+                        }
+                    });
+                    
+                    hectoRows.push(hRow);
+                });
+                
+                // Roll up parent group rows for Hectolitros dynamically to be mathematically precise
+                const parentIds = [...new Set(hectoRows.filter(d => d.hasChildren).map(d => d.id))];
+                parentIds.forEach(pId => {
+                    let parentRow = hectoRows.find(d => d.id === pId);
+                    if (parentRow) {
+                        let children = hectoRows.filter(d => d.parentId === pId && d.Producto !== "PA H+ 0.68 LTS (X12)");
+                        
+                        // Reset parent
+                        parentRow.values = {};
+                        parentRow.pptoValues = {};
+                        ['FY2024', 'PO25', 'PO26'].forEach(y => { parentRow[y] = 0; });
+                        
+                        children.forEach(c => {
+                            Object.keys(c.values || {}).forEach(k => {
+                                parentRow.values[k] = (parentRow.values[k] || 0) + (c.values[k] || 0);
+                            });
+                            Object.keys(c.pptoValues || {}).forEach(k => {
+                                parentRow.pptoValues[k] = (parentRow.pptoValues[k] || 0) + (c.pptoValues[k] || 0);
+                            });
+                            ['FY2024', 'PO25', 'PO26'].forEach(y => {
+                                parentRow[y] = (parentRow[y] || 0) + (c[y] || 0);
+                            });
+                        });
+                    }
+                });
+
+                // Roll up TOTAL and TOTAL SIN BON for Hectolitros dynamically
+                ['TOTAL', 'TOTAL SIN BON'].forEach(tot => {
+                    let totRow = hectoRows.find(d => d.Producto === tot);
+                    if (totRow) {
+                        totRow.values = {};
+                        totRow.pptoValues = {};
+                        ['FY2024', 'PO25', 'PO26'].forEach(y => { totRow[y] = 0; });
+
+                        const mainItems = hectoRows.filter(d => ['AGUA PLANETA AZUL', 'MAQUILAS', 'BEBIDAS'].includes(d.Producto.toUpperCase().trim()));
+                        const bonifItems = hectoRows.filter(d => d.parentId && d.Producto.includes('BON'));
+
+                        let allKeys = new Set();
+                        mainItems.forEach(d => {
+                            Object.keys(d.values || {}).forEach(k => allKeys.add(k));
+                            Object.keys(d.pptoValues || {}).forEach(k => allKeys.add(k));
+                        });
+
+                        allKeys.forEach(k => {
+                            let sum = 0, sumPpto = 0;
+                            mainItems.forEach(d => {
+                                sum += (d.values[k] || 0);
+                                sumPpto += (d.pptoValues?.[k] || 0);
+                            });
+                            if (tot === 'TOTAL SIN BON') {
+                                bonifItems.forEach(d => {
+                                    sum -= (d.values[k] || 0);
+                                    sumPpto -= (d.pptoValues?.[k] || 0);
+                                });
+                            }
+                            totRow.values[k] = sum;
+                            totRow.pptoValues[k] = sumPpto;
+                        });
+
+                        ['FY2024', 'PO25', 'PO26'].forEach(y => {
+                            let sum = 0;
+                            mainItems.forEach(d => {
+                                sum += (d[y] || 0);
+                            });
+                            if (tot === 'TOTAL SIN BON') {
+                                bonifItems.forEach(d => {
+                                    sum -= (d[y] || 0);
+                                });
+                            }
+                            totRow[y] = sum;
+                        });
+                    }
+                });
+                
+                ceoData = ceoData.concat(hectoRows);
+            }
+        }
+
         const isMobile = window.innerWidth <= 768;
 
         const thead = document.getElementById('ventas-ceo-thead');
@@ -12074,7 +12334,8 @@ window.processCxpFile = async function(file) {
             return p !== 'TOTAL' && p !== 'TOTAL SIN BON' && p !== 'TOTAL SIN BON.' && p !== 'TOTAL AÑO' && p !== 'PA H+ 0.68 LTS (X12)' && p !== 'VENTAS NETAS DOP';
         });
         const isPrecio = ventasCeoCurrentMetric === 'Precio Unitario';
-        const decimals = isPrecio ? 1 : 0;
+        const isHecto = ventasCeoCurrentMetric === 'Hectolitros';
+        const decimals = (isPrecio || isHecto) ? 1 : 0;
         
         displayData.forEach(d => {
             // id, parentId, and hasChildren are already correctly set in parseConsejoFromObjects.
@@ -12684,9 +12945,10 @@ window.processCxpFile = async function(file) {
             .style("pointer-events", "none");
 
         const isPrecio = ventasCeoCurrentMetric === 'Precio Unitario';
+        const isHectoDecimals = ventasCeoCurrentMetric === 'Hectolitros';
         const formatter = new Intl.NumberFormat('es-DO', { 
-            minimumFractionDigits: isPrecio ? 1 : 0, 
-            maximumFractionDigits: isPrecio ? 1 : 0 
+            minimumFractionDigits: (isPrecio || isHectoDecimals) ? 1 : 0, 
+            maximumFractionDigits: (isPrecio || isHectoDecimals) ? 1 : 0 
         });
 
         layer.selectAll("text.segment-label")
@@ -12948,6 +13210,11 @@ window.processCxpFile = async function(file) {
         updateVentasButtons();
         window.renderVentasCEO();
     });
+    document.getElementById('btn-ventas-hectolitros')?.addEventListener('click', () => {
+        ventasCeoCurrentMetric = 'Hectolitros';
+        updateVentasButtons();
+        window.renderVentasCEO();
+    });
     
     function updateVentasButtons() {
         const resetBtn = (id) => {
@@ -12961,6 +13228,7 @@ window.processCxpFile = async function(file) {
         resetBtn('btn-ventas-vol');
         resetBtn('btn-ventas-monto');
         resetBtn('btn-ventas-precio');
+        resetBtn('btn-ventas-hectolitros');
         
         let activeId = 'btn-ventas-vol';
         let chartTitle = 'Volumen (k) de Unidades';
@@ -12972,6 +13240,10 @@ window.processCxpFile = async function(file) {
         if(ventasCeoCurrentMetric === 'Precio Unitario') { 
             activeId = 'btn-ventas-precio';
             chartTitle = 'Precio Unitario';
+        }
+        if(ventasCeoCurrentMetric === 'Hectolitros') { 
+            activeId = 'btn-ventas-hectolitros';
+            chartTitle = 'Hectolitros (k)';
         }
         
         const activeBtn = document.getElementById(activeId);
